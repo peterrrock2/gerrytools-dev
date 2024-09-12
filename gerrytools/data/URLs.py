@@ -1,4 +1,4 @@
-import us
+import gerrytools.utils as utils
 
 
 def ids(state):
@@ -14,8 +14,8 @@ def ids(state):
     """
     # If we're in michigan, then we use the 'beta' pipeline instead of the 'prod'
     # one.
-    pipeline = "beta" if state == us.states.MI else "prod"
-    if state == us.states.MI:
+    pipeline = "beta" if state == utils.states.MI else "prod"
+    if state == utils.states.MI:
         prefix = "https://o1siz7rw0c.execute-api.us-east-2.amazonaws.com"
     else:
         prefix = "https://k61e3cz2ni.execute-api.us-east-2.amazonaws.com"
@@ -28,14 +28,14 @@ def csvs(state, ptype="plan"):
     URL for accessing districtr plan metadata.
 
     Args:
-        state: `us.States` object (e.g. `us.states.WI`)
+        state: `us.States` object (e.g. `utils.states.WI`)
         ptype: Type of plan we're retrieving; defaults to `"plan"`.
 
     Returns:
         String with the appropriate URL.
     """
-    pipeline = "beta" if state == us.states.MI else "prod"
-    if state == us.states.MI:
+    pipeline = "beta" if state == utils.states.MI else "prod"
+    if state == utils.states.MI:
         prefix = "https://o1siz7rw0c.execute-api.us-east-2.amazonaws.com"
     else:
         prefix = "https://k61e3cz2ni.execute-api.us-east-2.amazonaws.com"

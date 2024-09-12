@@ -48,11 +48,11 @@ def tabularized(state, submissions) -> Tuple[pd.DataFrame, pd.DataFrame, pd.Data
     Example:
         Prototypical example usage.
 
-            import us
+            import gerrytools.utils as ut
             from gerrytools.retrieve import submissions, tabularized
 
             # Set the state.
-            state = us.states.WI
+            state = ut.states.WI
 
             # Retrieve the raw districtr submissions, then tabularize them.
             subs = submissions(state)

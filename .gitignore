@@ -21,3 +21,6 @@ docs/build
 docs/build/**
 dev
 tutorials/test_*
+
+.envrc
+tester.ipynb

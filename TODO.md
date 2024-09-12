@@ -8,7 +8,7 @@ These need to be brought up-to-date with the current version of GerryChain and
 Maup. They should also have redundant functionality trimmed.
 
 - [ ] Data
-  - [ ] ACS
+  - [x] ACS
   - [ ] AssignmentCompressor (probably delete b/c of BEN)
   - [ ] Census
   - [ ] EstimateCVAP
@@ -55,3 +55,11 @@ Maup. They should also have redundant functionality trimmed.
 - [ ] Utilities
   - [ ] JSON
   - [ ] rename
+
+
+
+## More notes for next release
+
+- Make the version of pandas on GerryTools and GerryChain match.
+- Update the docs for ACS
+- Fix the API call for the census functions
