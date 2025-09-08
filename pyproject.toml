@@ -38,6 +38,7 @@ dependencies = [
 packages = ["gerrytools"]
 include-package-data = true
 
+
 [dependency-groups]
 dev = [
   "pdoc3>=0.11.6",
@@ -56,4 +57,12 @@ dev = [
 ]
 mgrp = [
     "docker>=7.1.0",
+]
+
+[project.optional-dependencies]
+docs = [
+  "myst-parser>=4.0.1",
+  "sphinx>=8.2.3",
+  "sphinx-copybutton>=0.5.2",
+  "sphinx-rtd-theme>=3.0.2",
 ]

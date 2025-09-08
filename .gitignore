@@ -18,6 +18,7 @@ tests/*.ipynb
 # Other dev stuff
 .envrc
 dev_files
+uv.lock
 
 # Ignore the build directory and the dist directory
 # created by the build process.
