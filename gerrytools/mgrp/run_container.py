@@ -103,6 +103,7 @@ class RunContainer:
             "auto_remove": True,
             "tty": True,
             "stdin_open": True,
+            "network_mode": "none",
         }
 
         try:

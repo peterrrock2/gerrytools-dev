@@ -321,10 +321,10 @@ Parsing Forest Recom and SMC Output
 .. raw:: html 
 
     <div class="center-container">
-        <a class="download-badge" href="https://github.com/peterrrock2/binary-ensemble/blob/main/example/msms_out.zip">
+        <a class="download-badge" href="https://github.com/mggg/gerrytools/blob/main/tutorials/data/msms_out.zip">
             Download Forest Output
         </a>
-        <a class="download-badge" href="https://github.com/peterrrock2/gerrytools-dev/blob/main/tutorials/data/smc_out.zip">
+        <a class="download-badge" href="https://github.com/mggg/gerrytools/blob/main/tutorials/data/smc_out.zip">
             Download SMC Output
         </a>
     </div>

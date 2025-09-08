@@ -3,6 +3,7 @@ __pycache__/
 *.egg-info/
 .vscode/
 .coverage*
+.circleci
 
 # Ignore large testing files.
 tests/test-reports/*
@@ -13,6 +14,11 @@ tests/*.ipynb
 .venv
 .docs_venv
 
+
+# Other dev stuff
+.envrc
+dev_files
+
 # Ignore the build directory and the dist directory
 # created by the build process.
 /build
@@ -21,3 +27,7 @@ docs/build
 docs/build/**
 dev
 tutorials/test_*
+
+
+# Readthedocs
+_build

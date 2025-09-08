@@ -80,6 +80,7 @@ def canonicalize_ben_file(
         "auto_remove": True,
         "tty": True,
         "stdin_open": True,
+        "network_mode": "none",
     }
 
     if input_parent_path == output_parent_path:
@@ -197,6 +198,7 @@ def relabel_json_file_by_key(
         "auto_remove": True,
         "tty": True,
         "stdin_open": True,
+        "network_mode": "none",
     }
 
     if dual_graph_parent_path == output_parent_path:
@@ -324,6 +326,7 @@ def relabel_ben_file_by_key(
         "auto_remove": True,
         "tty": True,
         "stdin_open": True,
+        "network_mode": "none",
     }
 
     if (
@@ -505,6 +508,7 @@ def relabel_ben_file_with_map(
         "auto_remove": True,
         "tty": True,
         "stdin_open": True,
+        "network_mode": "none",
     }
 
     if (

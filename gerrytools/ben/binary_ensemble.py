@@ -62,6 +62,7 @@ def ben(
         "auto_remove": True,
         "tty": True,
         "stdin_open": True,
+        "network_mode": "none",
     }
 
     if input_parent_path == output_parent_path:
@@ -180,6 +181,7 @@ def ben_replay(
         "auto_remove": True,
         "tty": True,
         "stdin_open": True,
+        "network_mode": "none",
     }
 
     config_args["volumes"] = {

@@ -85,6 +85,7 @@ def msms_parse(
         "auto_remove": True,
         "tty": True,
         "stdin_open": True,
+        "network_mode": "none",
     }
 
     if (
@@ -278,6 +279,7 @@ def smc_parse(
         "auto_remove": True,
         "tty": True,
         "stdin_open": True,
+        "network_mode": "none",
     }
 
     if input_parent_path == output_parent_path:
