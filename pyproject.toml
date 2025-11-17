@@ -14,24 +14,40 @@ requires-python = ">=3.11"
 license = { text = "MIT" } 
 
 dependencies = [
+  # Working with graphs and ensembles
+  "networkx>=3.5.0",
+  "gerrychain>=0.3.2",
+  "jsonlines>=4.0.0",
+  "maup>=2.0.3",
+  "binary-ensemble>=0.3.0",
+
+  # Data manipulation
   "pandas>=2.3.2",
   "scipy>=1.16.1",
-  "networkx>=3.5.0",
+  "numpy>=2.3.2",
+
+  # Geospatial libraries
   "geopandas>=1.1.1",
   "Shapely>=2.0.0",
+
+  # Visualization
   "matplotlib>=3.10.6",
-  "gerrychain>=0.3.2",
-  "sortedcontainers",
-  "jsonlines>=4.0.0",
-  "imageio>=2.37.0",
-  "us>=3.2.0",
-  "pydantic>=2.11.7",
-  "censusdata>=1.15.post1",
   "seaborn>=0.13.2",
-  "numpy>=2.3.2",
-  "maup>=2.0.3",
-  "gurobipy>=12.0.3",
+
+  # Census
+  "censusdata>=1.15.post1",
+  "us>=3.2.0",
+
+  # Misc
+  "sortedcontainers",
+  "pydantic>=2.11.7",
+
+  # Computer Vision?
   "opencv-python-headless>=4.11.0.86",
+  "imageio>=2.37.0",
+
+  # REMOVE!!
+  "gurobipy>=12.0.3",
 ]
 
 [tool.setuptools]
@@ -41,28 +57,32 @@ include-package-data = true
 
 [dependency-groups]
 dev = [
-  "pdoc3>=0.11.6",
+  # Linters, formatters, type checkers
   "flake8>=7.3.0",
-  "pytest>=8.4.2",
-  "autopep8>=2.3.2",
-  "pytest-cov>=6.3.0",
   "black>=25.1.0",
   "isort>=6.0.1",
+  "autopep8>=2.3.2",
   "myst-parser>=4.0.1",
-  "sphinx>=8.2.3",
-  "sphinx-copybutton>=0.5.2",
-  "sphinx-rtd-theme>=3.0.2",
+
+  # Iteractive kernel
   "ipykernel>=6.30.1",
   "ipywidgets>=8.1.7",
-]
-mgrp = [
-    "docker>=7.1.0",
-]
 
-[project.optional-dependencies]
+  # Testing
+  "pytest>=8.4.2",
+  "pytest-cov>=6.3.0",
+
+  # Other 
+  "pre-commit>=4.3.0",
+]
 docs = [
   "myst-parser>=4.0.1",
   "sphinx>=8.2.3",
   "sphinx-copybutton>=0.5.2",
   "sphinx-rtd-theme>=3.0.2",
+]
+
+[project.optional-dependencies]
+mgrp = [
+    "docker>=7.1.0",
 ]
