@@ -1,11 +1,12 @@
 import io
 import json
 from datetime import datetime
-from typing import List, Tuple, Union
+from typing import List, Tuple, overload, cast
 
 import pandas as pd
 import requests
 from pydantic import BaseModel
+import us
 
 from gerrytools.data.districtr.legacy.request import csvs, ids, one
 
@@ -32,9 +33,10 @@ class Submission(BaseModel):
     """Not sure."""
 
 
-def tabularized(state, submissions) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """
-    Returns districtr submission information in a tabular format.
+def tabularized(
+    state: us.states.State, submissions: list[Submission]
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Returns districtr submission information in a tabular format.
 
     Args:
         state (State): `us.State` object (e.g. `us.states.WI`).
@@ -66,8 +68,8 @@ def tabularized(state, submissions) -> Tuple[pd.DataFrame, pd.DataFrame, pd.Data
     # Categorize into three categories: plan submissions, COI submissions, and
     # written submissions (which are ignored as they don't appear in the list
     # of submissions).
-    _plans = [s.dict() for s in submissions if s.type == "plan"]
-    _cois = [s.dict() for s in submissions if s.type == "coi"]
+    _plans = [s.model_dump() for s in submissions if s.type == "plan"]
+    _cois = [s.model_dump() for s in submissions if s.type == "coi"]
 
     # Create preliminary dataframes so we can do safe `merge`s rather than rely
     # explicitly on sorting; this also allows us to specify a sample size if
@@ -87,12 +89,14 @@ def tabularized(state, submissions) -> Tuple[pd.DataFrame, pd.DataFrame, pd.Data
     # Adjust column contents for the plan and COI dataframes.
     for universe in [plans, cois]:
         # Adjust the `link` column type and create an `id` column from it.
-        universe["link"] = universe["link"].astype(str)
-        universe["id"] = parse_id(universe["link"])
+        link_series = cast(pd.Series, universe["link"])
+        universe["link"] = link_series.astype(str)
+        universe["id"] = parse_id(link_series)
 
     # Adjust column contents for all dataframes.
     for df in [plans, cois, writtens]:
-        df["datetime"] = parse_datetime(df["datetime"])
+        dt_series = cast(pd.Series, df["datetime"])
+        df["datetime"] = parse_datetime(dt_series)
 
     # Add the retrieved plan data to the dataframes *if the subset dataframes
     # contain items*.
@@ -120,14 +124,12 @@ def tabularized(state, submissions) -> Tuple[pd.DataFrame, pd.DataFrame, pd.Data
     return plans, cois, writtens
 
 
-def submissions(state, sample=None) -> List[Submission]:
-    """
-    Retrieves raw districtr objects; this includes both plan- and COI-based
-    submissions.
+def submissions(state: us.states.State, sample: int | None = None) -> List[Submission]:
+    """Retrieves raw districtr objects including both plan- and COI-based submissions.
 
     Args:
         state (State): `us.State` object (e.g. `us.states.WI`).
-        sample (int, optional): The number of sample plans to retrieve.
+        sample (int, optional): The number of sample plans to retrieve. Defaults to `None`.
 
     Returns:
         A list of `Submissions`, either to be interpreted raw or tabularized.
@@ -151,7 +153,7 @@ def submissions(state, sample=None) -> List[Submission]:
     submissions = []
     for entity in raw:
         # Retrieve the required data points.
-        identifier = parse_id(entity["link"], df=False)
+        identifier = parse_id(str(entity["link"]))
         districtr = individual(identifier)
 
         # Force all plan keys and values to strings.
@@ -182,10 +184,8 @@ def submissions(state, sample=None) -> List[Submission]:
     return submissions
 
 
-def as_dataframe(url) -> pd.DataFrame:
-    """
-    Retrieves encoded submission data from the provided URL and parses it into
-    a pandas `DataFrame`.
+def as_dataframe(url: str) -> pd.DataFrame:
+    """Retrieves encoded submission data from the provided URL and parses it as a `DataFrame`.
 
     Args:
         url (str): Wherever we're getting things from.
@@ -194,9 +194,8 @@ def as_dataframe(url) -> pd.DataFrame:
     return pd.read_csv(io.StringIO(raw.decode("utf-8")), parse_dates=True)
 
 
-def individual(identifier) -> dict:
-    """
-    Retrieves districtr data for an individual plan.
+def individual(identifier: str) -> dict:
+    """Retrieves districtr data for an individual plan.
 
     Args:
         identifier (str): districtr identifier for an individual plan.
@@ -208,37 +207,42 @@ def individual(identifier) -> dict:
     return json.loads(raw.text)
 
 
-def parse_id(link, df=True) -> Union[str, pd.Series]:
-    """
-    Given a districtr link, parse out the districtr identifier.
+@overload
+def parse_id(link: pd.Series) -> pd.Series: ...
+@overload
+def parse_id(link: str) -> str: ...
+
+
+def parse_id(link: str | pd.Series) -> str | pd.Series:
+    """Given a districtr link, parse out the districtr identifier.
 
     Args:
-        l (str): districtr url containing the districtr ID of the provided
+        link (str | pd.Series): districtr url containing the districtr ID of the provided
             plan.
-        df (bool, optional): If `l` is a dataframe, then we use pandas string
-            operations rather than built-in ones.
+        df (bool): If `link` is a dataframe, then we use pandas string
+            operations rather than built-in ones. Defaults to `True`.
 
     Returns:
         districtr ID.
     """
-    if df:
-        return link.str.split("/").str[-1].str.split("?").str[0]
-    return link.split("/")[-1].split("?")[0]
+    if isinstance(link, pd.Series):
+        return link.astype(str).str.split("/").str[-1].str.split("?").str[0]
+    else:
+        return link.split("/")[-1].split("?")[0]
 
 
-def parse_datetime(d) -> pd.Series:
-    """
-    Parses the timestamps in the dataframe returned by `as_dataframe()`.
+def parse_datetime(timestamp_series: pd.Series) -> pd.Series:
+    """Parses the timestamps in the dataframe returned by `as_dataframe()`.
 
     Args:
-        d (str): Column of the dataframe containing timestamps.
+        timestamp_col (pd.Series): Column of the dataframe containing timestamps.
 
     Returns:
-        `d` with its datetimes parsed correctly.
+        `column` with its datetimes parsed correctly.
     """
     # Parse datetimes.
-    prefix = d.str.split("+").str[0]
-    suffix = d.str.split("+").str[1].str.split(" ").str[0]
+    prefix = timestamp_series.str.split("+").str[0]
+    suffix = timestamp_series.str.split("+").str[1].str.split(" ").str[0]
     dt = prefix + " +" + suffix
 
     # Convert datetimes.
