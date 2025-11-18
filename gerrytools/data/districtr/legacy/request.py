@@ -1,13 +1,11 @@
 import us
 
 
-def ids(state):
-    """
-    URL for accessing districtr identifiers.
+def ids(state: us.states.State):
+    """URL for accessing districtr identifiers.
 
     Args:
-        state: Name of the state (e.g. `"wisconsin"`) for which we're retrieving
-            districtr identifiers.
+        state (us.States.State): State object to get data for.
 
     Returns:
         String with the appropriate URL.
@@ -23,13 +21,12 @@ def ids(state):
     return f"{prefix}/{pipeline}/submissions/districtr-ids/{state.name.lower()}"
 
 
-def csvs(state, ptype="plan"):
-    """
-    URL for accessing districtr plan metadata.
+def csvs(state: us.states.State, ptype: str = "plan"):
+    """URL for accessing districtr plan metadata.
 
     Args:
-        state: `us.States` object (e.g. `us.states.WI`)
-        ptype: Type of plan we're retrieving; defaults to `"plan"`.
+        state (us.States.State): State object to get data for.
+        ptype (str): Type of plan we're retrieving. Defaults to "plan".
 
     Returns:
         String with the appropriate URL.
@@ -45,12 +42,11 @@ def csvs(state, ptype="plan"):
     return f"{prefix}/{pipeline}/submissions/csv/{state.name.lower()}{suffix}"
 
 
-def one(identifier):
-    """
-    URL for accessing an individual districtr plan.
+def one(identifier: str):
+    """URL for accessing an individual districtr plan.
 
     Args:
-        identifier: districtr identifier.
+        identifier (str): districtr identifier.
 
     Returns:
         String with the appropriate URL.
