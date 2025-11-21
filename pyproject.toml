@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gerrytools"
-version = "1.2.1"
+version = "2.0.0"
 description = "Tools for processing and visualizing districting plans."
 readme = "README.md"
 authors = [
-  { name = "MGGG Redistricting Lab", email = "engineering@mggg.org" },
+  { name = "MGGG Redistricting Lab", email = "code@mggg.org" },
 ]
 requires-python = ">=3.11"
 license = { text = "MIT" } 
@@ -20,34 +20,27 @@ dependencies = [
   "jsonlines>=4.0.0",
   "maup>=2.0.3",
   "binary-ensemble>=0.3.0",
-
   # Data manipulation
   "pandas>=2.3.2",
   "scipy>=1.16.1",
   "numpy>=2.3.2",
-
   # Geospatial libraries
   "geopandas>=1.1.1",
   "Shapely>=2.0.0",
-
   # Visualization
   "matplotlib>=3.10.6",
   "seaborn>=0.13.2",
-
   # Census
-  "censusdata>=1.15.post1",
   "us>=3.2.0",
-
   # Misc
   "sortedcontainers",
   "pydantic>=2.11.7",
-
   # Computer Vision?
   "opencv-python-headless>=4.11.0.86",
   "imageio>=2.37.0",
-
   # REMOVE!!
   "gurobipy>=12.0.3",
+  "pyarrow>=22.0.0",
 ]
 
 [tool.setuptools]

@@ -33,6 +33,8 @@ setup:
 	@echo "'uv' is installed."
 	uv python install $(PYTHON_VERSION)
 	@echo "Creating virtual environment and installing dev dependencies..."
+	uv sync --python $(PYTHON_VERSION)
+	uv pip install -e ".[mgrp]"
 	uv run pre-commit install
 	@echo ""
 	@echo "Development environment setup complete!"
