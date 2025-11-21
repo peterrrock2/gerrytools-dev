@@ -4,9 +4,9 @@ import pandas as pd
 from pandas import DataFrame
 import warnings
 
-from ..geometry import unitmap
+from gerrytools.geometry import unitmap
 from .acs import acs5, cvap
-from .census import census20
+from .census import census
 
 
 def estimatecvap2020(state) -> pd.DataFrame:
@@ -28,10 +28,13 @@ def estimatecvap2020(state) -> pd.DataFrame:
         A `DataFrame` of combined Census and ACS data at the Census
         block level.
     """
+    raise RuntimeError(
+        "estimatecvap2020 is currently disabled pending further testing."
+    )
 
     # First, get the Census data for blocks and block groups.
-    bg = census20(state, table="P4", geometry="block group")
-    block = census20(state, table="P4", geometry="block")
+    bg = census(state, table="P4", geometry="block group")
+    block = census(state, table="P4", geometry="block")
 
     # Now, get 2020 Census data at the block group level and merging it
     # with the block group-level Census data.
@@ -235,6 +238,11 @@ def estimatecvap2010(
     Returns:
        `base` geometries with 2019 CVAP-weighted 2020 CVAP estimates attached.
     """
+
+    raise RuntimeError(
+        "estimatecvap2020 is currently disabled pending further testing."
+    )
+
     if geometry10 not in {"block group", "tract"}:
         print(f'Requested geometry "{geometry10}" is not allowed; ' "loading tracts.")
         geometry10 = "tract"
