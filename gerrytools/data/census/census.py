@@ -1,6 +1,6 @@
 from functools import reduce
 from itertools import combinations
-from typing import Iterable
+from typing import Iterable, cast
 
 import censusdata
 import pandas as pd
@@ -181,9 +181,10 @@ def census20(
     merged = reduce(lambda left, right: pd.merge(left, right, on="GEOID20"), mergeable)
     merged = merged.rename(varmap, axis=1)
     merged = merged.astype({var: int for var in varmap.values()})
+    merged = cast(pd.DataFrame, merged)
 
     # Make the GEOID20 column the first column.
-    merged = merged[["GEOID20"] + list(varmap.values())]
+    merged: pd.DataFrame = merged[["GEOID20"] + list(varmap.values())]
 
     return merged
 
