@@ -1,5 +1,21 @@
 import re
 
+# LaTeX control sequence names are letters only;
+_CMD_RE = re.compile(r"^[A-Za-z]+$")
+
+
+def _validate_command_name(cmd_str: str) -> None:
+    """Validates that a LaTeX command name is valid."""
+    if cmd_str.startswith("\\"):
+        raise ValueError(
+            f"`cmd` should not start with '\\\\' (got {cmd_str!r}). Use 'textbf', not '\\\\textbf'."
+        )
+
+    if not _CMD_RE.fullmatch(cmd_str):
+        raise ValueError(
+            f"Illegal LaTeX command name {cmd_str!r}. Please ensure command contains only letters (A-Z, a-z)."
+        )
+
 
 def tex_gradient_command(
     cmd_str: str = "gradient",
@@ -23,6 +39,8 @@ def tex_gradient_command(
     Returns:
         str: A string containing the LaTeX command definition.
     """
+    _validate_command_name(cmd_str)
+
     # Additional % at the end of lines to prevent unwanted spaces in output
     return (
         rf"\newcommand{{\{cmd_str}}}[1]{{%"
@@ -69,6 +87,8 @@ def tex_twocolor_gradient_command(
     Returns:
         str: A string containing the LaTeX command definition to be added to preamble.
     """
+    _validate_command_name(cmd_str)
+
     return (
         rf"\newcommand{{\{cmd_str}}}[1]{{%"
         "\n"
@@ -131,6 +151,8 @@ def tex_diverging_gradient_command(
     Returns:
         str: A string containing the LaTeX command definition to be added to preamble.
     """
+    _validate_command_name(cmd_str)
+
     lo_name = f"{cmd_str}Lo{_tex_ident(color_lo)}"
     hi_name = f"{cmd_str}Hi{_tex_ident(color_hi)}"
     mid_name = f"{cmd_str}Mid{_tex_ident(color_mid)}"
