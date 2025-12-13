@@ -1,13 +1,21 @@
-import warnings
-from typing import Callable, Optional, Any, Iterable, TypeAlias, cast
-from dataclasses import dataclass, field
-import pandas as pd
-from numbers import Real
-import re
 import inspect
+import logging
+import re
+import warnings
+from dataclasses import dataclass, field
+from typing import Any, Callable, Iterable, Optional, TypeAlias, cast
 
-from gerrytools.latex.document import TexDocument, ColorLike
+import pandas as pd
+
+from gerrytools.latex.document import ColorLike, TexDocument
 from gerrytools.latex.formatters import round_decimals
+from gerrytools.logging import get_logger
+
+logger = get_logger(__name__)
+
+# Format takes in original value and currently rendered string
+# and returns original value and new rendered string
+CellWrapper: TypeAlias = Callable[[Any, str], tuple[Any, str]]
 
 
 def latex_escape(s: str) -> str:
@@ -62,11 +70,6 @@ def _infer_group_cell_align_from_data(colspecs: list[str], start: int, end: int)
 
     aligns = {base_align(s) for s in colspecs[start:end]}
     return aligns.pop() if len(aligns) == 1 else "c"
-
-
-# Format takes in original value and currently rendered string
-# and returns original value and new rendered string
-CellWrapper: TypeAlias = Callable[[Any, str], tuple[Any, str]]
 
 
 @dataclass
@@ -219,6 +222,13 @@ class TableOptions:
                 self.group_vrule_counts,
                 self.group_boundary_extras,
             )
+            if self.include_index:
+                index_colspecs, index_vrules, index_extras = _parse_tabular_preamble(
+                    self.index_alignment or "c"
+                )
+                gcols = [index_colspecs[0]] + gcols
+                gvr = [index_vrules[0]] + gvr
+                gex = [index_extras[0]] + gex
             if len(gcols) != group_cell_count:
                 raise ValueError(
                     f"Group-header preamble has {len(gcols)} cells but expected {group_cell_count}."
@@ -238,7 +248,7 @@ class TableOptions:
                 if span == 0:
                     continue
 
-                align = gcols[cell_i]  # <-- alignment comes from group preamble
+                align = gcols[cell_i]
                 name = latex_escape(group)
                 if self.bold_group_headers and name:
                     name = rf"\textbf{{{name}}}"
@@ -253,10 +263,10 @@ class TableOptions:
 
             return " & ".join(parts) + r" \\"
 
-        # ---------- Mode B: infer group boundaries from DATA preamble; infer group alignments ----------
+        # ---------- Mode B: infer group boundaries from column preamble ----------
         dcols = self.tabular_alignments
         ncols_total = len(dcols)
-        dex = self.boundary_extras or [""] * (ncols_total + 1)
+        dex = [""] * (ncols_total + 1)
         dvr = self.vrule_counts
         _normalize_preamble(dcols, dvr, dex)
 
@@ -295,7 +305,19 @@ class TableOptions:
 
 
 def _consume_balanced(s: str, i: int, open_ch: str, close_ch: str) -> tuple[str, int]:
-    """Consume a balanced group from a string starting at index i."""
+    """Consumes a balanced group from a string starting at index `i`.
+
+    Args:
+        s (str): The input string.
+        i (int): The starting index to consume from.
+        open_ch (str): The opening character of the group (e.g., '{' or '[').
+        close_ch (str): The closing character of the group (e.g., '}' or ']').
+
+    Returns:
+        tuple[str, int]: A tuple containing the consumed group (without the
+        opening and closing characters) and the index of the character after the
+        closing character.
+    """
     if i >= len(s) or s[i] != open_ch:
         raise ValueError(f"Expected '{open_ch}' at position {i}")
     depth = 1
@@ -316,8 +338,18 @@ def _consume_balanced(s: str, i: int, open_ch: str, close_ch: str) -> tuple[str,
     return s[start : i - 1], i
 
 
-def _parse_tabular_preamble(fmt: str):
-    """Parse a LaTeX tabular preamble into column specs, vertical rules, and boundary extras."""
+def _parse_tabular_preamble(fmt: str) -> tuple[list[str], list[int], list[str]]:
+    """Parses a LaTeX tabular preamble string into column specifications.
+
+    Args:
+        fmt (str): The LaTeX tabular preamble string.
+
+    Returns:
+        tuple[list[str], list[int], list[str]]: A tuple containing:
+            - A list of column specifications (e.g., 'l', 'c', 'r')
+            - A list of vertical rule counts between columns
+            - A list of extra formatting strings for each column.
+    """
     i, n = 0, len(fmt)
     colspecs: list[str] = []
     vrules: list[int] = [0]
@@ -439,7 +471,8 @@ class TexTable:
 
     def __init__(self, df: pd.DataFrame, *, use_defaults: bool = True) -> None:
         self.df = df.copy()
-        self.document = TexDocument()
+        self._document = TexDocument()
+        self._document.add_packages("colortbl")
         self.df.index = self.df.index.map(str)
         if use_defaults:
             self.__options = TableOptions(
@@ -461,11 +494,17 @@ class TexTable:
                 vrule_counts=[0] * (df.shape[1] + 1),
             )
 
-    def __repr__(self) -> str:
+    def __repr__(self) -> str:  # pragma: no cover
         return self._generate_latex()
 
-    def __str__(self) -> str:
+    def __str__(self) -> str:  # pragma: no cover
         return self._generate_latex()
+
+    @property
+    def document(self) -> TexDocument:
+        """TexDocument: The LaTeX document associated with this table."""
+        self._document.body_string = self._generate_latex()
+        return self._document
 
     def clear_options(self) -> None:
         """Resets all table options to their default values."""
@@ -476,8 +515,7 @@ class TexTable:
             vrule_counts=[0] * (self.df.shape[1] + 1),
         )
 
-    def preview(self) -> None:
-        self.document.body_string = self._generate_latex()
+    def preview(self) -> None:  # pragma: no cover
         self.document.preview()
 
     # ====================
@@ -510,7 +548,6 @@ class TexTable:
             if not getattr(self.__options, "boundary_extras", None):
                 self.__options.boundary_extras = [""] * (ncols + 1)
             if len(self.__options.boundary_extras) != ncols + 1:
-                # best-effort reset; you could be stricter and raise
                 self.__options.boundary_extras = [""] * (ncols + 1)
 
         # ADD index
@@ -536,8 +573,6 @@ class TexTable:
             self.__options.vrule_counts.insert(1, 0)
             self.__options.boundary_extras.insert(1, "")
 
-            return
-
         # REMOVE index
         if (not include) and self.__options.include_index:
             self.__options.include_index = False
@@ -558,8 +593,6 @@ class TexTable:
 
             self.__options.vrule_counts.pop(1)
             self.__options.boundary_extras.pop(1)
-
-            return
 
     def remove_index(self) -> None:
         """Remove the index from the generated latex table (if it exists)"""
@@ -711,7 +744,7 @@ class TexTable:
             self.__options.vrule_counts[cidx + 1] += count
 
     def add_vrule_all(self, count: int = 1) -> None:
-        """Add vertical rules between all columns in the LaTeX table.
+        """Add vertical rules around all columns in the LaTeX table.
 
         Args:
             count (int, optional): Number of vertical rules to add between each column.
@@ -723,20 +756,6 @@ class TexTable:
 
         for idx in range(total_cols + 1):
             self.__options.vrule_counts[idx] += count
-
-    def column_headers_text_format(
-        self, bold: bool = True, italic: bool = False
-    ) -> None:
-        """Set whether to bold the column headers in the LaTeX table."""
-        self.__options.bold_column_headers = bold
-        self.__options.italic_column_headers = italic
-
-    def group_headers_text_format(
-        self, bold: bool = True, italic: bool = False
-    ) -> None:
-        """Set whether to bold the group headers in the LaTeX table."""
-        self.__options.bold_group_headers = bold
-        self.__options.italic_group_headers = italic
 
     def highlight_rows(
         self, rows: int | Iterable[int], color: ColorLike = "yellow"
@@ -792,6 +811,20 @@ class TexTable:
     # ==================
     #   OPTION SETTERS
     # ==================
+
+    def set_column_headers_text_format(
+        self, bold: bool = True, italic: bool = False
+    ) -> None:
+        self.__options.bold_column_headers = bold
+        """Set whether to bold or italicize the column headers in the LaTeX table."""
+        self.__options.italic_column_headers = italic
+
+    def set_group_headers_text_format(
+        self, bold: bool = True, italic: bool = False
+    ) -> None:
+        """Set whether to bold or italicize the group headers in the LaTeX table."""
+        self.__options.bold_group_headers = bold
+        self.__options.italic_group_headers = italic
 
     def set_decimal_count(self, count: int) -> None:
         """Set the number of decimal places to round float values to in the LaTeX table.
@@ -967,9 +1000,9 @@ class TexTable:
             ValueError: If the provided formatter is not callable.
         """
         if len(inspect.signature(fmt_fn).parameters) == 1:
-            one_arg = cast(Callable[[Real], str], fmt_fn)
+            one_arg = cast(Callable[[int | float], str], fmt_fn)
 
-            def _wrapped(v: Real, s: str) -> tuple[Real, str]:
+            def _wrapped(v: int | float, s: str) -> tuple[int | float, str]:
                 return v, one_arg(v)
 
             new_fn: CellWrapper = _wrapped
@@ -978,7 +1011,7 @@ class TexTable:
 
         self.__options.number_fmt_fn = new_fn
 
-    def set_str_formatter(self, fmt_fn: CellWrapper | Callable[[str], str]) -> None:
+    def set_string_formatter(self, fmt_fn: CellWrapper | Callable[[str], str]) -> None:
         """Set the string formatter function for the LaTeX table.
 
         Used as the default formatter for all string values in the table.
@@ -989,9 +1022,9 @@ class TexTable:
             ValueError: If the provided formatter is not callable.
         """
         if len(inspect.signature(fmt_fn).parameters) == 1:
-            one_arg = cast(Callable[[Real], str], fmt_fn)
+            one_arg = cast(Callable[[int | float], str], fmt_fn)
 
-            def _wrapped(v: Real, s: str) -> tuple[Real, str]:
+            def _wrapped(v: int | float, s: str) -> tuple[int | float, str]:
                 return v, one_arg(v)
 
             new_fn: CellWrapper = _wrapped
@@ -1018,9 +1051,9 @@ class TexTable:
             raise ValueError(f"Column '{col}' does not exist in DataFrame.")
 
         if len(inspect.signature(fmt_fn).parameters) == 1:
-            one_arg = cast(Callable[[Real], str], fmt_fn)
+            one_arg = cast(Callable[[int | float], str], fmt_fn)
 
-            def _wrapped(v: Real, s: str) -> tuple[Real, str]:
+            def _wrapped(v: int | float, s: str) -> tuple[int | float, str]:
                 return v, one_arg(v)
 
             new_fn: CellWrapper = _wrapped
@@ -1029,7 +1062,7 @@ class TexTable:
 
         self.__options.col_formatters[col] = new_fn
 
-    def set_col_formatter(self, col: str | list[str], fmt_fn: CellWrapper) -> None:
+    def set_column_formatter(self, col: str | list[str], fmt_fn: CellWrapper) -> None:
         """Set a specific column formatter function for the LaTeX table.
 
         Args:
@@ -1068,9 +1101,9 @@ class TexTable:
             )
 
         if len(inspect.signature(fmt_fn).parameters) == 1:
-            one_arg = cast(Callable[[Real], str], fmt_fn)
+            one_arg = cast(Callable[[int | float], str], fmt_fn)
 
-            def _wrapped(v: Real, s: str) -> tuple[Real, str]:
+            def _wrapped(v: int | float, s: str) -> tuple[int | float, str]:
                 return v, one_arg(v)
 
             new_fn: CellWrapper = _wrapped
@@ -1124,7 +1157,12 @@ class TexTable:
                 if self.__options.index_name is not None
                 else (self.df.index.name if self.df.index.name is not None else "")
             )
-            column_titles.append(latex_escape(str(index_name)))
+            index_str = latex_escape(str(index_name))
+            if self.__options.bold_column_headers:
+                index_str = rf"\textbf{{{index_str}}}"
+            if self.__options.italic_column_headers:
+                index_str = rf"\textit{{{index_str}}}"
+            column_titles.append(index_str)
 
         for _, col_list in self.__options.groups_to_cols.items():
             for col in col_list:
@@ -1138,7 +1176,14 @@ class TexTable:
 
         header_string += "\n" + " & ".join(column_titles) + r" \\"
 
-        return rf"\begin{{tabular}}{header_string}" + "\n"
+        header_string = rf"\begin{{tabular}}{header_string}" + "\n"
+        logger.log(
+            logging.DEBUG,
+            "Generated LaTeX table header:\n%s",
+            header_string,
+            stacklevel=2,
+        )
+        return header_string
 
     def _generate_body(self) -> str:
         """Generate the LaTeX table body string.
@@ -1221,6 +1266,10 @@ class TexTable:
                         cell_str = self.__options.col_formatters[col](
                             cell_value, str(cell_value)
                         )[1]
+                    elif row_idx in self.__options.row_formatters:
+                        cell_str = self.__options.row_formatters[row_idx](
+                            cell_value, str(cell_value)
+                        )[1]
                     elif (
                         isinstance(cell_value, float)
                         and self.__options.number_fmt_fn is not None
@@ -1244,6 +1293,9 @@ class TexTable:
                 row_items.append(cell_str)
             body_string += " & ".join(row_items) + r" \\" + "\n"
 
+        logger.log(
+            logging.DEBUG, "Generated LaTeX table body:\n%s", body_string, stacklevel=2
+        )
         return body_string
 
     def _generate_footer(self) -> str:
@@ -1252,6 +1304,9 @@ class TexTable:
         if self.__options.bottomrule_cmd is not None:
             footer_str += "\n" + self.__options.bottomrule_cmd + "\n"
         footer_str += r"\end{tabular}"
+        logger.log(
+            logging.DEBUG, "Generated LaTeX table footer:\n%s", footer_str, stacklevel=2
+        )
         return footer_str
 
     def _generate_latex(self) -> str:
