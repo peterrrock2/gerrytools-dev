@@ -1,14 +1,14 @@
 import io
+from dataclasses import dataclass
+from typing import cast
 from urllib.request import urlopen
 from zipfile import ZipFile
 
-import us
 import pandas as pd
-from typing import cast
 import requests
-from gerrytools.logging import get_logger
+import us
 
-from dataclasses import dataclass
+from gerrytools.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -81,9 +81,7 @@ def cvap(
         values=new_pop_col_names.values(),
     )
     # Flatten the MultiIndex columns: (measure, lntitle) -> "lntitle_measure"
-    wide.columns = [
-        f"{lntitle}_{measure}" for measure, lntitle in wide.columns.to_flat_index()
-    ]
+    wide.columns = [f"{lntitle}_{measure}" for measure, lntitle in wide.columns.to_flat_index()]
 
     # Bring geoid back as normal column
     return wide.reset_index()
@@ -137,8 +135,7 @@ class ACS5Variables:
             )
         )
         return {
-            column: _variables(f"B01001{table}", 7, 16)
-            + _variables(f"B01001{table}", 22, 31)
+            column: _variables(f"B01001{table}", 7, 16) + _variables(f"B01001{table}", 22, 31)
             for column, table in vaptables
         }
 
@@ -215,12 +212,8 @@ def _retrieve_acs5_grouped_columns(
             raise ValueError("Failed to retrieve data; no response received.")
 
         if response.status_code != 200:
-            logger.debug(
-                f"Bad Response for {group_name}. Found message: {response.content}"
-            )
-            raise ValueError(
-                f"Failed to retrieve data; status code {response.status_code}."
-            )
+            logger.debug(f"Bad Response for {group_name}. Found message: {response.content}")
+            raise ValueError(f"Failed to retrieve data; status code {response.status_code}.")
 
         group_df = pd.DataFrame(response.json()[1:], columns=response.json()[0])
         group_df.set_index("GEO_ID", inplace=True)
@@ -262,7 +255,9 @@ def acs5(
     """
     variables = ACS5Variables(year)
 
-    URL_BASE = "https://api.census.gov/data/2020/acs/acs5?get={column_list}&for={geometry_resolution}:*"
+    URL_BASE = (
+        "https://api.census.gov/data/2020/acs/acs5?get={column_list}&for={geometry_resolution}:*"
+    )
 
     if geometry == "state":
         pass
@@ -363,8 +358,7 @@ def _retrieve(year: int, geometry: str = "tract"):
 
     if geometry not in levels:
         raise ValueError(
-            f'Geometry "{geometry}" not recognized; '
-            f"allowed values are {list(levels.keys())}."
+            f'Geometry "{geometry}" not recognized; ' f"allowed values are {list(levels.keys())}."
         )
 
     # Construct the URL.

@@ -1,6 +1,9 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=80.0"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = { find = { include = ["gerrytools*"], exclude = ["tests*"] } }
 
 [project]
 name = "gerrytools"
@@ -43,11 +46,6 @@ dependencies = [
   "pyarrow>=22.0.0",
 ]
 
-[tool.setuptools]
-packages = ["gerrytools"]
-include-package-data = true
-
-
 [dependency-groups]
 dev = [
   # Linters, formatters, type checkers
@@ -56,16 +54,14 @@ dev = [
   "isort>=6.0.1",
   "autopep8>=2.3.2",
   "myst-parser>=4.0.1",
-
   # Iteractive kernel
   "ipykernel>=6.30.1",
   "ipywidgets>=8.1.7",
-
   # Testing
   "pytest>=8.4.2",
   "pytest-cov>=6.3.0",
-
-  # Other 
+  "pytest-timeout>=2.4.0",
+  # Other
   "pre-commit>=4.3.0",
 ]
 docs = [
@@ -74,8 +70,30 @@ docs = [
   "sphinx-copybutton>=0.5.2",
   "sphinx-rtd-theme>=3.0.2",
 ]
+tex = [
+    "pymupdf>=1.26.6",
+    "pypdfium2>=5.1.0",
+    "pyqt6>=6.10.0",
+    "pyside6>=6.10.1",
+]
 
 [project.optional-dependencies]
 mgrp = [
     "docker>=7.1.0",
+]
+
+[tool.black]
+line-length = 100
+
+[tool.isort]
+profile = "black"
+line_length = 100
+multi_line_output = 3
+include_trailing_comma = true
+
+[tool.pytest.ini_options]
+# addopts = "--cov=gerrytools --cov-report=term-missing"
+markers = [
+  "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+  "latex: marks tests that require LaTeX installation",
 ]

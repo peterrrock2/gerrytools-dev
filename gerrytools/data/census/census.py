@@ -2,8 +2,8 @@ import pandas as pd
 import requests
 import us
 
-from gerrytools.logging import get_logger
 from gerrytools.data.census.ptable_column_aliases import COLUMN_ALIASES_PTABLES
+from gerrytools.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -21,13 +21,10 @@ def census(
         raise ValueError("Only years 2010 and 2020 are supported.")
     if table not in COLUMN_ALIASES_PTABLES[year]:
         raise ValueError(
-            f"Table {table} not recognized. "
-            "Only tables 'P1', 'P2', 'P3', and 'P4' are supported"
+            f"Table {table} not recognized. " "Only tables 'P1', 'P2', 'P3', and 'P4' are supported"
         )
 
-    URL_BASE = (
-        "https://api.census.gov/data/{year}/dec/pl?get=group({table})&for={geometry}:*"
-    )
+    URL_BASE = "https://api.census.gov/data/{year}/dec/pl?get=group({table})&for={geometry}:*"
 
     if geometry == "state":
         pass
@@ -80,9 +77,7 @@ def census(
         raise ValueError("Failed to retrieve data; no response received.")
 
     if response.status_code != 200:
-        raise ValueError(
-            f"Failed to retrieve data; status code {response.status_code}."
-        )
+        raise ValueError(f"Failed to retrieve data; status code {response.status_code}.")
 
     df = pd.DataFrame(response.json()[1:], columns=response.json()[0])
     na_cols = df.columns[df.isna().all()].tolist()

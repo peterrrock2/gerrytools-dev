@@ -6,7 +6,7 @@ import tempfile
 import uuid
 import weakref
 from pathlib import Path
-from typing import Iterable, Optional, Union
+from typing import Iterable, Optional
 
 from PyQt6 import QtCore, QtGui, QtWidgets
 
@@ -107,9 +107,7 @@ def _render_pdf_to_png(pdf_path: Path, png_path: Path, dpi: int = 250) -> None:
             produced.replace(png_path)
 
     if not png_path.exists():
-        raise RuntimeError(
-            f"PDF->PNG renderer reported success but {png_path} not found."
-        )
+        raise RuntimeError(f"PDF->PNG renderer reported success but {png_path} not found.")
 
 
 def _which_any(names: Iterable[str]) -> Optional[str]:  # pragma: no cover
@@ -222,9 +220,7 @@ class TexDocument:
             if package_name not in self.package_list:
                 self.package_list.append(package_name)
 
-    def add_package_with_options(
-        self, package_name: str, options: str | list[str]
-    ) -> None:
+    def add_package_with_options(self, package_name: str, options: str | list[str]) -> None:
         """Adds a LaTeX package with options to the extra package commands.
 
         Examples:
@@ -297,9 +293,7 @@ class TexDocument:
                 (int(color[0]), int(color[1]), int(color[2])),
             )
         else:
-            raise ValueError(
-                "Color values must be in the range [0, 1] or in the range [0, 255]."
-            )
+            raise ValueError("Color values must be in the range [0, 1] or in the range [0, 255].")
 
     @property
     def preamble(self) -> str:
@@ -321,9 +315,7 @@ class TexDocument:
                         rf"{int(round(color_val[1]))},{int(round(color_val[2]))}}}"
                     )
                 case "HTML":
-                    lines.append(
-                        rf"\definecolor{{{color_name}}}{{HTML}}{{{color_val}}}"
-                    )
+                    lines.append(rf"\definecolor{{{color_name}}}{{HTML}}{{{color_val}}}")
                 case "NONE":  # pragma: no coverj
                     pass
                 case _:  # pragma: no cover
@@ -339,14 +331,10 @@ class TexDocument:
         lines.extend(self.command_list)
         lines += [r"\begin{document}", self.body_string, r"\end{document}"]
         output_string = "\n".join(lines).lstrip()
-        logger.log(
-            logging.DEBUG, "Generated LaTeX document:\n%s", output_string, stacklevel=2
-        )
+        logger.log(logging.DEBUG, "Generated LaTeX document:\n%s", output_string, stacklevel=2)
         return output_string
 
-    def _render_to_temp_png(
-        self, preferred_engine: Optional[str] = None, dpi: int = 250
-    ) -> None:
+    def _render_to_temp_png(self, preferred_engine: Optional[str] = None, dpi: int = 250) -> None:
         """Renders the LaTeX document to a temporary PNG file."""
         if preferred_engine is None:
             engine = _which_any(self.engine_preference_order)
@@ -473,10 +461,10 @@ class TexDocument:
         if not str(path).endswith(".png"):
             raise ValueError("File extension must be '.png'")
 
+        full_path = Path(path).resolve()
+
         if not full_path.parent.exists():
             raise FileNotFoundError(f"The directory {full_path.parent} does not exist.")
-
-        full_path = Path(path).resolve()
 
         self._render_to_temp_png()
         shutil.copy2(self._png_path, full_path) if path else None

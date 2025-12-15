@@ -120,9 +120,7 @@ class TableOptions:
     hrule_cmd: str = r"\hline"
 
     include_index: bool = False
-    index_name: Optional[str] = (
-        None  # if None and include_index True, uses df.index.name or ""
-    )
+    index_name: Optional[str] = None  # if None and include_index True, uses df.index.name or ""
     index_alignment: Optional[str] = None
 
     nan_string: str = "NaN"
@@ -380,9 +378,7 @@ def _parse_tabular_preamble(fmt: str) -> tuple[list[str], list[int], list[str]]:
         # boundary extras: @{}  !{}  >{}  <{}
         if ch in ("@", "!", ">", "<"):
             if i + 1 >= n or fmt[i + 1] != "{":
-                raise ValueError(
-                    f"Expected '{{' after {ch} at pos {i} in preamble: {fmt!r}"
-                )
+                raise ValueError(f"Expected '{{' after {ch} at pos {i} in preamble: {fmt!r}")
             grp, i = _consume_balanced(fmt, i + 1, "{", "}")
             extras[-1] += f"{ch}{{{grp}}}"
             continue
@@ -390,9 +386,7 @@ def _parse_tabular_preamble(fmt: str) -> tuple[list[str], list[int], list[str]]:
         # p{..}, m{..}, b{..}
         if ch in ("p", "m", "b"):
             if i + 1 >= n or fmt[i + 1] != "{":
-                raise ValueError(
-                    f"Expected '{{' after {ch} at pos {i} in preamble: {fmt!r}"
-                )
+                raise ValueError(f"Expected '{{' after {ch} at pos {i} in preamble: {fmt!r}")
             tok, i = _consume_balanced(fmt, i + 1, "{", "}")
             colspecs.append(f"{ch}{{{tok}}}")
             vrules.append(0)
@@ -417,9 +411,7 @@ def _parse_tabular_preamble(fmt: str) -> tuple[list[str], list[int], list[str]]:
             i += 1
             i = skip_ws(i)
             if i >= n or fmt[i] != "{":
-                raise ValueError(
-                    f"Expected '{{' after D at pos {i} in preamble: {fmt!r}"
-                )
+                raise ValueError(f"Expected '{{' after D at pos {i} in preamble: {fmt!r}")
             g1, i = _consume_balanced(fmt, i, "{", "}")
             i = skip_ws(i)
             g2, i = _consume_balanced(fmt, i, "{", "}")
@@ -447,9 +439,7 @@ def _parse_tabular_preamble(fmt: str) -> tuple[list[str], list[int], list[str]]:
 
         # if we get here, we don't recognize the token
         if i == start_i:
-            raise ValueError(
-                f"Unsupported token {fmt[i]!r} at pos {i} in preamble: {fmt!r}"
-            )
+            raise ValueError(f"Unsupported token {fmt[i]!r} at pos {i} in preamble: {fmt!r}")
 
     return colspecs, vrules, extras
 
@@ -688,9 +678,7 @@ class TexTable:
         include_index_offset = 1 if self.__options.include_index else 0
 
         if not self.__options.vrule_counts:
-            self.__options.vrule_counts = [0] * (
-                len(self.df.columns) + 1 + include_index_offset
-            )
+            self.__options.vrule_counts = [0] * (len(self.df.columns) + 1 + include_index_offset)
 
         for cidx in cols:
             if cidx < 0 or cidx > len(self.df.columns) + include_index_offset:
@@ -726,9 +714,7 @@ class TexTable:
         include_index_offset = 1 if self.__options.include_index else 0
 
         if not self.__options.vrule_counts:
-            self.__options.vrule_counts = [0] * (
-                len(self.df.columns) + 1 + include_index_offset
-            )
+            self.__options.vrule_counts = [0] * (len(self.df.columns) + 1 + include_index_offset)
 
         for cidx in cols:
             if cidx < -1 or cidx > len(self.df.columns) + include_index_offset - 1:
@@ -754,9 +740,7 @@ class TexTable:
         for idx in range(total_cols + 1):
             self.__options.vrule_counts[idx] += count
 
-    def highlight_rows(
-        self, rows: int | Iterable[int], color: Color = "yellow"
-    ) -> None:
+    def highlight_rows(self, rows: int | Iterable[int], color: Color = "yellow") -> None:
         """Highlight specified rows in the LaTeX table.
 
         Args:
@@ -789,9 +773,7 @@ class TexTable:
                     (int(round(color[0])), int(round(color[1])), int(round(color[2]))),
                 )
             else:
-                raise ValueError(
-                    "RGB color components must be in the range [0.0, 1.0] or [0, 255]"
-                )
+                raise ValueError("RGB color components must be in the range [0.0, 1.0] or [0, 255]")
 
         if color_tup is None:
             raise ValueError("Invalid color specification for row highlighting")
@@ -809,16 +791,12 @@ class TexTable:
     #   OPTION SETTERS
     # ==================
 
-    def set_column_headers_text_format(
-        self, bold: bool = True, italic: bool = False
-    ) -> None:
+    def set_column_headers_text_format(self, bold: bool = True, italic: bool = False) -> None:
         self.__options.bold_column_headers = bold
         """Set whether to bold or italicize the column headers in the LaTeX table."""
         self.__options.italic_column_headers = italic
 
-    def set_group_headers_text_format(
-        self, bold: bool = True, italic: bool = False
-    ) -> None:
+    def set_group_headers_text_format(self, bold: bool = True, italic: bool = False) -> None:
         """Set whether to bold or italicize the group headers in the LaTeX table."""
         self.__options.bold_group_headers = bold
         self.__options.italic_group_headers = italic
@@ -983,9 +961,7 @@ class TexTable:
         self.__options.group_vrule_counts = None
         self.__options.group_boundary_extras = None
 
-    def set_number_formatter(
-        self, fmt_fn: CellWrapper | Callable[[float], str]
-    ) -> None:
+    def set_number_formatter(self, fmt_fn: CellWrapper | Callable[[float], str]) -> None:
         """Set the number formatter function for the LaTeX table.
 
         Used as the default formatter for all float values in the table.
@@ -1200,13 +1176,9 @@ class TexTable:
 
         body_string = ""
         for row_idx, (df_row_idx, row) in enumerate(self.df.iterrows()):
-            if (
-                len(self.__options.hrule_counts) > 0
-                and self.__options.hrule_counts[row_idx] > 0
-            ):
+            if len(self.__options.hrule_counts) > 0 and self.__options.hrule_counts[row_idx] > 0:
                 body_string += (
-                    self.__options.hrule_cmd * self.__options.hrule_counts[row_idx]
-                    + "\n"
+                    self.__options.hrule_cmd * self.__options.hrule_counts[row_idx] + "\n"
                 )
 
             color_type, color_value = self.__options.row_highlight_colors[row_idx]
@@ -1217,9 +1189,7 @@ class TexTable:
                     body_string += r"\rowcolor{" + str(color_value) + "}\n"
                 case "HTML":
                     if not isinstance(color_value, str):
-                        raise ValueError(
-                            f"Found invalid hex color value '{color_value}'."
-                        )
+                        raise ValueError(f"Found invalid hex color value '{color_value}'.")
 
                     if not re.match(r"^#?[0-9A-Fa-f]{6}$", color_value):
                         raise ValueError(
@@ -1235,10 +1205,7 @@ class TexTable:
 
                 case "rgb":
                     r_val, g_val, b_val = color_value
-                    body_string += (
-                        r"\rowcolor[rgb]{"
-                        f"{r_val:.3f},{g_val:.3f},{b_val:.3f}" + "}\n"
-                    )
+                    body_string += r"\rowcolor[rgb]{" f"{r_val:.3f},{g_val:.3f},{b_val:.3f}" + "}\n"
 
                 case "NONE":
                     pass
@@ -1260,24 +1227,16 @@ class TexTable:
                     cell_str = self.__options.nan_string
                 else:
                     if col in self.__options.col_formatters:
-                        cell_str = self.__options.col_formatters[col](
-                            cell_value, str(cell_value)
-                        )[1]
+                        cell_str = self.__options.col_formatters[col](cell_value, str(cell_value))[
+                            1
+                        ]
                     elif row_idx in self.__options.row_formatters:
                         cell_str = self.__options.row_formatters[row_idx](
                             cell_value, str(cell_value)
                         )[1]
-                    elif (
-                        isinstance(cell_value, float)
-                        and self.__options.number_fmt_fn is not None
-                    ):
-                        cell_str = self.__options.number_fmt_fn(
-                            cell_value, str(cell_value)
-                        )[1]
-                    elif (
-                        isinstance(cell_value, str)
-                        and self.__options.str_fmt_fn is not None
-                    ):
+                    elif isinstance(cell_value, float) and self.__options.number_fmt_fn is not None:
+                        cell_str = self.__options.number_fmt_fn(cell_value, str(cell_value))[1]
+                    elif isinstance(cell_value, str) and self.__options.str_fmt_fn is not None:
                         cell_str = self.__options.str_fmt_fn(cell_value, cell_value)[1]
                     else:
                         cell_str_raw = latex_escape(str(cell_value))
@@ -1290,9 +1249,7 @@ class TexTable:
                 row_items.append(cell_str)
             body_string += " & ".join(row_items) + r" \\" + "\n"
 
-        logger.log(
-            logging.DEBUG, "Generated LaTeX table body:\n%s", body_string, stacklevel=2
-        )
+        logger.log(logging.DEBUG, "Generated LaTeX table body:\n%s", body_string, stacklevel=2)
         return body_string
 
     def _generate_footer(self) -> str:
@@ -1301,9 +1258,7 @@ class TexTable:
         if self.__options.bottomrule_cmd is not None:
             footer_str += "\n" + self.__options.bottomrule_cmd + "\n"
         footer_str += r"\end{tabular}"
-        logger.log(
-            logging.DEBUG, "Generated LaTeX table footer:\n%s", footer_str, stacklevel=2
-        )
+        logger.log(logging.DEBUG, "Generated LaTeX table footer:\n%s", footer_str, stacklevel=2)
         return footer_str
 
     def _generate_latex(self) -> str:

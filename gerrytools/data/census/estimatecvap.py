@@ -1,10 +1,12 @@
+import warnings
+
 import geopandas as gpd
 import numpy as np
 import pandas as pd
 from pandas import DataFrame
-import warnings
 
 from gerrytools.geometry import unitmap
+
 from .acs import acs5, cvap
 from .census import census
 
@@ -28,9 +30,7 @@ def estimatecvap2020(state) -> pd.DataFrame:
         A `DataFrame` of combined Census and ACS data at the Census
         block level.
     """
-    raise RuntimeError(
-        "estimatecvap2020 is currently disabled pending further testing."
-    )
+    raise RuntimeError("estimatecvap2020 is currently disabled pending further testing.")
 
     # First, get the Census data for blocks and block groups.
     bg = census(state, table="P4", geometry="block group")
@@ -102,9 +102,9 @@ def estimatecvap2020(state) -> pd.DataFrame:
         # block using the VAP ratio outright rather than the column-specific
         # VAP ratio.
         ni = block[block[colpct].isna()].index
-        block.loc[ni, cvapcolumn] = (
-            block.loc[ni, "VAP20"] / block.loc[ni, "BGVAP20"]
-        ) * block.loc[ni, "tmp"]
+        block.loc[ni, cvapcolumn] = (block.loc[ni, "VAP20"] / block.loc[ni, "BGVAP20"]) * block.loc[
+            ni, "tmp"
+        ]
 
         # Assert that our summed disaggregated numbers and totals are close!
         assert np.isclose(bg[cvapcolumn].sum() - block[cvapcolumn].sum(), 0)
@@ -239,9 +239,7 @@ def estimatecvap2010(
        `base` geometries with 2019 CVAP-weighted 2020 CVAP estimates attached.
     """
 
-    raise RuntimeError(
-        "estimatecvap2020 is currently disabled pending further testing."
-    )
+    raise RuntimeError("estimatecvap2020 is currently disabled pending further testing.")
 
     if geometry10 not in {"block group", "tract"}:
         print(f'Requested geometry "{geometry10}" is not allowed; ' "loading tracts.")
@@ -322,8 +320,7 @@ def estimatecvap2010(
     #   3.  if *CVAP > 0 but *VAP = 0 or *CVAP/*VAP > percentage_cap, we set
     #       the weight to 1.
     statewide = {
-        cvap
-        + "%": source[cvap].sum() / source[vap].sum() if source[vap].sum() != 0 else 0
+        cvap + "%": source[cvap].sum() / source[vap].sum() if source[vap].sum() != 0 else 0
         for (cvap, vap, _) in groups
     }
 
@@ -378,14 +375,10 @@ def estimatecvap2010(
 
         source[pct] = source[pct].replace(np.inf, np.nan)
         nanindices = source[source[pct].isna()].index
-        source.loc[nanindices, pct] = source.loc[nanindices, "_county"].map(
-            countywidepcts
-        )
+        source.loc[nanindices, pct] = source.loc[nanindices, "_county"].map(countywidepcts)
 
         # Fill zeroes with the `zfill` value, and cap all the percentages.
-        source[pct] = (
-            source[pct].replace(0, zfill).apply(lambda c: 1 if c > ceiling else c)
-        )
+        source[pct] = source[pct].replace(0, zfill).apply(lambda c: 1 if c > ceiling else c)
 
     # Assert we don't have any percentages over percentage_cap.
     assert all(np.all(source[p + "%"] <= ceiling) for (p, _, __) in groups)

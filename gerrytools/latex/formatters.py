@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import math
 import re
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-from gerrytools.latex.commands import _CMD_RE, _validate_command_name
+from gerrytools.latex.commands import _validate_command_name
 from gerrytools.typing import CellWrapper, Color
 
 
@@ -147,9 +147,7 @@ def highlight_gt(
 
             return _inner_highlight_gt
         else:  # pragma: no cover
-            raise ValueError(
-                "RGB color components must be in the range [0.0, 1.0] or [0, 255]."
-            )
+            raise ValueError("RGB color components must be in the range [0.0, 1.0] or [0, 255].")
 
 
 def highlight_ge(
@@ -212,9 +210,7 @@ def highlight_ge(
 
             return _inner_highlight_ge
         else:  # pragma: no cover
-            raise ValueError(
-                "RGB color components must be in the range [0.0, 1.0] or [0, 255]."
-            )
+            raise ValueError("RGB color components must be in the range [0.0, 1.0] or [0, 255].")
 
 
 def highlight_lt(
@@ -276,9 +272,7 @@ def highlight_lt(
 
             return _inner_highlight_lt
         else:  # pragma: no cover
-            raise ValueError(
-                "RGB color components must be in the range [0.0, 1.0] or [0, 255]."
-            )
+            raise ValueError("RGB color components must be in the range [0.0, 1.0] or [0, 255].")
 
 
 def highlight_le(
@@ -340,9 +334,7 @@ def highlight_le(
 
             return _inner_highlight_le
         else:  # pragma: no cover
-            raise ValueError(
-                "RGB color components must be in the range [0.0, 1.0] or [0, 255]."
-            )
+            raise ValueError("RGB color components must be in the range [0.0, 1.0] or [0, 255].")
 
 
 def highlight_between(
@@ -381,9 +373,7 @@ def highlight_between(
             # hex string
             color_hex = color.lower().lstrip("#")
 
-            def _inner_highlight_btwn(
-                v: int | float, s: str
-            ) -> tuple[int | float, str]:
+            def _inner_highlight_btwn(v: int | float, s: str) -> tuple[int | float, str]:
                 if (
                     isinstance(v, int | float)
                     and lower_bound <= _safe_round(v, round_to) <= upper_bound
@@ -406,9 +396,7 @@ def highlight_between(
     if isinstance(color, tuple) and len(color) == 3:
         if all(0.0 <= c <= 1.0 for c in color):  # type: ignore
 
-            def _inner_highlight_btwn(
-                v: int | float, s: str
-            ) -> tuple[int | float, str]:
+            def _inner_highlight_btwn(v: int | float, s: str) -> tuple[int | float, str]:
                 if (
                     isinstance(v, int | float)
                     and lower_bound <= _safe_round(v, round_to) <= upper_bound
@@ -422,9 +410,7 @@ def highlight_between(
             return _inner_highlight_btwn
         elif all(0 <= c <= 255 for c in color):  # type: ignore
 
-            def _inner_highlight_btwn(
-                v: int | float, s: str
-            ) -> tuple[int | float, str]:
+            def _inner_highlight_btwn(v: int | float, s: str) -> tuple[int | float, str]:
                 if (
                     isinstance(v, int | float)
                     and lower_bound <= _safe_round(v, round_to) <= upper_bound
@@ -437,6 +423,4 @@ def highlight_between(
 
             return _inner_highlight_btwn
         else:  # pragma: no cover
-            raise ValueError(
-                "RGB color components must be in the range [0.0, 1.0] or [0, 255]."
-            )
+            raise ValueError("RGB color components must be in the range [0.0, 1.0] or [0, 255].")

@@ -1,7 +1,8 @@
-from dataclasses import dataclass, field
 import os
 import subprocess
-from typing import Optional, List
+from dataclasses import dataclass, field
+from typing import List, Optional
+
 from .. import RunnerConfig
 
 
@@ -125,9 +126,7 @@ class SMCRunnerConfig(RunnerConfig):
             "volumes": volumes,
         }
 
-    def run_command(
-        self, map_info: SMCMapInfo, redist_info: SMCRedistInfo
-    ) -> List[str]:
+    def run_command(self, map_info: SMCMapInfo, redist_info: SMCRedistInfo) -> List[str]:
         """
         Construcs the command that will be used to run the SMC algorithm in the docker container
 

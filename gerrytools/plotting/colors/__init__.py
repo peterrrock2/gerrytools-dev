@@ -86,9 +86,7 @@ def convert_color_to_hexa(color: Any) -> str:
         if color == "green":
             # Matplotlib "green" is very dark; use a brighter green to be compatible with latex
             color_value = "#00ff00"
-    elif (
-        isinstance(color, str) and color.lower() in DISTRICTR_COLOR_DICT
-    ):  # Districtr color
+    elif isinstance(color, str) and color.lower() in DISTRICTR_COLOR_DICT:  # Districtr color
         color_value = DISTRICTR_COLOR_DICT[color.lower()]
     else:
         try:
