@@ -1,32 +1,180 @@
-latex = {
-    "Alizarin": "#E32636",
-    "Apple green": "#8DB600",
-    "Slate gray": "#708090",
-    "Amber": "#FFBF00",
-    "Mikado yellow": "#FFC40C",
-    "Cadmium green": "#006B3C",
-    "Forest green": "#228B22",
-    "Lust": "#E62020",
-    "Denim": "#1560BD",
-    "Purple heart": "#69359C",
-    "Cherry blossom pink": "#FFB7C5",
-    "Dark tangerine": "#FFA812",
-    "Banana yellow": "#FFE135",
-    "Light blue": "#ADD8E6",
-    "Teal": "#008080",
-    "alizarin": "#E32636",
-    "applegreen": "#8DB600",
-    "slategray": "#708090",
-    "amber": "#FFBF00",
-    "mikadoyellow": "#FFC40C",
-    "cadmiumgreen": "#006B3C",
-    "forestgreen": "#228B22",
-    "lust": "#E62020",
-    "denim": "#1560BD",
-    "purpleheart": "#69359C",
-    "cherryblossompink": "#FFB7C5",
-    "darktangerine": "#FFA812",
-    "bananayellow": "#FFE135",
-    "lightblue": "#ADD8E6",
-    "teal": "#008080",
-}
+from __future__ import annotations
+
+from typing import Mapping
+from warnings import warn
+
+import matplotlib.colors as mcolors
+from matplotlib.typing import ColorType
+
+from gerrytools.typing import _check_is_hex_color
+
+from .districtr import DISTRICTR_COLOR_DICT
+from .latex_full import LATEX_COLOR_DICT
+
+
+def _norm_hex(s: str) -> str:
+    """Normalize a hex color string to 6-digit lowercase form "#rrggbb".
+
+    Args:
+        s (str): A hex color string.
+
+    Returns:
+        str: A normalized hex color string in the form "#rrggbb"
+
+    Raises:
+        ValueError: If the input string is not a valid hex color.
+    """
+    s = s.strip()
+    if not _check_is_hex_color(s):
+        raise ValueError(f"Not a valid hex color: {s!r}")
+    if len(s.strip("#")) == 3:
+        s = "#" + "".join(c * 2 for c in s.strip("#"))
+    elif len(s.strip("#")) == 4:
+        warn("Ignoring alpha channel in hex color: " + s)
+        s = "#" + "".join(c * 2 for c in s.strip("#")[:3])
+    elif len(s.strip("#")) == 8:
+        warn("Ignoring alpha channel in hex color: " + s)
+        s = "#" + s.strip("#")[:6]
+    elif len(s.strip("#")) == 6:
+        s = "#" + s.strip("#")
+    else:
+        raise RuntimeError(
+            f"Unreachable code reached when trying to normalize the hex color {s!r})"
+        )
+    return s.lower()
+
+
+def _hex_to_rgb(hex6: str) -> tuple[int, int, int]:
+    """Convert a 6-digit hex color string to an RGB tuple.
+
+    Args:
+        hex6 (str): A hex color string in the form "#RRGGBB
+    Returns:
+        tuple[int, int, int]: A tuple of (R, G, B) values.
+    """
+    hex6 = _norm_hex(hex6)
+    return (int(hex6[1:3], 16), int(hex6[3:5], 16), int(hex6[5:7], 16))
+
+
+def _rgb_to_hex(rgb: tuple[int | float, int | float, int | float]) -> str:
+    """Convert an RGB tuple to a 6-digit hex color string.
+
+    Args:
+        rgb (tuple[int, int, int]): A tuple of (R, G, B) values.
+
+    Returns:
+        str: A hex color string in the form "#RRGGBB"
+    """
+    r, g, b = rgb
+    r = max(0, min(255, int(round(r))))
+    g = max(0, min(255, int(round(g))))
+    b = max(0, min(255, int(round(b))))
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def _xcolor_mix_hex(
+    hex_colors_list: list[str], percentages_list: list[float | int]
+) -> str:
+    """Allows for mixing of two hex colors according to xcolor semantics.
+
+
+    See page 44 of the xcolor manual for details:
+        https://ctan.math.washington.edu/tex-archive/macros/latex/contrib/xcolor/xcolor.pdf
+
+    Args:
+        hex_colors_list (list[str]): A list of hex color strings in the form "#RRGGBB"
+        percentages_list (list[float | int]): A list of percentages (0-100) for mixing
+
+    Returns:
+        str: The resulting mixed hex color string in the form "#RRGGBB"
+    """
+    print("mixing colors:", hex_colors_list, percentages_list)
+    if len(hex_colors_list) != len(percentages_list) + 1:
+        raise ValueError(
+            "Number of colors must be one more than number of percentages to define the : "
+            f"interpolation correctly. Found {len(hex_colors_list)} colors and "
+            f"{len(percentages_list)} percentages."
+        )
+
+    r, g, b = _hex_to_rgb(hex_colors_list[0])
+
+    for color, percent in zip(hex_colors_list[1:], percentages_list):
+        p = percent / 100.0
+        r_mix, g_mix, b_mix = _hex_to_rgb(color)
+        r = p * r + (1 - p) * r_mix
+        g = p * g + (1 - p) * g_mix
+        b = p * b + (1 - p) * b_mix
+    return _rgb_to_hex((r, g, b))
+
+
+def get_color_from_latex_string(latex_color_string: str) -> str:
+    """Resolve an xcolor-style mix expression into a hex color.
+
+    Supported forms:
+      - "name"                   (just a color name)
+      - "name!p"                 == "name!p!white"
+      - "name!p!other"
+      - "name!p!other!q!third"   left-folded: ((name!p!other)!q!third)
+      etc.
+
+    Args:
+        latex_color_string (str): The xcolor expression (e.g., "amber!10!denim").
+
+    Returns:
+        str: The resulting hex color string, in the form "#RRGGBB"
+    """
+    # Case-insensitive lookup
+    matplotlib_color_dict_lc: Mapping[str, ColorType] = {
+        k.lower(): v for k, v in dict(mcolors.get_named_colors_mapping()).items()
+    }
+    districtr_color_dict_lc: Mapping[str, str] = {
+        k.lower(): v for k, v in DISTRICTR_COLOR_DICT.items()
+    }
+    latex_color_dict = {k.strip(): v for k, v in LATEX_COLOR_DICT.items()}
+
+    all_color_dict = (
+        matplotlib_color_dict_lc | districtr_color_dict_lc | latex_color_dict
+    )
+    all_color_dict["green"] = (
+        "#00ff00"  # override green to be bright green for latex compatibility
+    )
+
+    def resolve_color_name_to_hex(name: str) -> str:
+        key = name.strip()
+        if key not in all_color_dict:
+            raise KeyError(
+                f"Unknown color name {name!r}. Available: {sorted(all_color_dict)[:12]} ..."
+            )
+
+        try:
+            new_color = mcolors.to_hex(all_color_dict[key])
+        except KeyError:
+            new_color = mcolors.to_hex(all_color_dict[key.lower()])
+        assert isinstance(new_color, str)  # All dictionaries should return hex strings
+        return _norm_hex(new_color)
+
+    tokens = [t.strip() for t in latex_color_string.strip().split("!") if t.strip()]
+
+    if not tokens:
+        raise ValueError("Empty color expression.")
+
+    if len(tokens) == 1:
+        return resolve_color_name_to_hex(tokens[0])
+
+    raw_color_tokens = tokens[::2]
+    color_tokens = list(map(resolve_color_name_to_hex, raw_color_tokens))
+    pct_tokens = list(map(float, tokens[1::2]))
+    if not all(0.0 <= p <= 100.0 for p in pct_tokens):
+        raise ValueError(
+            f"Percentages must be in [0,100], interpreted the following perdcentages: "
+            f"{pct_tokens} in {latex_color_string!r}"
+        )
+
+    if tokens[-1] != raw_color_tokens[-1]:
+        color_tokens.append("#ffffff")
+
+    assert len(color_tokens) == len(pct_tokens) + 1
+
+    ret = _xcolor_mix_hex(color_tokens, pct_tokens)
+    print(f"final result: {latex_color_string} -> {ret}")
+    return ret

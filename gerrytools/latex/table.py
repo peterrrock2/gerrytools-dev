@@ -3,19 +3,16 @@ import logging
 import re
 import warnings
 from dataclasses import dataclass, field
-from typing import Any, Callable, Iterable, Optional, TypeAlias, cast
+from typing import Any, Callable, Iterable, Optional, cast
 
 import pandas as pd
 
-from gerrytools.latex.document import ColorLike, TexDocument
+from gerrytools.latex.document import TexDocument
 from gerrytools.latex.formatters import round_decimals
 from gerrytools.logging import get_logger
+from gerrytools.typing import CellWrapper, Color
 
 logger = get_logger(__name__)
-
-# Format takes in original value and currently rendered string
-# and returns original value and new rendered string
-CellWrapper: TypeAlias = Callable[[Any, str], tuple[Any, str]]
 
 
 def latex_escape(s: str) -> str:
@@ -101,7 +98,7 @@ class TableOptions:
             Default is None.
         group_boundary_extras (list[str] | None): List of extra LaTeX code for group header
             boundaries. Default is None.
-        row_highlight_colors (list[tuple[str, ColorLike]]): List of tuples specifying
+        row_highlight_colors (list[tuple[str, Color]]): List of tuples specifying
             row highlight colors. Default is empty list.
         number_fmt_fn (Optional[Wrapper]): Formatter function for numerical values. Default is None.
         str_fmt_fn (Optional[Wrapper]): Formatter function for string values. Default is
@@ -142,7 +139,7 @@ class TableOptions:
     group_tabular_alignments: list[str] | None = None
     group_boundary_extras: list[str] | None = None
 
-    row_highlight_colors: list[tuple[str, ColorLike]] = field(default_factory=list)
+    row_highlight_colors: list[tuple[str, Color]] = field(default_factory=list)
 
     number_fmt_fn: Optional[CellWrapper] = None
     str_fmt_fn: Optional[CellWrapper] = _latex_escape_wrapper
@@ -758,13 +755,13 @@ class TexTable:
             self.__options.vrule_counts[idx] += count
 
     def highlight_rows(
-        self, rows: int | Iterable[int], color: ColorLike = "yellow"
+        self, rows: int | Iterable[int], color: Color = "yellow"
     ) -> None:
         """Highlight specified rows in the LaTeX table.
 
         Args:
             row (int | Iterable[int]): Row index or iterable of row indices to highlight.
-            color (ColorLike, optional): Color to use for highlighting. Can be a LaTeX color name
+            color (Color, optional): Color to use for highlighting. Can be a LaTeX color name
                 (str), a hex color code (str), or an RGB tuple (tuple[float, float, float]).
                 Defaults to "yellow".
         """
@@ -780,7 +777,7 @@ class TexTable:
         if isinstance(color, str):
             if re.match(r"^#?[0-9A-Fa-f]{6}$", color):
                 # hex string
-                color_tup = ("HTML", color.lstrip("#").upper())
+                color_tup = ("HTML", color.lstrip("#").lower())
             else:
                 color_tup = ("NAME", color)
         elif isinstance(color, tuple) and len(color) == 3:
@@ -1229,7 +1226,7 @@ class TexTable:
                             f"Invalid hex color value '{color_value}'. "
                             "Must be 6 hexadecimal digits."
                         )
-                    color_value = color_value.lstrip("#").upper()
+                    color_value = color_value.lstrip("#").lower()
                     body_string += r"\rowcolor[HTML]{" + color_value + "}\n"
 
                 case "RGB":

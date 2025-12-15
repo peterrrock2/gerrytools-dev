@@ -1,10 +1,11 @@
 from collections.abc import Mapping, Sequence
 from typing import TypeAlias, Union
-import matplotlib.pyplot as plt
+
 import matplotlib.colors as mcolors
+import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 
-Color: TypeAlias = str | tuple[float, float, float]
+from gerrytools.typing import Color
 
 
 def preview_palette(
@@ -12,6 +13,7 @@ def preview_palette(
     figsize: tuple[float, float] = (6, 1),
     show_indices: bool = False,
     show_hex: bool = False,
+    ax=None,
 ):
     """
     Preview a color palette as horizontal swatches.
@@ -30,7 +32,10 @@ def preview_palette(
     rgb_colors = [mcolors.to_rgb(c) for c in colors]
     n = len(rgb_colors)
 
-    fig, ax = plt.subplots(figsize=figsize)
+    if ax is None:
+        fig, ax = plt.subplots(figsize=figsize)
+    else:
+        fig = ax.figure
 
     # Draw swatches as vertical bars across the axis
     for i, c in enumerate(rgb_colors):
