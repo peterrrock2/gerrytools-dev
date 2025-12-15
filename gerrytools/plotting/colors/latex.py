@@ -72,9 +72,7 @@ def _rgb_to_hex(rgb: tuple[int | float, int | float, int | float]) -> str:
     return f"#{r:02x}{g:02x}{b:02x}"
 
 
-def _xcolor_mix_hex(
-    hex_colors_list: list[str], percentages_list: list[float | int]
-) -> str:
+def _xcolor_mix_hex(hex_colors_list: list[str], percentages_list: list[float | int]) -> str:
     """Allows for mixing of two hex colors according to xcolor semantics.
 
 
@@ -132,12 +130,8 @@ def get_color_from_latex_string(latex_color_string: str) -> str:
     }
     latex_color_dict = {k.strip(): v for k, v in LATEX_COLOR_DICT.items()}
 
-    all_color_dict = (
-        matplotlib_color_dict_lc | districtr_color_dict_lc | latex_color_dict
-    )
-    all_color_dict["green"] = (
-        "#00ff00"  # override green to be bright green for latex compatibility
-    )
+    all_color_dict = matplotlib_color_dict_lc | districtr_color_dict_lc | latex_color_dict
+    all_color_dict["green"] = "#00ff00"  # override green to be bright green for latex compatibility
 
     def resolve_color_name_to_hex(name: str) -> str:
         key = name.strip()
@@ -176,5 +170,4 @@ def get_color_from_latex_string(latex_color_string: str) -> str:
     assert len(color_tokens) == len(pct_tokens) + 1
 
     ret = _xcolor_mix_hex(color_tokens, pct_tokens)
-    print(f"final result: {latex_color_string} -> {ret}")
     return ret

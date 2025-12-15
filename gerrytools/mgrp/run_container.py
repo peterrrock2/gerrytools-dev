@@ -1,11 +1,12 @@
-import docker
+import json
+import os
 import traceback
 from abc import ABC, abstractmethod
-from typing import Union, Optional, Type
 from types import TracebackType
-import json
+from typing import Optional, Type, Union
+
+import docker
 from gerrychain import Graph, Partition
-import os
 
 
 class RunnerConfig(ABC):
@@ -323,9 +324,7 @@ class RunContainer:
             demux=True,
         )
 
-        self.graph = Graph.from_json(
-            os.path.join(self.config.json_dir, self.config.json_name)
-        )
+        self.graph = Graph.from_json(os.path.join(self.config.json_dir, self.config.json_name))
 
         updater_values = {}
 
@@ -382,9 +381,7 @@ class RunContainer:
             Tuple[Dict, str]: Dictionary of the sample number and updater values and the
             error message (if any)
         """
-        partition = Partition(
-            self.graph, dict(enumerate(canon_json_line["assignment"]))
-        )
+        partition = Partition(self.graph, dict(enumerate(canon_json_line["assignment"])))
 
         for func_name, func in updater_dict.items():
             updater_values[func_name] = func(partition)

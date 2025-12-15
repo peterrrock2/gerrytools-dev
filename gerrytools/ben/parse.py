@@ -1,9 +1,11 @@
-import docker
+import logging
+import os
 from pathlib import Path
 from typing import Optional
-import os
+
+import docker
+
 from .docker_manager import managed_docker_container
-import logging
 
 logger = logging.getLogger("ben")
 
@@ -88,10 +90,7 @@ def msms_parse(
         "network_mode": "none",
     }
 
-    if (
-        input_parent_path == output_parent_path
-        and input_parent_path == dual_graph_parent_path
-    ):
+    if input_parent_path == output_parent_path and input_parent_path == dual_graph_parent_path:
         config_args["volumes"] = {
             os.getcwd(): {"bind": "/home/ben/working", "mode": "rw"},
             input_parent_path.resolve(): {
@@ -207,9 +206,7 @@ def msms_parse(
             container.id, cmd=cmd, tty=False, stdout=True, stderr=True, stdin=False
         )
 
-        output_generator = client.api.exec_start(
-            exec_id=exec_id, stream=True, detach=False
-        )
+        output_generator = client.api.exec_start(exec_id=exec_id, stream=True, detach=False)
 
         for output in output_generator:
             print(output.decode("utf-8"), end="")
@@ -337,9 +334,7 @@ def smc_parse(
             container.id, cmd=cmd, tty=False, stdout=True, stderr=True, stdin=False
         )
 
-        output_generator = client.api.exec_start(
-            exec_id=exec_id, stream=True, detach=False
-        )
+        output_generator = client.api.exec_start(exec_id=exec_id, stream=True, detach=False)
 
         for output in output_generator:
             print(output.decode("utf-8"), end="")

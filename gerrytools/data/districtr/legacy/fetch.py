@@ -1,12 +1,12 @@
 import io
 import json
 from datetime import datetime
-from typing import List, Tuple, overload, cast
+from typing import List, Tuple, cast, overload
 
 import pandas as pd
 import requests
-from pydantic import BaseModel
 import us
+from pydantic import BaseModel
 
 from gerrytools.data.districtr.legacy.request import csvs, ids, one
 

@@ -1,9 +1,11 @@
 # Makefile for managing GerryTools development tasks using 'uv' virtual environment manager.
 
 PYTHON_VERSION = 3.11
-VENV_DIR = .venv
+VENV_DIR ?= .venv
+PKG ?= gerrytools
+TEST_PATHS ?= tests
 
-.PHONY: help setup install dev install-docs test type-check lint format precommit docs clean
+.PHONY: help setup install dev install-docs test type-check lint format precommit docs clean snapshots
 
 
 help:
@@ -13,6 +15,7 @@ help:
 	@echo "  dev           - Install the package with development dependencies"
 	@echo "  install-docs  - Install documentation dependencies"
 	@echo "  test          - Run the test suite"
+	@echo "  snapshots     - Update test snapshots"
 	@echo "  type-check    - Run type checking with mypy"
 	@echo "  lint          - Run code linters"
 	@echo "  format        - Format the codebase"
@@ -21,9 +24,7 @@ help:
 	@echo "  clean         - Clean build artifacts"
 
 
-setup:
-	@echo "Setting up the development environment for GerryTools..."
-	@echo
+check_prereqs:
 	@echo "Checking prerequisites..."
 	@if ! command -v uv > /dev/null 2>&1; then \
 		echo "Error: 'uv' is not installed. Please install it first using the following command:"; \
@@ -31,44 +32,49 @@ setup:
 		exit 1; \
 	fi
 	@echo "'uv' is installed."
+
+setup: check_prereqs
+	@echo "Setting up the environment for GerryTools..."
+	@echo
 	uv python install $(PYTHON_VERSION)
 	@echo "Creating virtual environment and installing dev dependencies..."
 	uv sync --python $(PYTHON_VERSION)
+	uv sync --all-groups
 	uv pip install -e ".[mgrp]"
 	uv run pre-commit install
 	@echo ""
 	@echo "Development environment setup complete!"
 
-install: setup
+install: check_prereqs
 	@echo "Installing GerryTools package..."
 	uv sync --python $(PYTHON_VERSION)
-	uv pip install -e ".[mgrp]"
+	uv pip install -e .
 
-dev: setup
-	@echo "Installing GerryTools package with all development dependencies..."
-	uv sync --all-groups --python $(PYTHON_VERSION)
-	uv pip install -e ".[mgrp]"
-
-install-docs:
+install-docs: check_prereqs
 	@echo "Installing GerryTools package with all just the documentation dependencies..."
-	uv sunc --group docs --python $(PYTHON_VERSION)
+	uv sync --group docs --python $(PYTHON_VERSION)
 	uv pip install -e ".[mgrp]"
 
 test:
 	@echo "Running test suite..."
-	uv run pytest -v tests
+	uv run pytest -v $(TEST_PATHS)
+
+snapshots:
+	@echo "Updating test snapshots..."
+	UPDATE_SNAPSHOTS=1 uv run pytest -m latex -v tests	
 
 type-check:
 	@echo "Running type checking with mypy..."
-	uv run mypy gerrytools tests
+	uv run mypy $(PKG) $(TEST_PATHS)
 
 format:
 	@echo "Formatting codebase with black..."
-	uv run black gerrytools tests
+	uv run isort $(PKG) $(TEST_PATHS)
+	uv run black $(PKG) $(TEST_PATHS)
 
 lint:
 	@echo "Running linters (ruff)..."
-	uv run ruff check gerrytools tests
+	uv run ruff check $(PKG) $(TEST_PATHS)
 
 precommit:
 	@echo "Running pre-commit hooks..."
