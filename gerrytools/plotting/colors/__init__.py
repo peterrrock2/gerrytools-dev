@@ -1,3 +1,4 @@
+import re
 from typing import Any, TypeGuard
 
 import matplotlib.colors as mcolors
@@ -7,7 +8,7 @@ from gerrytools.plotting.colors.latex import get_color_from_latex_string
 from gerrytools.plotting.colors.latex_full import LATEX_COLOR_DICT
 from gerrytools.plotting.colors.seaborn import flare, greens, purples, redbluecmap
 from gerrytools.plotting.colors.utils import compare_palettes, preview_palette
-from gerrytools.typing import _check_is_hex_color, mplColorType
+from gerrytools.typing import Color, _check_is_hex_color, mplColorType
 
 DEFAULT_GREY = "#5c676f"
 """
@@ -41,6 +42,9 @@ A dictionary mapping ensemble abbreviations to their corresponding standard colo
 
 These were the colors used in the final version of the RRC paper.
 """
+
+HEX8_PATTERN = re.compile(r"^#[0-9A-Fa-f]{8}$")
+HEX8_OR_NONE_PATTERN = re.compile(r"^(#[0-9A-Fa-f]{8}|none)$", re.IGNORECASE)
 
 
 def _is_mpl_unnamed_color(color_val: Any) -> TypeGuard[mplColorType]:
@@ -77,13 +81,16 @@ def _is_mpl_unnamed_color(color_val: Any) -> TypeGuard[mplColorType]:
     return False
 
 
-def convert_color_to_hexa(color: Any) -> str:
+def convert_color_to_hexa_or_none(color: Any) -> str:
+    if color is None or (isinstance(color, str) and color.lower() == "none"):
+        return "none"
+
     color_value = None
     if (
         isinstance(color, str) and color.lower() in mcolors.get_named_colors_mapping()
     ):  # Matplotlib named color
         color_value = mcolors.get_named_colors_mapping()[color.lower()]
-        if color == "green":
+        if color.lower() == "green":
             # Matplotlib "green" is very dark; use a brighter green to be compatible with latex
             color_value = "#00ff00"
     elif isinstance(color, str) and color.lower() in DISTRICTR_COLOR_DICT:  # Districtr color
@@ -95,24 +102,38 @@ def convert_color_to_hexa(color: Any) -> str:
             standardized_color = color
             if (
                 isinstance(color, tuple)
-                and all(isinstance(c, int | float) for c in color)
-                and any(c > 1 for c in color)
-                and all(0 <= c <= 255 for c in color)
+                and all(isinstance(c, (int, float)) for c in color)
+                and len(color) in {3, 4}
+                and all(0 <= float(c) <= 255 for c in color[:3])
             ):
-                # Convert 0-255 RGB/RGBA to 0-1 range
-                standardized_color = tuple(c / 255 for c in color)
+                # Convert 0-255 RGB to 0-1. Preserve alpha if it is already in [0, 1].
+                r, g, b = (float(color[0]), float(color[1]), float(color[2]))
+                rgb = (r / 255.0, g / 255.0, b / 255.0)
+                if len(color) == 3:
+                    standardized_color = rgb
+                else:
+                    a = float(color[3])
+                    if 0.0 <= a <= 1.0:
+                        standardized_color = (*rgb, a)
+                    else:
+                        standardized_color = (*rgb, a / 255.0)
 
             if not _is_mpl_unnamed_color(standardized_color):
                 raise ValueError(f"Unknown color value: {color!r}")
 
-            color_value = mcolors.to_hex(standardized_color, keep_alpha=True)
+            if isinstance(standardized_color, tuple) and len(standardized_color) == 2:
+                base, a = standardized_color
+                rgba = mcolors.to_rgba(base, alpha=float(a))
+                color_value = mcolors.to_hex(rgba, keep_alpha=True)
+            else:
+                color_value = mcolors.to_hex(standardized_color, keep_alpha=True)
 
     if color_value is None:
         raise ValueError(f"Could not convert color: {color!r}")
     return mcolors.to_hex(color_value, keep_alpha=True)
 
 
-def get_all_supported_colors_dict():
+def get_all_supported_colors_dict() -> dict[str, Color]:
     return mcolors.get_named_colors_mapping() | DISTRICTR_COLOR_DICT | LATEX_COLOR_DICT
 
 
@@ -122,7 +143,7 @@ __all__ = [
     "flare",
     "purples",
     "greens",
-    "convert_color_to_hexa",
+    "convert_color_to_hexa_or_none",
     "get_color_from_latex_string",
     "get_all_supported_colors_dict",
     "DEFAULT_GREY",

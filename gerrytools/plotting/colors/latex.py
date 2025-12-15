@@ -86,7 +86,6 @@ def _xcolor_mix_hex(hex_colors_list: list[str], percentages_list: list[float | i
     Returns:
         str: The resulting mixed hex color string in the form "#RRGGBB"
     """
-    print("mixing colors:", hex_colors_list, percentages_list)
     if len(hex_colors_list) != len(percentages_list) + 1:
         raise ValueError(
             "Number of colors must be one more than number of percentages to define the : "
