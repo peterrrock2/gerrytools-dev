@@ -4,11 +4,8 @@ import math
 import re
 from typing import TYPE_CHECKING, Any
 
-if TYPE_CHECKING:
-    from gerrytools.latex.table import CellWrapper
-    from gerrytools.latex.document import ColorLike
-
 from gerrytools.latex.commands import _CMD_RE, _validate_command_name
+from gerrytools.typing import CellWrapper, Color
 
 
 def wrap_with_tex_command(cmd_str: str) -> CellWrapper:
@@ -90,13 +87,13 @@ def _safe_round(v: Any, round_to: int | None) -> Any:  # pragma: no cover
 
 
 def highlight_gt(
-    thresh: int | float, color: ColorLike = "yellow", *, round_to: int | None = None
+    thresh: int | float, color: Color = "yellow", *, round_to: int | None = None
 ) -> CellWrapper:
     """Generates a formatter that highlights numerical values greater than a threshold.
 
     Args:
         thresh (float): The threshold value.
-        color (ColorLike): The LaTeX color name string or RGB tuple or hex string to use for
+        color (Color): The LaTeX color name string or RGB tuple or hex string to use for
             highlighting. Default is "yellow".
 
     Kwargs:
@@ -110,7 +107,7 @@ def highlight_gt(
     if isinstance(color, str):
         if re.match(r"^#?[0-9A-Fa-f]{6}$", color):
             # hex string
-            color_hex = color.upper().lstrip("#")
+            color_hex = color.lower().lstrip("#")
 
             def _inner_highlight_gt(v: int | float, s: str) -> tuple[int | float, str]:
                 if isinstance(v, int | float) and _safe_round(v, round_to) > thresh:
@@ -156,13 +153,13 @@ def highlight_gt(
 
 
 def highlight_ge(
-    thresh: int | float, color: ColorLike = "yellow", *, round_to: int | None = None
+    thresh: int | float, color: Color = "yellow", *, round_to: int | None = None
 ) -> CellWrapper:
     """Generates a formatter that highlights numerical values greater than or equal to a threshold.
 
     Args:
         thresh (float): The threshold value.
-        color (ColorLike): The LaTeX color name string or RGB tuple or hex string to use for
+        color (Color): The LaTeX color name string or RGB tuple or hex string to use for
             highlighting. Default is "yellow".
 
     Kwargs:
@@ -175,7 +172,7 @@ def highlight_ge(
     if isinstance(color, str):
         if re.match(r"^#?[0-9A-Fa-f]{6}$", color):
             # hex string
-            color_hex = color.upper().lstrip("#")
+            color_hex = color.lower().lstrip("#")
 
             def _inner_highlight_ge(v: int | float, s: str) -> tuple[int | float, str]:
                 if isinstance(v, int | float) and _safe_round(v, round_to) >= thresh:
@@ -221,7 +218,7 @@ def highlight_ge(
 
 
 def highlight_lt(
-    thresh: float, color: ColorLike = "yellow", *, round_to: int | None = None
+    thresh: float, color: Color = "yellow", *, round_to: int | None = None
 ) -> CellWrapper:
     """Generates a formatter that highlights numerical values less than a threshold.
 
@@ -229,7 +226,7 @@ def highlight_lt(
         thresh (float): The threshold value.
         color (str): The LaTeX color name string to use for highlighting. Default is "yellow".
 
-    Kwargs:
+    Kwargs
         round_to (int | None): If provided, numerical values will be rounded to this
             number of decimal places before comparison.
 
@@ -239,7 +236,7 @@ def highlight_lt(
     if isinstance(color, str):
         if re.match(r"^#?[0-9A-Fa-f]{6}$", color):
             # hex string
-            color_hex = color.upper().lstrip("#")
+            color_hex = color.lower().lstrip("#")
 
             def _inner_highlight_lt(v: int | float, s: str) -> tuple[int | float, str]:
                 if isinstance(v, int | float) and _safe_round(v, round_to) < thresh:
@@ -285,7 +282,7 @@ def highlight_lt(
 
 
 def highlight_le(
-    thresh: float, color: ColorLike = "yellow", *, round_to: int | None = None
+    thresh: float, color: Color = "yellow", *, round_to: int | None = None
 ) -> CellWrapper:
     """Generates a formatter that highlights numerical values less than or equal to a threshold.
 
@@ -303,7 +300,7 @@ def highlight_le(
     if isinstance(color, str):
         if re.match(r"^#?[0-9A-Fa-f]{6}$", color):
             # hex string
-            color_hex = color.upper().lstrip("#")
+            color_hex = color.lower().lstrip("#")
 
             def _inner_highlight_le(v: int | float, s: str) -> tuple[int | float, str]:
                 if isinstance(v, int | float) and _safe_round(v, round_to) <= thresh:
@@ -351,7 +348,7 @@ def highlight_le(
 def highlight_between(
     lower_bound: int | float,
     upper_bound: int | float,
-    color: ColorLike = "yellow",
+    color: Color = "yellow",
     *,
     round_to: int | None = None,
     include_bounds: bool = True,
@@ -382,7 +379,7 @@ def highlight_between(
     if isinstance(color, str):
         if re.match(r"^#?[0-9A-Fa-f]{6}$", color):
             # hex string
-            color_hex = color.upper().lstrip("#")
+            color_hex = color.lower().lstrip("#")
 
             def _inner_highlight_btwn(
                 v: int | float, s: str

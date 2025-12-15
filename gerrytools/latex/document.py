@@ -6,16 +6,110 @@ import tempfile
 import uuid
 import weakref
 from pathlib import Path
-from typing import Iterable, Optional, TypeAlias, Union
+from typing import Iterable, Optional, Union
 
-import fitz
 from PyQt6 import QtCore, QtGui, QtWidgets
 
 from gerrytools.logging import get_logger
+from gerrytools.typing import Color
 
 logger = get_logger(__name__)
 
-ColorLike: TypeAlias = Union[str, tuple[int | float, int | float, int | float]]
+
+def _render_pdf_to_png(pdf_path: Path, png_path: Path, dpi: int = 250) -> None:
+    """
+    Render the first page of a PDF to a PNG without PyMuPDF.
+
+    Preference order:
+      1) pdftocairo (poppler)
+      2) pdftoppm   (poppler)
+      3) gs         (ghostscript)
+      4) magick/convert (imagemagick)  [least preferred]
+    """
+    renderer = _which_any(["pdftocairo", "pdftoppm", "gs", "magick", "convert"])
+    if renderer is None:
+        raise RuntimeError(
+            "No PDF renderer found. Install one of:\n"
+            "  - poppler-utils (pdftocairo / pdftoppm)\n"
+            "  - ghostscript (gs)\n"
+            "  - imagemagick (magick/convert)\n"
+        )
+
+    out_base = png_path.with_suffix("")  # e.g. /tmp/xyz -> renderer appends .png
+
+    if renderer == "pdftocairo":
+        # Produces exactly <out_base>.png
+        cmd = [
+            "pdftocairo",
+            "-png",
+            "-r",
+            str(dpi),
+            "-f",
+            "1",
+            "-l",
+            "1",
+            "-singlefile",
+            str(pdf_path),
+            str(out_base),
+        ]
+
+    elif renderer == "pdftoppm":
+        # Produces exactly <out_base>.png with -singlefile
+        cmd = [
+            "pdftoppm",
+            "-png",
+            "-r",
+            str(dpi),
+            "-f",
+            "1",
+            "-singlefile",
+            str(pdf_path),
+            str(out_base),
+        ]
+
+    elif renderer == "gs":
+        # Safe-ish ghostscript invocation: first page only, transparent background
+        cmd = [
+            "gs",
+            "-dSAFER",
+            "-dBATCH",
+            "-dNOPAUSE",
+            "-sDEVICE=pngalpha",
+            f"-r{dpi}",
+            "-dFirstPage=1",
+            "-dLastPage=1",
+            f"-sOutputFile={str(png_path)}",
+            str(pdf_path),
+        ]
+
+    else:  # imagemagick convert/magick
+        # Note: some distros lock down PDF conversion in ImageMagick policy.xml
+        cmd = [
+            renderer,
+            "-density",
+            str(dpi),
+            f"{str(pdf_path)}[0]",
+            "-quality",
+            "100",
+            str(png_path),
+        ]
+
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        log = (proc.stdout or "") + "\n" + (proc.stderr or "")
+        raise RuntimeError(f"PDF->PNG render failed using {renderer}.\n\nLOG:\n{log}")
+
+    # Poppler outputs <out_base>.png; ensure final path exists where we expect.
+    if renderer in {"pdftocairo", "pdftoppm"}:
+        produced = out_base.with_suffix(".png")
+        if produced != png_path:
+            png_path.unlink(missing_ok=True)
+            produced.replace(png_path)
+
+    if not png_path.exists():
+        raise RuntimeError(
+            f"PDF->PNG renderer reported success but {png_path} not found."
+        )
 
 
 def _which_any(names: Iterable[str]) -> Optional[str]:  # pragma: no cover
@@ -63,7 +157,7 @@ class TexDocument:
         package_list (list[str]): List of LaTeX packages to include.
         extra_package_commands (list[str]): Additional LaTeX package commands.
         command_list (list[str]): List of custom LaTeX commands.
-        color_dict (dict[str, tuple[str, ColorLike]]): Dictionary of color definitions.
+        color_dict (dict[str, tuple[str, Color]]): Dictionary of color definitions.
         engine_preference_order (tuple[str, ...]): Preferred order of TeX engines to use.
 
     Methods:
@@ -89,7 +183,7 @@ class TexDocument:
         ]
         self.extra_package_commands: list[str] = []
         self.command_list: list[str] = []
-        self.color_dict: dict[str, tuple[str, ColorLike]] = {
+        self.color_dict: dict[str, tuple[str, Color]] = {
             "snsgreen": ("rgb", (0.16, 0.51, 0.25)),
             "snspurple": ("rgb", (0.5, 0.24, 0.55)),
         }
@@ -164,7 +258,7 @@ class TexDocument:
         """
         self.command_list.append(command)
 
-    def add_color(self, color_name: str, color: ColorLike) -> None:
+    def add_color(self, color_name: str, color: Color) -> None:
         """Adds a custom color definition to the document.
 
         Examples:
@@ -181,7 +275,7 @@ class TexDocument:
         if isinstance(color, str):
             if re.match(r"^#?[0-9A-Fa-f]{6}$", color):
                 # hex string
-                hex_str = color.upper().lstrip("#")
+                hex_str = color.lower().lstrip("#")
                 self.color_dict[color_name] = ("HTML", hex_str)
                 return
             else:
@@ -286,9 +380,7 @@ class TexDocument:
         if proc.returncode != 0 or not self._pdf_path.exists():  # pragma: no cover
             raise RuntimeError(f"LaTeX compile failed with {engine}.\n\nLOG:\n{log}")
 
-        doc = fitz.open(str(self._pdf_path))
-        pix = doc[0].get_pixmap(dpi=dpi)
-        pix.save(str(self._png_path))
+        _render_pdf_to_png(self._pdf_path, self._png_path, dpi=dpi)
 
     def _show_png_jupyter(self) -> None:  # pragma: no cover
         """Displays the rendered PNG in a Jupyter notebook."""

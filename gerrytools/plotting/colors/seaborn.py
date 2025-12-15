@@ -14,7 +14,24 @@ def redbluecmap(n: int) -> list[tuple[float, float, float]]:
     """
     if n <= 0:
         raise ValueError("n must be a positive integer")
-    colors = list(reversed(sns.color_palette("coolwarm", n_colors=n)))
+    colors = list(reversed(sns.color_palette("bwr", n_colors=n)))
+    return colors
+
+
+def greenpurplecmap(n: int) -> list[tuple[float, float, float]]:
+    """
+    Generates a green/white/purple color palette in `n` colors, using the
+    `PiYG` diverging colormap from seaborn.
+
+    Args:
+        n (int): The number of colors to generate.
+
+    Returns:
+        List of RGB triples (each in [0, 1]).
+    """
+    if n <= 0:
+        raise ValueError("n must be a positive integer")
+    colors = list(reversed(sns.color_palette("PRGn", n_colors=n)))
 
     # Make the grey color in the middle more white.
     if n % 2 == 1:
