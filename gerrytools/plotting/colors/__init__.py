@@ -14,7 +14,7 @@ from gerrytools.plotting.colors.seaborn import flare, greens, purples, redbluecm
 from gerrytools.plotting.colors.utils import compare_palettes, preview_palette
 from gerrytools.typing import Color
 
-logger = get_logger(__name__)
+gt_logger = get_logger(__name__)
 
 DEFAULT_GREY = "#5c676f"
 """
@@ -55,7 +55,7 @@ GERRYTOOLS_EXTRA_COLORS_DICT = (
         "default_gray": DEFAULT_GREY,
         "citizen_blue": CITIZEN_BLUE,
     }
-    | {name: mcolors.to_hex(mcolors.to_rgba(name, alpha=0.5), keep_alpha=True) for name in OVERLAYS}
+    | {name: mcolors.to_hex(name) for name in OVERLAYS}
     | ENSEMBLE_COLORS
 )
 
@@ -71,7 +71,6 @@ def get_all_supported_colors_dict() -> dict[str, Any]:
         mcolors.get_named_colors_mapping()
         | DISTRICTR_COLOR_DICT
         | LATEX_COLOR_DICT
-        | ENSEMBLE_COLORS
         | GERRYTOOLS_EXTRA_COLORS_DICT
         | {"green": "#00ff00"}  # Override matplotlib's dark "green"
         | {"none": "none"}
@@ -112,7 +111,7 @@ def get_named_color(name: str) -> Color:
 
 def _is_real(x: Any) -> TypeGuard[Real]:
     return (
-        isinstance(x, Real) and float(x) == float(x) and math.isfinite(float(x))
+        isinstance(x, Real) and not isinstance(x, bool) and math.isfinite(float(x))
     )  # filters NaN too
 
 
@@ -126,15 +125,6 @@ def _is_rgba_tuple(x: Any) -> TypeGuard[tuple[Real, Real, Real, Real]]:
 
 def _is_mpl_rgb_color(x: Any) -> TypeGuard[str | tuple[Real, Real, Real]]:
     return isinstance(x, str) or _is_rgb_tuple(x)
-
-
-def _is_mpl_rgba_color(
-    x: Any,
-) -> TypeGuard[str | tuple[Real, Real, Real, Real] | tuple[str | tuple[Real, Real, Real], Real]]:
-    # either a normal rgba tuple, or (base_color, alpha)
-    if isinstance(x, str) or _is_rgba_tuple(x):
-        return True
-    return isinstance(x, tuple) and len(x) == 2 and _is_mpl_rgb_color(x[0]) and _is_real(x[1])
 
 
 def convert_color_to_hexa_or_none(color: Any) -> str:
@@ -154,20 +144,20 @@ def convert_color_to_hexa_or_none(color: Any) -> str:
             c = get_named_color(color)
             return mcolors.to_hex(mcolors.to_rgba(c), keep_alpha=True)
         except KeyError as e:
-            logger.debug(f"Color {color!r} is not a known named color string: {e}")
+            gt_logger.debug(f"Color {color!r} is not a known named color string: {e}")
 
         # LaTeX/xcolor string support
         try:
             rgba = get_color_from_latex_string(color)
             return mcolors.to_hex(rgba, keep_alpha=True)
         except Exception as e:
-            logger.debug(f"Color {color!r} is not a LaTeX color string: {e}")
+            gt_logger.debug(f"Color {color!r} is not a LaTeX color string: {e}")
 
         # Generic matplotlib parsing (also covers '#RRGGBB' and '#RRGGBBAA')
         try:
             return mcolors.to_hex(mcolors.to_rgba(color), keep_alpha=True)
         except Exception as e:
-            logger.debug(f"Color {color!r} not parseable by Matplotlib: {e}")
+            gt_logger.debug(f"Color {color!r} not parseable by Matplotlib: {e}")
 
     # ---- (base, alpha) tuples ----
     if (
@@ -177,6 +167,7 @@ def convert_color_to_hexa_or_none(color: Any) -> str:
         and _is_real(color[1])
     ):
         base, a = color
+        _validate_alpha(float(a), field="alpha in (base, alpha) color tuple")
         rgba = mcolors.to_rgba(base, alpha=float(a))
         return mcolors.to_hex(rgba, keep_alpha=True)
 
@@ -184,9 +175,40 @@ def convert_color_to_hexa_or_none(color: Any) -> str:
     if _is_rgb_tuple(color) or _is_rgba_tuple(color):
         vals = [float(v) for v in color]
         r, g, b = vals[:3]
+
+        # after reading vals
+        if len(vals) == 4:
+            a_raw = vals[3]
+            if a_raw < 0:
+                raise ValueError(f"Alpha must be non-negative: {color!r}")
+
+        # if interpreting 0–255, enforce bounds
         if max(r, g, b) > 1.0:
+            if any(v < 0.0 for v in (r, g, b)):
+                raise ValueError(f"RGB values must be non-negative: {color!r}")
+            if max(r, g, b) > 255.0:
+                raise ValueError(f"RGB values must be <=255 when using 0-255 scale: {color!r}")
+            if max(r, g, b) < 2.0:
+                raise ValueError(
+                    f"Ambiguous RGB tuple {color!r}: values >1 but <2; "
+                    "use 0–1 floats or 0–255 ints."
+                )
+
             r, g, b = r / 255.0, g / 255.0, b / 255.0
-        a = 1.0 if len(vals) == 3 else (vals[3] if vals[3] <= 1.0 else vals[3] / 255.0)
+
+        if len(vals) == 4:
+            if a_raw > 1.0:
+                if a_raw > 255.0:
+                    raise ValueError(f"Alpha must be <=255 when using 0-255 scale: {color!r}")
+                a = a_raw / 255.0
+            else:
+                a = a_raw
+        else:
+            a = 1.0
+
+        if not (0.0 <= a <= 1.0):
+            raise ValueError(f"Alpha must be in [0,1]: {color!r}")
+
         return mcolors.to_hex((r, g, b, a), keep_alpha=True)
 
     raise ValueError(f"Unknown color value: {color!r}")
@@ -254,7 +276,7 @@ def resolve_color_and_alpha(
 
     a = _validate_alpha(alpha, field=f"{field} alpha")
 
-    if logger is not None and a != alpha_from_color:
+    if logger is not None and not math.isclose(a, alpha_from_color, abs_tol=1e-4):
         prefix = f"For {owner}: " if owner else ""
         logger.log(
             level=logging.DEBUG,
