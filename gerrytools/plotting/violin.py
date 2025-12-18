@@ -3,7 +3,7 @@ import random
 import numpy as np
 from matplotlib.axes import Axes
 
-from .colors import citizenBlue, defaultGray, districtr
+from .colors import CITIZEN_BLUE, DEFAULT_GREY, districtr
 
 
 def violin(
@@ -48,7 +48,7 @@ def violin(
     """
     # Get all the scores into one list; pick a face color.
     ensemble = scores["ensemble"] if scores["ensemble"] else scores["citizen"]
-    facecolor = defaultGray if scores["ensemble"] else citizenBlue
+    facecolor = DEFAULT_GREY if scores["ensemble"] else CITIZEN_BLUE
 
     # Initialize a list for winnowing scores.
     trimmed_scores = []

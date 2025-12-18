@@ -3,7 +3,7 @@ import random
 from matplotlib.axes import Axes
 
 from .bins import bins
-from .colors import citizenBlue, defaultGray, districtr
+from .colors import CITIZEN_BLUE, DEFAULT_GREY, districtr
 
 
 def histogram(
@@ -69,7 +69,7 @@ def histogram(
             ax.hist(
                 scores[kind],
                 bins=hist_bins,
-                color=defaultGray if kind == "ensemble" else citizenBlue,
+                color=DEFAULT_GREY if kind == "ensemble" else CITIZEN_BLUE,
                 rwidth=rwidth,
                 edgecolor=edgecolor,
                 alpha=alpha,
