@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -13,7 +14,7 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 
 from gerrytools.logging import get_logger
-from gerrytools.plotting.colors import HEX8_OR_NONE_PATTERN, convert_color_to_hexa_or_none
+from gerrytools.plotting.colors import resolve_color_and_alpha
 from gerrytools.plotting.gerryplot import (
     GerryPlotBase,
     LineData,
@@ -26,6 +27,15 @@ logger = get_logger(__name__)
 
 @dataclass(frozen=True)
 class ScatterSetData:
+    """A dataclass representing a set of scatter points to be plotted on a boxplot figure.
+
+    Attributes:
+        name (str): The name of the scatter set.
+        values_dict (dict[str, float]): A dictionary mapping labels to scatter point values.
+        point_data (ScatterPointSettings): The settings for the scatter points.
+        x_offset (float | None): An optional absolute x-offset from category center.
+    """
+
     name: str
     values_dict: dict[str, float]  # one value per label
     point_data: ScatterPointSettings
@@ -34,13 +44,29 @@ class ScatterSetData:
 
 @dataclass(frozen=True)
 class BoxPlotSetData:
+    """A dataclass representing a set of boxplots to be plotted on a boxplot figure.
+
+    Attributes:
+        name (str): The name of the boxplot set.
+        scores_dict (dict[str, list[float]]): A dictionary mapping labels to lists of scores.
+        face_color (Color): The face color of the boxplots.
+        alpha (float | None): The alpha transparency of the boxplots.
+        percentiles (tuple[float, float]): The percentiles for the whiskers.
+        showfliers (bool): Whether to show outliers.
+        fliersettings (ScatterPointSettings): The settings for outlier points.
+        edge_color (Color): The edge color of the boxplots.
+        edge_alpha (float | None): The alpha transparency of the boxplot edges.
+        linewidth (float): The linewidth of the boxplot edges.
+        zorder (int): The z-order of the boxplots.
+    """
+
     name: str
     scores_dict: dict[str, list[float]]
     face_color: Color
     alpha: float | None = None
     percentiles: tuple[float, float] = (1, 99)
     showfliers: bool = False
-    flierdata: ScatterPointSettings = field(default_factory=ScatterPointSettings)
+    fliersettings: ScatterPointSettings = field(default_factory=ScatterPointSettings)
     edge_color: Color = "black"
     edge_alpha: float | None = None
     linewidth: float = 0.8
@@ -55,32 +81,6 @@ class BoxPlotSetData:
         if not (lo < hi):
             raise ValueError("percentiles must satisfy low < high.")
 
-        new_color = convert_color_to_hexa_or_none(self.face_color)
-        if HEX8_OR_NONE_PATTERN.match(new_color) is None:
-            raise ValueError("Invalid color after conversion")
-
-        if new_color.lower() == "none":
-            object.__setattr__(self, "face_color", "none")
-            object.__setattr__(self, "alpha", 0.0)
-
-        else:
-            hex_color, alpha = new_color[:7], int(new_color[7:], 16) / 255.0
-            object.__setattr__(self, "face_color", hex_color)
-
-            old_alpha = float(self.alpha) if self.alpha is not None else None
-            if old_alpha is not None and not (0.0 <= old_alpha <= 1.0):
-                raise ValueError("Alpha must be between 0.0 and 1.0")
-
-            if old_alpha is not None and old_alpha != alpha:
-                logger.log(
-                    level=logging.DEBUG,
-                    msg=(
-                        f"For BoxPlotSetData {self.name}: Ignoring alpha from color {new_color} "
-                        f"because explicit alpha {self.alpha} was provided."
-                    ),
-                )
-            object.__setattr__(self, "alpha", alpha if old_alpha is None else old_alpha)
-
         lw = float(self.linewidth)
         if not math.isfinite(lw):
             raise ValueError("linewidth must be a finite number")
@@ -88,61 +88,45 @@ class BoxPlotSetData:
             raise ValueError("linewidth must be nonnegative")
         object.__setattr__(self, "linewidth", lw)
 
-        ec_hex8 = convert_color_to_hexa_or_none(self.edge_color)
+        resolved_face_color, resolved_alpha = resolve_color_and_alpha(
+            self.face_color,
+            alpha=self.alpha,
+            allow_none=True,
+            field="face_color",
+            owner=f"BoxPlotSetData {self.name}",
+            logger=logger,
+        )
+        object.__setattr__(self, "face_color", resolved_face_color)
+        object.__setattr__(self, "alpha", resolved_alpha)
 
-        if HEX8_OR_NONE_PATTERN.match(ec_hex8) is None:
-            raise ValueError("Invalid edge color after conversion")
+        resolved_edge_color, resolved_edge_alpha = resolve_color_and_alpha(
+            self.edge_color,
+            alpha=self.edge_alpha,
+            allow_none=True,
+            field="edge_color",
+            owner=f"BoxPlotSetData {self.name}",
+            logger=logger,
+        )
+        object.__setattr__(self, "edge_color", resolved_edge_color)
+        object.__setattr__(self, "edge_alpha", resolved_edge_alpha)
 
-        if ec_hex8.lower() == "none":
-            object.__setattr__(self, "edge_color", "none")
-            object.__setattr__(self, "linewidth", 0.0)
-            object.__setattr__(self, "edge_alpha", 0.0)
-        else:
-            object.__setattr__(self, "edge_color", ec_hex8[:7])
-            edge_alpha_from_color = int(ec_hex8[7:], 16) / 255.0
-            if self.edge_alpha is not None:
-                old_edge_alpha = float(self.edge_alpha)
-                if not (0.0 <= old_edge_alpha <= 1.0):
-                    raise ValueError("edge_alpha must be between 0.0 and 1.0")
-                if old_edge_alpha != edge_alpha_from_color:
-                    logger.log(
-                        level=logging.DEBUG,
-                        msg=(
-                            f"For BoxPlotSetData {self.name}: Ignoring alpha from edge_color "
-                            f"{ec_hex8} because explicit edge_alpha {old_edge_alpha} was provided."
-                        ),
-                    )
-                object.__setattr__(self, "edge_alpha", old_edge_alpha)
-            else:
-                object.__setattr__(self, "edge_alpha", edge_alpha_from_color)
+        if resolved_edge_color.lower() == "none" and lw > 0:
+            logger.log(
+                level=logging.DEBUG,
+                msg=(
+                    f"For BoxPlotSetData {self.name}: edge_color is 'none' but "
+                    f"linewidth is {lw}>0; setting linewidth to 0."
+                ),
+            )
+            lw = 0.0
 
+        object.__setattr__(self, "linewidth", lw)
         object.__setattr__(self, "zorder", int(self.zorder))
 
 
 class BoxPlot(GerryPlotBase):
     """A class for creating boxplot comparison figures with multiple boxplot sets and scatter sets
     representing a distribution of scores across multiple categories.
-
-    Attributes:
-        fig (plt.Figure): The Matplotlib figure object.
-        ax (plt.Axes): The Matplotlib axes object.
-        boxplot_group_width (float): The width of each boxplot group.
-        boxplot_group_gap (float): The gap between boxplot groups.
-        include_legend (bool): Whether to include a legend in the plot.
-        legend_loc (str): The location of the legend.
-        legend_bbox_to_anchor (tuple[float, float]): The bounding box anchor for the legend.
-
-
-    Methods:
-        add_boxplot_set: Add a set of boxplots to the figure.
-        add_scatter_set: Add a set of scatter points to the figure.
-        add_vertical_line: Add a vertical line to the figure.
-        add_vertical_band: Add a vertical band to the figure.
-        add_horizontal_line: Add a horizontal line to the figure.
-        add_horizontal_band: Add a horizontal band to the figure.
-        set_xlimits: Set the x-axis limits.
-        set_ylimits: Set the y-axis limits.
-        hide_frame: Hide the frame of the plot.
     """
 
     def __init__(
@@ -150,8 +134,8 @@ class BoxPlot(GerryPlotBase):
         figure_size: tuple[float, float] = (10, 6),
         dpi: int = 300,
         *,
-        boxplot_group_width: float = 1.0,
-        boxplot_group_gap: float = 0.4,
+        boxplot_width_scale: float = 0.8,
+        boxplot_group_width: float = 0.7,
         include_legend: bool = False,
         include_boxplot_group_vlines: bool = True,
     ) -> None:
@@ -164,9 +148,9 @@ class BoxPlot(GerryPlotBase):
 
         Kwargs:
             boxplot_group_width (float, optional): The width of each boxplot group.
-                Defaults to 1.0.
-            boxplot_group_gap (float, optional): The gap between boxplot groups.
-                Defaults to 0.4.
+                Defaults to 0.7
+            boxplot_width_scale (float, optional): The scaling factor for boxplot widths
+                within each group. Defaults to 0.8.
             include_legend (bool, optional): Whether to include a legend in the plot.
                 Defaults to False.
             include_boxplot_group_vlines (bool, optional): Whether to include vertical lines
@@ -180,13 +164,13 @@ class BoxPlot(GerryPlotBase):
 
         if boxplot_group_width <= 0:
             raise ValueError("boxplot_group_width must be positive")
-        if boxplot_group_gap < 0:
-            raise ValueError("boxplot_group_gap must be nonnegative")
-        if not 0 <= boxplot_group_gap <= 0.9:
-            raise ValueError("boxplot_group_gap must be between 0.0 and 0.9)")
+        if boxplot_group_width > 1.0:
+            raise ValueError("boxplot_group_width must be <= 1.0 when centers are integers.")
+        if not 0.0 < boxplot_width_scale <= 1.0:
+            raise ValueError("boxplot_width_scale must be in (0.0, 1.0].")
 
         self.boxplot_group_width = float(boxplot_group_width)
-        self.boxplot_group_gap = float(boxplot_group_gap)
+        self.boxplot_width_scale = float(boxplot_width_scale)
 
         self._include_boxplot_group_vlines = include_boxplot_group_vlines
         self._boxplot_group_vline_settings = LineData(
@@ -198,12 +182,23 @@ class BoxPlot(GerryPlotBase):
             zorder=-3,
         )
 
+    @staticmethod
     def _convert_boxplot_data_to_dictionary(
-        self,
         scores: dict[str, list[float]] | list[float] | list[list[float]] | pd.DataFrame,
         scores_labels: list[str] | None = None,
     ) -> dict[str, list[float]]:
-        """Convert boxplot input to a dictionary mapping labels to score lists."""
+        """Convert boxplot input to a dictionary mapping labels to score lists.
+
+        Args:
+            scores (dict[str, list[float]] | list[float] | list[list[float]] | pd.DataFrame):
+                The boxplot scores. Can be a dictionary mapping labels to score lists,
+                a list of score lists, or a DataFrame where each column represents a label.
+            scores_labels (list[str] | None, optional): The labels for the scores if
+                scores is a list or list of lists. Defaults to None.
+
+        Returns:
+            dict[str, list[float]]: A dictionary mapping labels to score lists.
+        """
         if isinstance(scores, dict):
             return {str(k): list(v) for k, v in scores.items()}
 
@@ -216,10 +211,12 @@ class BoxPlot(GerryPlotBase):
                     "When providing lists of scores, please also provide labels for each list."
                 )
 
-            if len(scores) == 0 or not isinstance(scores[0], list):
-                scores_list_of_lists: list[list[float]] = [scores]  # type: ignore[list-item]
+            if len(scores) == 0:
+                scores_list_of_lists = [scores]
             else:
-                scores_list_of_lists = scores  # type: ignore[assignment]
+                first = scores[0]
+                is_series = isinstance(first, Sequence) and not isinstance(first, (str, bytes))
+                scores_list_of_lists = scores if is_series else [scores]
 
             if len(scores_labels) != len(scores_list_of_lists):
                 raise ValueError(
@@ -242,7 +239,7 @@ class BoxPlot(GerryPlotBase):
         scores: dict[str, list[float]] | list[float] | list[list[float]] | pd.DataFrame,
         *,
         name: str | None = None,
-        face_color: str = "denim",
+        face_color: Color = "denim",
         scores_labels: list[str] | None = None,
         percentiles: tuple[float, float] = (1, 99),
         showfliers: bool = False,
@@ -262,19 +259,22 @@ class BoxPlot(GerryPlotBase):
 
         Kwargs:
             name (str | None, optional): The name of the boxplot set. Defaults to None.
-            face_color (str, optional): The face color of the boxplots. Defaults to "denim".
+            face_color (Color, optional): The face color of the boxplots. Defaults to "denim".
             scores_labels (list[str] | None, optional): The labels for the scores if
                 scores is a list or list of lists. Defaults to None.
-            percentiles (tuple[float, float], optional): The percentiles for whiskers.
+            percentiles (tuple[float, float], optional): The percentiles for the whiskers.
                 Defaults to (1, 99).
             showfliers (bool, optional): Whether to show outliers. Defaults to False.
-            fliersettings (ScatterPointSettings, optional): The settings for outlier points.
-                Defaults to ScatterPointSettings().
-            alpha (float | None, optional): The alpha transparency for the boxplots.
+            fliersettings (ScatterPointSettings | None, optional): The settings for outlier points.
+                Defaults to None.
+            alpha (float | None, optional): The alpha transparency of the boxplots.
                 Defaults to None.
             edge_color (Color, optional): The edge color of the boxplots. Defaults to "black".
-            add_extra_labels (bool, optional): Whether to allow adding new labels
-                not in existing sets. Defaults to False.
+            edge_alpha (float | None, optional): The alpha transparency of the boxplot edges.
+                Defaults to None.
+            add_extra_labels (bool, optional): Whether to allow adding new labels.
+                Defaults to False.
+            zorder (int, optional): The z-order of the boxplots. Defaults to 2.
 
         Raises:
             ValueError: If the labels of the incoming boxplot set do not match the existing labels
@@ -310,7 +310,7 @@ class BoxPlot(GerryPlotBase):
                 percentiles=percentiles,
                 face_color=face_color,
                 showfliers=showfliers,
-                flierdata=fliersettings,
+                fliersettings=fliersettings,
                 alpha=alpha,
                 edge_color=edge_color,
                 edge_alpha=edge_alpha,
@@ -325,7 +325,30 @@ class BoxPlot(GerryPlotBase):
         *,
         column: str | None = None,
     ) -> dict[str, float]:
-        """Convert scatter input to a dictionary mapping labels to float values."""
+        """Convert scatter input to a dictionary mapping labels to float values.
+
+        Args:
+            values (dict[str, float] | list[float] | pd.Series | pd.DataFrame):
+                The scatter values. Can be a dictionary mapping labels to values,
+                a list of values, a Series, or a DataFrame.
+
+            labels (list[str] | None, optional): The labels for the scatter values
+                if values is a list. Defaults to None.
+
+        Kwargs:
+            column (str | None, optional): The column name to use if values is a DataFrame.
+
+        Returns:
+            dict[str, float]: A dictionary mapping labels to float values.
+
+
+        Raises:
+            ValueError: If values is a DataFrame and column is None and the DataFrame has
+                more than one column.
+            ValueError: If the labels of the incoming scatter set do not match the existing labels
+                when values is a list and labels is None.
+            ValueError: If the length of values does not match the length of labels
+        """
         if isinstance(values, dict):
             return {str(k): float(v) for k, v in values.items()}
 
@@ -363,7 +386,7 @@ class BoxPlot(GerryPlotBase):
         values: dict[str, float] | list[float] | pd.Series | pd.DataFrame,
         *,
         name: str | None = None,
-        face_color: str = "black",
+        face_color: Color = "black",
         face_alpha: float | None = None,
         marker: str = "o",
         markersize: float = 7.0,
@@ -385,26 +408,25 @@ class BoxPlot(GerryPlotBase):
 
         Kwargs:
             name (str | None, optional): The name of the scatter set. Defaults to None.
-            face_color (str, optional): The color of the scatter points. Defaults to "black".
+            face_color (Color, optional): The face color of the scatter points. Defaults to "black".
             face_alpha (float | None, optional): The alpha transparency of the scatter points.
                 Defaults to None.
-            marker (str, optional): The marker style of the scatter points. Defaults to "o".
-            markersize (float, optional): The size of the scatter points. Defaults to 7.0.
-            markeredgecolor (str, optional): The edge color of the scatter points.
+            marker (str, optional): The marker style for the scatter points. Defaults to "o".
+            markersize (float, optional): The size of the scatter point markers. Defaults to 7.0.
+            markeredgecolor (Color, optional): The edge color of the scatter point markers.
                 Defaults to "black".
-            markeredgealpha (float | None, optional): The edge alpha transparency of the
-                scatter points. Defaults to None.
-            markeredgewidth (float, optional): The edge linewidth of the scatter points.
+            markeredgealpha (float | None, optional): The alpha transparency of the scatter
+                point marker edges. Defaults to None.
+            markeredgewidth (float, optional): The width of the scatter point marker edges.
                 Defaults to 0.8.
             labels (list[str] | None, optional): The labels for the scatter values
                 if values is a list. Defaults to None.
             column (str | None, optional): The column name to use if values is a DataFrame.
-                Defaults to None.
-            x_offset (float | None, optional): An optional absolute x-offset from category center.
+            x_offset (float | None, optional): An absolute x-offset from category center.
                 Defaults to None.
             zorder (int, optional): The z-order of the scatter points. Defaults to 4.
-            add_extra_labels (bool, optional): Whether to allow adding new labels
-                not in existing sets. Defaults to False.
+            add_extra_labels (bool, optional): Whether to allow adding new labels.
+                Defaults to False.
 
         Raises:
             ValueError: If the labels of the incoming scatter set do not match the existing labels
@@ -464,6 +486,8 @@ class BoxPlot(GerryPlotBase):
 
         Kwargs:
             linecolor (Color, optional): The color of the vertical lines. Defaults to "#cccccc".
+            linealpha (float, optional): The alpha transparency of the vertical lines.
+                Defaults to 1.0.
             linestyle (str, optional): The linestyle of the vertical lines. Defaults to "-".
             linewidth (float, optional): The width of the vertical lines. Defaults to 0.8.
             zorder (int, optional): The z-order of the vertical lines. Defaults to -3.
@@ -487,39 +511,19 @@ class BoxPlot(GerryPlotBase):
         self._vertical_lines.clear()
         self._vertical_bands.clear()
 
-    def _set_x_axis(self) -> None:
-        x_limits = self._x_limits if self._x_limits is not None else self.ax.get_xlim()
-        self.ax.set_xlim(x_limits)
+    def _default_x_tick_locations(self) -> list[float] | None:
+        """Get default x-tick locations at the center of each boxplot group."""
+        return list(self._boxplot_centers)
 
-        if self._x_tick_locations is not None:
-            x_tick_locations = list(self._x_tick_locations)
-        else:
-            x_tick_locations = list(self._boxplot_centers)
-
-        self.ax.set_xticks(ticks=x_tick_locations)
-
-        if self._x_tick_labels == []:
-            self.ax.tick_params(axis="x", labelbottom=False)
-            return
-
-        if self._x_tick_labels is None:
-            # User explicitly overrode locations (including []): leave existing labels alone.
-            if self._x_tick_locations is not None:
-                return
-            # Default behavior: label categories.
-            x_tick_labels = self._labels
-        else:
-            x_tick_labels = self._x_tick_labels
-
-        if x_tick_labels is None:
-            return
-
-        if len(x_tick_labels) != len(x_tick_locations):
-            raise ValueError(
-                f"Expected {len(x_tick_locations)} x tick labels, got {len(x_tick_labels)}."
-            )
-
-        self.ax.set_xticklabels(list(x_tick_labels))
+    def _default_x_tick_labels(self, tick_locations: list[float]) -> list[str] | None:
+        """Get default x-tick labels for the boxplot categories."""
+        if self._labels is None:
+            return None
+        # Only apply category labels when lengths match; if the user overrides locations to
+        # something else, leave labels alone unless they explicitly set them.
+        if len(tick_locations) == len(self._labels):
+            return list(self._labels)
+        return None
 
     def _draw_boxplot_group_vlines(self) -> None:
         """Draw vertical lines at the center of boxplot groups."""
@@ -542,12 +546,23 @@ class BoxPlot(GerryPlotBase):
             return np.array([])
 
         n_categories = len(self._labels)
-        step = self.boxplot_group_width + self.boxplot_group_gap
-        centers = 1.0 + np.arange(n_categories) * step
+        centers = 1.0 + np.arange(n_categories, dtype=float)
         return centers
 
     def _draw_scatter_sets(self, centers: np.ndarray, *, span: float | None = None) -> None:
-        """Draw scatter sets on the plot."""
+        """Draw scatter sets on the plot.
+
+        Args:
+            centers (np.ndarray): The x-axis centers for each boxplot category.
+
+        Kwargs:
+            span (float | None, optional): The total span for auto-offsetting scatter sets.
+                Defaults to None, which uses 80% of boxplot_group_width or 0.8, whichever is
+                smaller.
+
+        Returns:
+            None
+        """
         if len(self._scatter_data_list) == 0 or self._labels is None:
             return
 
@@ -570,7 +585,7 @@ class BoxPlot(GerryPlotBase):
             self.ax.plot(
                 xs[mask],
                 ys[mask],
-                linestyle="",
+                linestyle="none",
                 clip_on=True,
                 rasterized=True,
                 **sdata.point_data.to_mpl_settings_dict(),
@@ -579,7 +594,7 @@ class BoxPlot(GerryPlotBase):
     def _build_plot(self) -> Axes:
         """Build the boxplot figure."""
         if self._labels is None or len(self._labels) == 0:
-            raise ValueError("No boxplot sets added yet.")
+            raise ValueError("No labels defined yet.")
 
         if len(self._boxplot_data_list) == 0:
             raise ValueError("No boxplot sets added yet.")
@@ -596,7 +611,7 @@ class BoxPlot(GerryPlotBase):
         box_width = self.boxplot_group_width / n_boxplot_sets
         # center the offsets around the category center
         offsets = (np.arange(n_boxplot_sets) - (n_boxplot_sets - 1) / 2.0) * box_width
-        widths = box_width * 0.9
+        widths = box_width * self.boxplot_width_scale
 
         for k, boxplot_data in enumerate(self._boxplot_data_list):
             pos_k_all = centers + offsets[k]
@@ -620,7 +635,7 @@ class BoxPlot(GerryPlotBase):
                 patch_artist=True,
                 showfliers=boxplot_data.showfliers,
                 whis=boxplot_data.percentiles,
-                flierprops=boxplot_data.flierdata.to_mpl_settings_dict(),
+                flierprops=boxplot_data.fliersettings.to_mpl_settings_dict(),
             )
 
             edgecolor = mcolors.to_rgba(boxplot_data.edge_color, alpha=boxplot_data.edge_alpha)
@@ -661,7 +676,11 @@ class BoxPlot(GerryPlotBase):
         return ax
 
     def _get_boxplot_legend_handles(self) -> list[Any]:
-        """Generate legend handles for boxplot sets."""
+        """Generate legend handles for boxplot sets.
+
+        Returns:
+            list[Any]: A list of legend handles for the boxplot sets.
+        """
         handles: list[Any] = []
 
         for boxplot_data in self._boxplot_data_list:
@@ -678,7 +697,11 @@ class BoxPlot(GerryPlotBase):
         return handles
 
     def _get_scatter_legend_handles(self) -> list[Any]:
-        """Generate legend handles for scatter sets."""
+        """Generate legend handles for scatter sets.
+
+        Returns:
+            list[Any]: A list of legend handles for the scatter sets.
+        """
         handles: list[Any] = []
 
         for sdata in self._scatter_data_list:
@@ -686,7 +709,7 @@ class BoxPlot(GerryPlotBase):
                 Line2D(
                     [0],
                     [0],
-                    linestyle="",
+                    linestyle="none",
                     label=sdata.name,
                     **sdata.point_data.to_mpl_settings_dict(),
                 )
@@ -696,7 +719,7 @@ class BoxPlot(GerryPlotBase):
 
     @property
     def _legend_handles(self) -> list[Any]:
-        """Generate legend handles for boxplot and scatter sets."""
+        """Generated legend handles for boxplot and scatter sets."""
         handles: list[Any] = []
 
         handles.extend(self._get_boxplot_legend_handles())
