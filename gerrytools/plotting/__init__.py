@@ -5,7 +5,6 @@ and violin plots 🎻.
 
 from .annotation import arrow, ideal
 from .bins import bins
-from .boxplot import boxplot
 from .choropleth import choropleth
 from .colors import districtr, flare, latex, purples, redbluecmap
 from .districtnumbers import districtnumbers
@@ -27,7 +26,6 @@ __all__ = [
     "districtr",
     "histogram",
     "violin",
-    "boxplot",
     "scatterplot",
     "sealevel",
     "multidimensional",

@@ -3,7 +3,7 @@ import random
 import numpy as np
 from matplotlib.axes import Axes
 
-from .colors import defaultGray
+from .colors import DEFAULT_GREY
 from .utils import sort_elections
 
 
@@ -62,7 +62,7 @@ def sealevel(ax, scores, num_districts, proposed_info, ticksize=12) -> Axes:
         ax.set_yticks(yticks)
         ax.set_yticklabels(yticklabels)
 
-    ax.axhline(0.5, color=defaultGray, label="50%")
+    ax.axhline(0.5, color=DEFAULT_GREY, label="50%")
     ax.set_xticks(range(len(elections)))
     ax.set_xticklabels(elections, fontsize=ticksize)
     ax.set_ylim(-0.02, 1)

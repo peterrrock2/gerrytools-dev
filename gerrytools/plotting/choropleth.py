@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.axes import Axes
 
-from .colors import overlays as overlaycolors
+from .colors import OVERLAYS as overlaycolors
 from .districtnumbers import districtnumbers
 
 
