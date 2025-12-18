@@ -429,7 +429,7 @@ def test_highlight_rows_hex_color_and_generate_body(table_defaults):
     table.highlight_rows(0, color="#abcdef")
 
     body = table._generate_body()
-    assert r"\rowcolor[HTML]{ABCDEF}" in body
+    assert r"\rowcolor[HTML]{abcdef}" in body
 
 
 def test_highlight_rows_rgb_float_and_generate_body(table_defaults):

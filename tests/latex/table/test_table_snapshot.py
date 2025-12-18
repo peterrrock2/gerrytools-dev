@@ -373,7 +373,7 @@ def test_diverging_gradient_command_image_snapshot(table_plain, tmp_path):
         ("latex", "teal"),
         ("hex", "#FF0000"),
         ("rgb", (0.0, 1.0, 0.0)),
-        ("RGB", (0, 0, 255)),
+        ("RGB255", (0, 0, 255)),
     ],
 )
 def test_simple_highlight_snapshot(
@@ -403,7 +403,7 @@ def test_simple_highlight_snapshot(
         ("latex", "denim!50"),
         ("hex", "#FFFF00"),
         ("rgb", (0, 1.0, 1.0)),
-        ("RGB", (255, 0, 255)),
+        ("RGB255", (255, 0, 255)),
     ],
 )
 def test_simple_highlight_between_snapshot(table_plain, tmp_path, colortype, color):

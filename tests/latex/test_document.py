@@ -56,7 +56,7 @@ def test_document_add_color():
     output = str(doc)
     assert r"\definecolor{myblue}{RGB}{0,0,255}" in output
     assert r"\definecolor{myred}{rgb}{1.00,0.00,0.00}" in output
-    assert r"\definecolor{mygreen}{HTML}{00FF00}" in output
+    assert r"\definecolor{mygreen}{HTML}{00ff00}" in output
 
 
 def test_document_bad_color_raises():
