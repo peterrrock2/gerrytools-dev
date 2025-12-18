@@ -41,9 +41,7 @@ def _reock(dissolved_gdf: GeoDataFrame):
     )
     part_scores = {}
     for part, nodes in geo_partition.parts.items():
-        geom = unary_union(
-            [geometries[node] for node in nodes if node in boundary]
-        ).convex_hull
+        geom = unary_union([geometries[node] for node in nodes if node in boundary]).convex_hull
         coords = np.array(geom.exterior.coords.xy).T.astype(np.float32)
         _, radius = minEnclosingCircle(coords)
         score = float(geo_partition["area"][part] / (pi * radius**2))
@@ -146,8 +144,6 @@ def _pop_polygon(dissolved_gdf: GeoDataFrame, block_gdf: GeoDataFrame, pop_col: 
     pop_polygon_scores = {}
     for part in geo_partition.parts:
         hull_gdf = gpd.clip(block_gdf, district_hulls[part - 1])
-        pop_polygon_scores[part] = geo_partition["population"][part] / sum(
-            hull_gdf[pop_col]
-        )
+        pop_polygon_scores[part] = geo_partition["population"][part] / sum(hull_gdf[pop_col])
 
     return pop_polygon_scores

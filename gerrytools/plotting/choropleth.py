@@ -2,7 +2,6 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.axes import Axes
-import geopandas as gpd
 
 from .colors import overlays as overlaycolors
 from .districtnumbers import districtnumbers
@@ -94,9 +93,7 @@ def choropleth(
 
     # Plot geometries!
     if assignment is not None:
-        geometries = geometries.dissolve(
-            by=assignment, aggfunc={demographic_share_col: "sum"}
-        )
+        geometries = geometries.dissolve(by=assignment, aggfunc={demographic_share_col: "sum"})
 
     geometries.plot(
         column=demographic_share_col,
@@ -125,23 +122,17 @@ def choropleth(
     # Plot each of the overlays, adjusting CRSes and applying colors as we go.
     for idx, geom in enumerate(overlays):
         geom = geom.to_crs(geometries.crs)
-        geom.boundary.plot(
-            edgecolor=overlaycolors[-(idx + 1)], linewidth=1 / 4, ax=base
-        )
+        geom.boundary.plot(edgecolor=overlaycolors[-(idx + 1)], linewidth=1 / 4, ax=base)
 
     # If district geometries are provided, plot them as well.
     if districts is not None:
         # if assignment is not None:
         #     districts = districts.dissolve(by=assignment).reset_index()
-        districts.plot(
-            edgecolor=district_linecolor, linewidth=district_lw, ax=base, color="None"
-        )
+        districts.plot(edgecolor=district_linecolor, linewidth=district_lw, ax=base, color="None")
 
     # If district numbers are to be plotted, plot those too!
     if numbers and assignment:
-        base = districtnumbers(
-            base, districts, assignment=assignment, fontsize=fontsize
-        )
+        base = districtnumbers(base, districts, assignment=assignment, fontsize=fontsize)
 
     # Turn plot vertical/horizontal axes off and return base Axes.
     base.set_axis_off()

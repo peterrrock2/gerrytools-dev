@@ -97,8 +97,7 @@ def violin(
                     score,
                     color=(
                         scores["proposed"]["colors"][violin]
-                        if not isinstance(scores["proposed"], list)
-                        and scores["proposed"]["colors"]
+                        if not isinstance(scores["proposed"], list) and scores["proposed"]["colors"]
                         else districtr(plan + 1).pop()
                     ),
                     edgecolor="black",

@@ -60,9 +60,7 @@ def drawplan(
 
     # If the `numbers` flag is passed, plot the numbers for each district.
     if numbers:
-        base = districtnumbers(
-            base, districts, assignment=assignment, fontsize=fontsize
-        )
+        base = districtnumbers(base, districts, assignment=assignment, fontsize=fontsize)
 
     # Turn plot axes off.
     plt.axis("off")

@@ -113,7 +113,7 @@ def ben(
         try:
             print(f"Pulling Docker image {config_args['image']}")
             client.images.pull(config_args["image"])
-        except Exception as e:
+        except Exception:
             print(
                 f"Error comparing docker container {config_args['image']} against web version. "
                 f"Attempting to run using local image"
@@ -199,7 +199,7 @@ def ben_replay(
         try:
             print(f"Pulling Docker image {config_args['image']}")
             client.images.pull(config_args["image"])
-        except Exception as e:
+        except Exception:
             print(
                 f"Error comparing docker container {config_args['image']} against web version. "
                 f"Attempting to run using local image"

@@ -58,7 +58,7 @@ def msms_parse(
     try:
         print(f"Pulling Docker image {docker_image_name}")
         client.images.pull(docker_image_name)
-    except Exception as e:
+    except Exception:
         print(
             f"Error comparing docker container {docker_image_name} against web version. "
             f"Attempting to run using local image"
@@ -250,7 +250,7 @@ def smc_parse(
     try:
         print(f"Pulling Docker image {docker_image_name}")
         client.images.pull(docker_image_name)
-    except Exception as e:
+    except Exception:
         print(
             f"Error comparing docker container {docker_image_name} against web version. "
             f"Attempting to run using local image"

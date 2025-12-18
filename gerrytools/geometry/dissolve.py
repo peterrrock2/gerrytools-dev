@@ -9,14 +9,10 @@ from geopandas import GeoDataFrame
 from pandas import DataFrame
 from shapely.ops import unary_union
 
-S3_CENSUS_2020_BASE = (
-    "http://data.mggg.org.s3-website.us-east-2.amazonaws.com/census-2020"
-)
+S3_CENSUS_2020_BASE = "http://data.mggg.org.s3-website.us-east-2.amazonaws.com/census-2020"
 
 
-def dissolve(
-    geometries, by="DISTRICTN", reset_index=True, keep=[], aggfunc="sum"
-) -> GeoDataFrame:
+def dissolve(geometries, by="DISTRICTN", reset_index=True, keep=[], aggfunc="sum") -> GeoDataFrame:
     """
     Dissolves `geometries` on the column `by`. Intended to dissolve a set of
     source geometries (e.g. VTDs, blocks, block groups, etc.) to district
@@ -58,14 +54,10 @@ class StateHierarchy:
     counties: Optional[gpd.GeoDataFrame]
 
     @staticmethod
-    def from_s3(
-        cls, state: us.states.State, base: str = S3_CENSUS_2020_BASE
-    ) -> "StateHierarchy":
+    def from_s3(cls, state: us.states.State, base: str = S3_CENSUS_2020_BASE) -> "StateHierarchy":
         """Loads 2020 U.S. Census data from S3 (data.mggg)."""
         state_abbr = str(state.abbr).lower()
-        blocks = gpd.read_file(f"{base}/{state_abbr}/{state_abbr}_block.zip").set_index(
-            "GEOID20"
-        )
+        blocks = gpd.read_file(f"{base}/{state_abbr}/{state_abbr}_block.zip").set_index("GEOID20")
         block_groups = (
             gpd.read_file(f"{base}/{state_abbr}/{state_abbr}_bg.zip")
             .to_crs(blocks.crs)

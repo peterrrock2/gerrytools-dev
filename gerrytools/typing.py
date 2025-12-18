@@ -1,5 +1,5 @@
 import re
-from typing import Any, Callable, TypeAlias, Union
+from typing import Any, Callable, Literal, TypeAlias, Union
 
 Color: TypeAlias = Union[str, tuple[int | float, int | float, int | float]]
 
@@ -18,6 +18,9 @@ mplRGBAColorType: TypeAlias = (
 
 mplColorType: TypeAlias = mplRGBColorType | mplRGBAColorType
 
+# Type alias for tick types in Matplotlib
+TickType = Literal["major", "minor", "both"]
+
 
 def _check_is_hex_color(color: Any) -> bool:
     """Check if a string is a valid hex color.
@@ -31,7 +34,5 @@ def _check_is_hex_color(color: Any) -> bool:
     if not isinstance(color, str):
         return False
 
-    _HEX_RE = re.compile(
-        r"^#?(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
-    )
+    _HEX_RE = re.compile(r"^#?(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$")
     return bool(_HEX_RE.match(color))

@@ -1,5 +1,5 @@
 from collections.abc import Mapping, Sequence
-from typing import TypeAlias, Union
+from typing import Union
 
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt

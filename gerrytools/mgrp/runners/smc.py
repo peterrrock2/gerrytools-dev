@@ -1,5 +1,4 @@
 import os
-import subprocess
 from dataclasses import dataclass, field
 from typing import List, Optional
 
@@ -43,10 +42,10 @@ class SMCRedistInfo:
     compactness: float = 1.0
     """The compactness parameter to be used in the SMC algorithm."""
     resample: bool = False
-    """Whether to perform a final resampling step so that the generated plans can 
+    """Whether to perform a final resampling step so that the generated plans can
         be used immediately."""
     adapt_k_thresh: float = 0.985
-    """The threshold value used in the heuristic to select a value of :math:`k_i` for 
+    """The threshold value used in the heuristic to select a value of :math:`k_i` for
         each splitting iteration. Must be in the range [0, 1]."""
     seq_alpha: float = 0.5
     """The amount to adjust the weights by at each resampling step. Must be in the range [0, 1]."""
@@ -57,7 +56,7 @@ class SMCRedistInfo:
     """A multiplier for the population constraint on the final iteration. Used to loosen the
         constraint when the sampler is getting suck on the final split."""
     est_label_mult: float = 1.0
-    """A multiplier for the number of importance samples to use in estimating the number of 
+    """A multiplier for the number of importance samples to use in estimating the number of
         ways to sequentially label the districts"""
     verbose: bool = False
     """Whether or not to log the intermediate information during the running of SMC"""
