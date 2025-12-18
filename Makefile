@@ -5,6 +5,8 @@ VENV_DIR ?= .venv
 PKG ?= gerrytools
 TEST_PATHS ?= tests
 
+export UV_MANAGED_PYTHON = 1
+
 .PHONY: help setup install dev install-docs test type-check lint format precommit docs clean snapshots
 
 
@@ -63,15 +65,15 @@ snapshots:
 check:
 	$(MAKE) format
 	$(MAKE) lint
+	#$(MAKE) type-check
 
 test:
 	@echo "Running test suite..."
 	PYTHONHASHSEED=0 uv run pytest -v $(TEST_PATHS)
 
-# Add this in later
-# type-check:
-# 	@echo "Running type checking with mypy..."
-# 	uv run mypy $(PKG) ${TEST_PATHS}
+type-check:
+	@echo "Running type checking with ty..."
+	uv run ty check $(PKG) $(TEST_PATHS)
 
 format:
 	@echo "Formatting codebase with black..."
