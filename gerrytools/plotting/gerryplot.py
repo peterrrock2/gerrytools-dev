@@ -14,14 +14,15 @@ from matplotlib.patches import Patch
 
 from gerrytools.logging import get_logger
 from gerrytools.plotting.colors import resolve_color_and_alpha
+from gerrytools.plotting.utils import _coerce_real_iter
 from gerrytools.typing import Color, TickType
 
 logger = get_logger(__name__)
 
 
 @dataclass(frozen=True)
-class ScatterPointSettings:
-    """Settings for points on a scatter plot (or for functions that use similar artists).
+class PointMarkerSettings:
+    """Settings for points on a matplotlib plot (or for functions that use similar artists).
 
     Attributes:
         markerfacecolor (Color): The fill color of the marker. Defaults to "none".
@@ -60,46 +61,46 @@ class ScatterPointSettings:
             raise ValueError("markersize must be nonnegative")
         object.__setattr__(self, "markersize", s)
 
-        resolfed_mfc, resolved_mfa = resolve_color_and_alpha(
+        resolved_mfc, resolved_mfa = resolve_color_and_alpha(
             self.markerfacecolor,
             self.markerfacealpha,
             allow_none=True,
             field="markerfacecolor",
-            owner="ScatterPointSettings",
+            owner="PointMarkerSettings",
             logger=logger,
         )
 
-        object.__setattr__(self, "markerfacecolor", resolfed_mfc)
+        object.__setattr__(self, "markerfacecolor", resolved_mfc)
         object.__setattr__(self, "markerfacealpha", resolved_mfa)
 
-        resolfed_mec, resolved_mea = resolve_color_and_alpha(
+        resolved_mec, resolved_mea = resolve_color_and_alpha(
             self.markeredgecolor,
             self.markeredgealpha,
             allow_none=True,
             field="markeredgecolor",
-            owner="ScatterPointSettings",
+            owner="PointMarkerSettings",
             logger=logger,
         )
 
-        object.__setattr__(self, "markeredgecolor", resolfed_mec)
+        object.__setattr__(self, "markeredgecolor", resolved_mec)
         object.__setattr__(self, "markeredgealpha", resolved_mea)
 
-        if resolfed_mec.lower() == "none" and lw > 0:
+        if resolved_mec.lower() == "none" and lw > 0:
             logger.log(
                 level=logging.DEBUG,
                 msg=(
-                    "ScatterPointSettings: markeredgecolor is 'none' but "
+                    "PointMarkerSettings: markeredgecolor is 'none' but "
                     f"markeredgewidth is {lw}>0; setting markeredgewidth to 0."
                 ),
             )
             object.__setattr__(self, "markeredgewidth", 0.0)
 
     def to_mpl_settings_dict(self) -> dict[str, Any]:
-        """Convert the ScatterPointSettings to a dictionary.
+        """Convert the PointMarkerSettings to a dictionary.
 
         Returns:
-            dict[str, Any]: A dictionary representation of the ScatterPointSettings that
-                can be passed to Matplotlib scatter plot functions.
+            dict[str, Any]: A dictionary representation of the PointMarkerSettings that
+                can be passed to Matplotlib plot functions.
         """
         # Matplotlib alpha applies to the entire marker, so we need to
         # apply alpha to the facecolor and edgecolor separately to get things to
@@ -283,10 +284,12 @@ class TickStyle:
     ticktype: TickType = "major"
 
     def __post_init__(self) -> None:
-        if isinstance(self.fontalpha, (int, float)) and not (0.0 <= self.fontalpha <= 1.0):
-            raise ValueError("fontalpha must be between 0.0 and 1.0")
-        if isinstance(self.tickalpha, (int, float)) and not (0.0 <= self.tickalpha <= 1.0):
-            raise ValueError("tickalpha must be between 0.0 and 1.0")
+        if not isinstance(self.size, (int, float)):
+            raise TypeError("TickStyle.size must be a float or int.")
+        if not math.isfinite(self.size):
+            raise ValueError("TickStyle.size must be finite.")
+        if not float(self.size) >= 0:
+            raise ValueError("TickStyle.size must be nonnegative.")
 
         resolved_fc, resolved_fa = resolve_color_and_alpha(
             self.fontcolor,
@@ -309,6 +312,9 @@ class TickStyle:
         )
         object.__setattr__(self, "tickcolor", resolved_tc)
         object.__setattr__(self, "tickalpha", resolved_ta)
+
+        if self.ticktype not in ("major", "minor", "both"):
+            raise ValueError("TickStyle.ticktype must be 'major', 'minor', or 'both'.")
 
 
 class GerryPlotBase(ABC):
@@ -386,11 +392,14 @@ class GerryPlotBase(ABC):
         """
         if isinstance(x_values, (str, bytes)):
             raise TypeError("x_values must be a number or an iterable of numbers, not a string.")
+        if isinstance(x_values, bool):
+            raise TypeError("x_values must be a number or an iterable of numbers, not a bool.")
         # Safe to shadow here because we pass ints and floats by value not object reference
         if isinstance(x_values, Real):
             x_values = [float(x_values)]
 
-        for xv in x_values:
+        xs = _coerce_real_iter(x_values, field="x_values")
+        for xv in xs:
             self._vertical_lines.append(
                 LineData(
                     value=float(xv),
@@ -487,12 +496,16 @@ class GerryPlotBase(ABC):
             None
         """
         if isinstance(y_values, (str, bytes)):
-            raise TypeError("x_values must be a number or an iterable of numbers, not a string.")
+            raise TypeError("y_values must be a number or an iterable of numbers, not a string.")
+        if isinstance(y_values, bool):
+            raise TypeError("y_values must be a number or an iterable of numbers, not a bool.")
         # Safe to shadow here because we pass ints and floats by value not object reference
         if isinstance(y_values, Real):
             y_values = [float(y_values)]
 
-        for yv in y_values:
+        ys = _coerce_real_iter(y_values, field="y_values")
+
+        for yv in ys:
             self._horizontal_lines.append(
                 LineData(
                     value=float(yv),
@@ -692,6 +705,10 @@ class GerryPlotBase(ABC):
                     f"Locations length {len(locations)} does not match existing labels length "
                     f"{len(self._x_tick_labels)}."
                 )
+            if locations == [] and labels is None:
+                self._x_tick_locations = []
+                self._x_tick_labels = []
+                return
             self._x_tick_locations = list(locations)
             return
 
@@ -762,6 +779,10 @@ class GerryPlotBase(ABC):
                     f"Locations length {len(locations)} does not match existing labels length "
                     f"{len(self._y_tick_labels)}."
                 )
+            if locations == [] and labels is None:
+                self._y_tick_locations = []
+                self._y_tick_labels = []
+                return
             self._y_tick_locations = list(locations)
             return
 
@@ -918,7 +939,7 @@ class GerryPlotBase(ABC):
         Returns:
             None
         """
-        style = TickStyle(
+        self._x_tick_style = TickStyle(
             size=size,
             rotation=rotation,
             fontcolor=fontcolor,
@@ -930,8 +951,6 @@ class GerryPlotBase(ABC):
             fontfamily=fontfamily,
             ticktype=ticktype,
         )
-        self._x_tick_style = style
-        self._apply_tick_style("x", style)
 
     def set_yaxis_tick_style(
         self,
@@ -971,7 +990,7 @@ class GerryPlotBase(ABC):
         Returns:
             None
         """
-        style = TickStyle(
+        self._y_tick_style = TickStyle(
             size=size,
             rotation=rotation,
             fontcolor=fontcolor,
@@ -983,8 +1002,6 @@ class GerryPlotBase(ABC):
             fontfamily=fontfamily,
             ticktype=ticktype,
         )
-        self._y_tick_style = style
-        self._apply_tick_style("y", style)
 
     def clear_xtick_labels(self) -> None:
         """Clear x-tick labels."""
@@ -1038,10 +1055,10 @@ class GerryPlotBase(ABC):
         """Hide the frame of the plot.
 
         Args:
-            show_top (bool, optional): Whether to hide the top spine. Defaults to True.
-            show_right (bool, optional): Whether to hide the right spine. Defaults to True.
-            show_left (bool, optional): Whether to hide the left spine. Defaults to True.
-            show_bottom (bool, optional): Whether to hide the bottom spine. Defaults to True.
+            show_top (bool, optional): Whether to show the top spine. Defaults to True.
+            show_right (bool, optional): Whether to show the right spine. Defaults to True.
+            show_left (bool, optional): Whether to show the left spine. Defaults to True.
+            show_bottom (bool, optional): Whether to show the bottom spine. Defaults to True.
 
         Returns:
             None
