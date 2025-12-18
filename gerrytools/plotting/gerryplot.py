@@ -3,7 +3,8 @@ import math
 import weakref
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any
+from numbers import Real
+from typing import Any, Iterable, Literal
 
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
@@ -12,14 +13,29 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 
 from gerrytools.logging import get_logger
-from gerrytools.plotting.colors import HEX8_OR_NONE_PATTERN, convert_color_to_hexa_or_none
-from gerrytools.typing import Color
+from gerrytools.plotting.colors import resolve_color_and_alpha
+from gerrytools.typing import Color, TickType
 
 logger = get_logger(__name__)
 
 
 @dataclass(frozen=True)
 class ScatterPointSettings:
+    """Settings for points on a scatter plot (or for functions that use similar artists).
+
+    Attributes:
+        markerfacecolor (Color): The fill color of the marker. Defaults to "none".
+        markerfacealpha (float | None): The alpha transparency of the marker face color.
+            If None, uses the alpha from the color if specified. Defaults to None.
+        marker (str): The marker style. Defaults to "o".
+        markersize (float): The size of the marker. Defaults to 6.0.
+        markeredgecolor (Color): The edge color of the marker. Defaults to "black".
+        markeredgealpha (float | None): The alpha transparency of the marker edge color.
+            If None, uses the alpha from the color if specified. Defaults to None.
+        markeredgewidth (float): The width of the marker edge. Defaults to 0.6.
+        zorder (int): The z-order of the marker. Defaults to 4.
+    """
+
     markerfacecolor: Color = "none"
     markerfacealpha: float | None = None
     marker: str = "o"
@@ -30,70 +46,12 @@ class ScatterPointSettings:
     zorder: int = 4
 
     def __post_init__(self) -> None:
-        new_color = convert_color_to_hexa_or_none(self.markerfacecolor)
-        if HEX8_OR_NONE_PATTERN.match(new_color) is None:
-            raise ValueError(f"Invalid color after conversion: {new_color!r}")
-
-        if new_color.lower() == "none":
-            object.__setattr__(self, "markerfacecolor", new_color)
-            object.__setattr__(self, "markerfacealpha", 0.0)
-
-        else:
-            hex_color, alpha_from_color = new_color[:7], int(new_color[7:], 16) / 255.0
-            object.__setattr__(self, "markerfacecolor", hex_color)
-
-            old_alpha: float | None = (
-                float(self.markerfacealpha) if self.markerfacealpha is not None else None
-            )
-            if old_alpha is not None and not (0.0 <= old_alpha <= 1.0):
-                raise ValueError("Alpha must be between 0.0 and 1.0")
-
-            if old_alpha is not None and old_alpha != alpha_from_color:
-                logger.log(
-                    level=logging.DEBUG,
-                    msg=(
-                        f"In ScatterPointSettings ignoring alpha from color {new_color} "
-                        f"because explicit alpha {old_alpha} was provided."
-                    ),
-                )
-
-            if old_alpha is None:
-                object.__setattr__(self, "markerfacealpha", alpha_from_color)
-            else:
-                object.__setattr__(self, "markerfacealpha", old_alpha)
-
         lw = float(self.markeredgewidth)
         if not math.isfinite(lw):
             raise ValueError("markeredgewidth must be finite")
         if lw < 0:
             raise ValueError("markeredgewidth must be nonnegative")
         object.__setattr__(self, "markeredgewidth", lw)
-
-        new_edge_color = convert_color_to_hexa_or_none(self.markeredgecolor)
-        if HEX8_OR_NONE_PATTERN.match(new_edge_color) is None:
-            raise ValueError(f"Invalid color after conversion: {new_edge_color!r}")
-
-        if new_edge_color.lower() == "none":
-            object.__setattr__(self, "markeredgecolor", new_edge_color)
-            object.__setattr__(self, "markeredgealpha", 0.0)
-        else:
-            object.__setattr__(self, "markeredgecolor", new_edge_color[:7])
-            edge_alpha_from_color = int(new_edge_color[7:], 16) / 255.0
-            if self.markeredgealpha is not None:
-                old_edge_alpha = float(self.markeredgealpha)
-                if not (0.0 <= old_edge_alpha <= 1.0):
-                    raise ValueError("markeredgealpha must be between 0.0 and 1.0")
-                if old_edge_alpha != edge_alpha_from_color:
-                    logger.log(
-                        level=logging.DEBUG,
-                        msg=(
-                            f"In ScatterPointSettings ignoring alpha from edge color {new_edge_color} "
-                            f"because explicit markeredgealpha {old_edge_alpha} was provided."
-                        ),
-                    )
-                object.__setattr__(self, "markeredgealpha", old_edge_alpha)
-            else:
-                object.__setattr__(self, "markeredgealpha", edge_alpha_from_color)
 
         s = float(self.markersize)
         if not math.isfinite(s):
@@ -102,11 +60,46 @@ class ScatterPointSettings:
             raise ValueError("markersize must be nonnegative")
         object.__setattr__(self, "markersize", s)
 
+        resolfed_mfc, resolved_mfa = resolve_color_and_alpha(
+            self.markerfacecolor,
+            self.markerfacealpha,
+            allow_none=True,
+            field="markerfacecolor",
+            owner="ScatterPointSettings",
+            logger=logger,
+        )
+
+        object.__setattr__(self, "markerfacecolor", resolfed_mfc)
+        object.__setattr__(self, "markerfacealpha", resolved_mfa)
+
+        resolfed_mec, resolved_mea = resolve_color_and_alpha(
+            self.markeredgecolor,
+            self.markeredgealpha,
+            allow_none=True,
+            field="markeredgecolor",
+            owner="ScatterPointSettings",
+            logger=logger,
+        )
+
+        object.__setattr__(self, "markeredgecolor", resolfed_mec)
+        object.__setattr__(self, "markeredgealpha", resolved_mea)
+
+        if resolfed_mec.lower() == "none" and lw > 0:
+            logger.log(
+                level=logging.DEBUG,
+                msg=(
+                    "ScatterPointSettings: markeredgecolor is 'none' but "
+                    f"markeredgewidth is {lw}>0; setting markeredgewidth to 0."
+                ),
+            )
+            object.__setattr__(self, "markeredgewidth", 0.0)
+
     def to_mpl_settings_dict(self) -> dict[str, Any]:
         """Convert the ScatterPointSettings to a dictionary.
 
         Returns:
-            dict[str, Any]: A dictionary representation of the ScatterPointSettings.
+            dict[str, Any]: A dictionary representation of the ScatterPointSettings that
+                can be passed to Matplotlib scatter plot functions.
         """
         # Matplotlib alpha applies to the entire marker, so we need to
         # apply alpha to the facecolor and edgecolor separately to get things to
@@ -123,6 +116,19 @@ class ScatterPointSettings:
 
 @dataclass(frozen=True)
 class LineData:
+    """Data class representing a line to be drawn on a plot.
+
+    Attributes:
+        value (float): The position of the line on the axis.
+        linecolor (Color): The color of the line.
+        linealpha (float | None): The alpha transparency of the line color.
+            If None, uses the alpha from the color if specified.
+        linestyle (str): The style of the line (e.g., '-', '--', '-.', ':').
+        linewidth (float): The width of the line.
+        zorder (int): The z-order of the line.
+        name (str | None): The name of the line for legend purposes.
+    """
+
     value: float
     linecolor: Color = "#cccccc"
     linealpha: float | None = None
@@ -132,33 +138,6 @@ class LineData:
     name: str | None = None
 
     def __post_init__(self) -> None:
-        hex8 = convert_color_to_hexa_or_none(self.linecolor)
-        if HEX8_OR_NONE_PATTERN.match(hex8) is None:
-            raise ValueError(f"Line color {self.linecolor} could not be converted to valid color.")
-
-        if hex8.lower() == "none":
-            raise ValueError("LineData.linecolor cannot be 'none'.")
-
-        object.__setattr__(self, "linecolor", hex8[:7])
-        alpha_from_color = int(hex8[7:], 16) / 255.0
-
-        old_alpha: float | None = float(self.linealpha) if self.linealpha is not None else None
-        if old_alpha is not None and not (0.0 <= old_alpha <= 1.0):
-            raise ValueError("Alpha must be between 0.0 and 1.0")
-
-        if old_alpha is not None and old_alpha != alpha_from_color:
-            logger.log(
-                level=logging.DEBUG,
-                msg=(
-                    f"For LineData {self.name}: Ignoring alpha from color {hex8} "
-                    f"because explicit alpha {old_alpha} was provided."
-                ),
-            )
-        object.__setattr__(
-            self,
-            "linealpha",
-            old_alpha if old_alpha is not None else alpha_from_color,
-        )
         lw = float(self.linewidth)
         if lw < 0:
             raise ValueError("LineData.linewidth must be nonnegative.")
@@ -166,15 +145,52 @@ class LineData:
             raise ValueError("LineData.linewidth must be finite.")
         object.__setattr__(self, "linewidth", lw)
 
+        resolved_lc, resolved_la = resolve_color_and_alpha(
+            self.linecolor,
+            self.linealpha,
+            allow_none=True,
+            field="linecolor",
+            owner="LineData",
+            logger=logger,
+        )
+        object.__setattr__(self, "linecolor", resolved_lc)
+        object.__setattr__(self, "linealpha", resolved_la)
+
+        if resolved_lc.lower() == "none" and lw > 0:
+            logger.log(
+                level=logging.DEBUG,
+                msg=(
+                    "LineData: linecolor is 'none' but "
+                    f"linewidth is {lw}>0; setting linewidth to 0."
+                ),
+            )
+            object.__setattr__(self, "linewidth", 0.0)
+
         object.__setattr__(self, "zorder", int(self.zorder))
 
 
 @dataclass(frozen=True)
 class BandData:
+    """Data class representing a band to be drawn on a plot.
+
+    Attributes:
+        lower_bound (float): The lower bound of the band.
+        upper_bound (float): The upper bound of the band.
+        bandcolor (Color): The fill color of the band.
+        alpha (float | None): The alpha transparency of the band color.
+            If None, uses the alpha from the color if specified.
+        linecolor (Color | None): The color of the bounding lines of the band.
+        linealpha (float | None): The alpha transparency of the bounding lines.
+        linestyle (str): The style of the bounding lines (e.g., '-', '--', '-.', ':').
+        linewidth (float): The width of the bounding lines.
+        zorder (int): The z-order of the band.
+        name (str | None): The name of the band for legend purposes.
+    """
+
     lower_bound: float
     upper_bound: float
     bandcolor: Color = "#cccccc"
-    alpha: float | None = None
+    bandalpha: float | None = None
     linecolor: Color | None = None
     linealpha: float | None = None
     linestyle: str = "-"
@@ -183,81 +199,121 @@ class BandData:
     name: str | None = None
 
     def __post_init__(self) -> None:
-        old_alpha: float | None = float(self.alpha) if self.alpha is not None else None
-        if old_alpha is not None and not (0.0 <= old_alpha <= 1.0):
-            raise ValueError("Alpha must be between 0.0 and 1.0")
-
-        bandcolor = self.bandcolor
-        if isinstance(bandcolor, str) and bandcolor.lower() == "none":
-            bandcolor = None
-
-        original_bandcolor = bandcolor
-        bandalpha_from_color: float | None = None
-
-        if bandcolor is not None:
-            band_hex8 = convert_color_to_hexa_or_none(bandcolor)
-            if HEX8_OR_NONE_PATTERN.match(band_hex8) is None:
-                raise ValueError(
-                    f"Band color {bandcolor} could not be converted to valid color got {band_hex8}."
-                )
-
-            bandcolor = band_hex8[:7]
-            bandalpha_from_color = int(band_hex8[7:], 16) / 255.0
-
-        object.__setattr__(self, "bandcolor", bandcolor)
-
-        if (
-            old_alpha is not None
-            and bandalpha_from_color is not None
-            and old_alpha != bandalpha_from_color
-        ):
-            logger.log(
-                level=logging.DEBUG,
-                msg=(
-                    f"For BandData {self.name}: Ignoring alpha from color {original_bandcolor} "
-                    f"because explicit alpha {old_alpha} was provided."
-                ),
-            )
-
-        if old_alpha is None:
-            object.__setattr__(self, "alpha", bandalpha_from_color)
-        else:
-            object.__setattr__(self, "alpha", old_alpha)
-
-        lb, ub = sorted([self.lower_bound, self.upper_bound])
-
+        lb, ub = sorted([float(self.lower_bound), float(self.upper_bound)])
+        if not (math.isfinite(lb) and math.isfinite(ub)):
+            raise ValueError("BandData: lower_bound and upper_bound must both be finite.")
         object.__setattr__(self, "lower_bound", lb)
         object.__setattr__(self, "upper_bound", ub)
-        linecolor_orig = self.linecolor
-        if linecolor_orig is None:
-            fallback_linecolor = self.bandcolor or "#cccccc"
-            linecolor_orig = fallback_linecolor
 
-        # treat "none" as "no border"
-        if isinstance(linecolor_orig, str) and linecolor_orig.lower() == "none":
-            object.__setattr__(self, "linecolor", "none")
-            object.__setattr__(self, "linealpha", None)
-            object.__setattr__(self, "linewidth", 0.0)
-            object.__setattr__(self, "zorder", int(self.zorder))
-            return
-
-        normalized_line = LineData(
-            value=lb,
-            linecolor=linecolor_orig,
-            linealpha=self.linealpha,
-            linestyle=self.linestyle,
-            linewidth=self.linewidth,
-            zorder=self.zorder,
+        resolved_bc, resolved_ba = resolve_color_and_alpha(
+            self.bandcolor,
+            self.bandalpha,
+            allow_none=True,
+            field="bandcolor",
+            owner="BandData",
+            logger=logger,
         )
+        object.__setattr__(self, "bandcolor", resolved_bc)
+        object.__setattr__(self, "bandalpha", resolved_ba)
 
-        object.__setattr__(self, "linecolor", normalized_line.linecolor)
-        object.__setattr__(self, "linealpha", normalized_line.linealpha)
-        object.__setattr__(self, "linestyle", normalized_line.linestyle)
-        object.__setattr__(self, "linewidth", normalized_line.linewidth)
-        object.__setattr__(self, "zorder", normalized_line.zorder)
+        lw = float(self.linewidth)
+        if lw < 0:
+            raise ValueError("BandData.linewidth must be nonnegative.")
+        if not math.isfinite(lw):
+            raise ValueError("BandData.linewidth must be finite.")
+
+        # Default linecolor: follow bandcolor unless band is none (then fallback)
+        normalized_line_color = self.linecolor
+        if normalized_line_color is None:
+            normalized_line_color = resolved_bc
+            if isinstance(normalized_line_color, str) and normalized_line_color.lower() == "none":
+                normalized_line_color = "#cccccc"
+
+        # Line color + alpha
+        resolved_lc, resolved_la = resolve_color_and_alpha(
+            normalized_line_color,
+            self.linealpha,
+            allow_none=True,
+            field="linecolor",
+            owner="BandData",
+            logger=logger,
+        )
+        object.__setattr__(self, "linecolor", resolved_lc)
+        object.__setattr__(self, "linealpha", resolved_la)
+
+        if resolved_lc.lower() == "none" and lw > 0:
+            logger.debug(
+                "BandData: linecolor is 'none' but linewidth is %s>0; setting linewidth to 0.",
+                lw,
+            )
+            lw = 0.0
+
+        object.__setattr__(self, "linewidth", lw)
+        object.__setattr__(self, "zorder", int(self.zorder))
+
+
+@dataclass(frozen=True)
+class TickStyle:
+    """Data class representing the style of axis ticks.
+
+    Attributes:
+        size (float | int): The size of the ticks. Defaults to 10.
+        rotation (float | int): The rotation angle of the tick labels in degrees. Defaults to 0.
+        fontcolor (Color): The color of the tick labels. Defaults to "black".
+        fontalpha (float | None): The alpha transparency of the tick label color.
+            If None, uses the alpha from the color if specified. Defaults to None.
+        tickcolor (Color): The color of the ticks. Defaults to "black".
+        tickalpha (float | None): The alpha transparency of the tick color.
+            If None, uses the alpha from the color if specified. Defaults to None.
+        fontweight (str): The weight of the tick label font. Defaults to "normal".
+        fontstyle (str): The style of the tick label font. Defaults to "normal".
+        fontfamily (str): The family of the tick label font. Defaults to "sans-serif".
+        ticktype (TickType): The type of ticks to apply the style to. Defaults to "major".
+    """
+
+    size: float | int = 10
+    rotation: float | int = 0
+    fontcolor: Color = "black"
+    fontalpha: float | None = None
+    tickcolor: Color = "black"
+    tickalpha: float | None = None
+    fontweight: str = "normal"
+    fontstyle: str = "normal"
+    fontfamily: str = "sans-serif"
+    ticktype: TickType = "major"
+
+    def __post_init__(self) -> None:
+        if isinstance(self.fontalpha, (int, float)) and not (0.0 <= self.fontalpha <= 1.0):
+            raise ValueError("fontalpha must be between 0.0 and 1.0")
+        if isinstance(self.tickalpha, (int, float)) and not (0.0 <= self.tickalpha <= 1.0):
+            raise ValueError("tickalpha must be between 0.0 and 1.0")
+
+        resolved_fc, resolved_fa = resolve_color_and_alpha(
+            self.fontcolor,
+            self.fontalpha,
+            allow_none=True,
+            field="fontcolor",
+            owner="TickStyle",
+            logger=logger,
+        )
+        object.__setattr__(self, "fontcolor", resolved_fc)
+        object.__setattr__(self, "fontalpha", resolved_fa)
+
+        resolved_tc, resolved_ta = resolve_color_and_alpha(
+            self.tickcolor,
+            self.tickalpha,
+            allow_none=True,
+            field="tickcolor",
+            owner="TickStyle",
+            logger=logger,
+        )
+        object.__setattr__(self, "tickcolor", resolved_tc)
+        object.__setattr__(self, "tickalpha", resolved_ta)
 
 
 class GerryPlotBase(ABC):
+    """Abstract base class for GerryPlot plotting classes."""
+
     def __init__(
         self,
         figure_size: tuple[float, float] = (10, 6),
@@ -272,6 +328,9 @@ class GerryPlotBase(ABC):
                 Defaults to (10, 6).
             dpi (int, optional): The dots per inch (DPI) of the figure. Defaults to 300.
 
+        Kwargs:
+            include_legend (bool, optional): Whether to include a legend in the plot.
+                Defaults to False.
         """
         self.fig, self.ax = plt.subplots(figsize=figure_size, dpi=dpi)
 
@@ -282,10 +341,12 @@ class GerryPlotBase(ABC):
         self._x_tick_locations: list[float] | None = None
         self._x_tick_labels: list[str] | None = None
         self._x_limits: tuple[float, float] | None = None
+        self._x_tick_style: TickStyle | None = None
 
         self._y_tick_locations: list[float] | None = None
         self._y_tick_labels: list[str] | None = None
         self._y_limits: tuple[float, float] | None = None
+        self._y_tick_style: TickStyle | None = None
 
         self._vertical_lines: list[LineData] = []
         self._vertical_bands: list[BandData] = []
@@ -294,9 +355,9 @@ class GerryPlotBase(ABC):
 
         self._finalizer = weakref.finalize(self, plt.close, self.fig)
 
-    def add_vertical_line(
+    def add_vertical_lines(
         self,
-        x_value: float,
+        x_values: float | Iterable[float],
         *,
         linecolor: Color = "#cccccc",
         linealpha: float | None = None,
@@ -308,10 +369,13 @@ class GerryPlotBase(ABC):
         """Add a vertical line to the figure.
 
         Args:
-            x_value (float): The x-value where the vertical line should be drawn.
+            x_values (float | Iterable[float]): The x-value(s) where the vertical line(s) should be
+                drawn.
 
         Kwargs:
             linecolor (Color, optional): The color of the vertical line. Defaults to "#cccccc".
+            linealpha (float | None, optional): The alpha transparency of the vertical line.
+                Defaults to None in which case the alpha from linecolor is used if specified.
             linestyle (str, optional): The linestyle of the vertical line. Defaults to "-".
             linewidth (float, optional): The width of the vertical line. Defaults to 1.0.
             zorder (int, optional): The z-order of the vertical line. Defaults to -1.
@@ -320,17 +384,24 @@ class GerryPlotBase(ABC):
         Returns:
             None
         """
-        self._vertical_lines.append(
-            LineData(
-                value=float(x_value),
-                linecolor=linecolor,
-                linealpha=linealpha,
-                linestyle=linestyle,
-                linewidth=float(linewidth),
-                zorder=zorder,
-                name=name,
+        if isinstance(x_values, (str, bytes)):
+            raise TypeError("x_values must be a number or an iterable of numbers, not a string.")
+        # Safe to shadow here because we pass ints and floats by value not object reference
+        if isinstance(x_values, Real):
+            x_values = [float(x_values)]
+
+        for xv in x_values:
+            self._vertical_lines.append(
+                LineData(
+                    value=float(xv),
+                    linecolor=linecolor,
+                    linealpha=linealpha,
+                    linestyle=linestyle,
+                    linewidth=float(linewidth),
+                    zorder=zorder,
+                    name=name,
+                )
             )
-        )
 
     def add_vertical_band(
         self,
@@ -338,7 +409,7 @@ class GerryPlotBase(ABC):
         x_high: float,
         *,
         bandcolor: Color = "#cccccc",
-        alpha: float | None = None,
+        bandalpha: float | None = None,
         linecolor: Color | None = None,
         linealpha: float | None = None,
         linestyle: str = "-",
@@ -353,12 +424,14 @@ class GerryPlotBase(ABC):
             x_high (float): The upper x-value of the vertical band.
 
         Kwargs:
-            bandcolor (Color | None, optional): The fill color of the band. Defaults to "#cccccc".
-            alpha (float | None, optional): The alpha transparency of the band. Defaults to None.
+            bandcolor (Color, optional): The fill color of the band. Defaults to "#cccccc".
+            bandalpha (float | None, optional): The alpha transparency of the band. Defaults to None.
             linecolor (Color | None, optional): The color of the bounding lines of the band.
                 If set to None and bandcolor is also None, defaults to "#cccccc".
                 If set to None and bandcolor is not None, defaults to bandcolor.
                 Defaults to None.
+            linealpha (float | None, optional): The alpha transparency of the bounding lines.
+                Defaults to None which uses the alpha from linecolor if specified.
             linestyle (str, optional): The linestyle of the bounding lines of the band.
                 Defaults to "-".
             linewidth (float, optional): The width of the bounding lines of the band.
@@ -374,7 +447,7 @@ class GerryPlotBase(ABC):
                 lower_bound=min(x_low, x_high),
                 upper_bound=max(x_low, x_high),
                 bandcolor=bandcolor,
-                alpha=alpha,
+                bandalpha=bandalpha,
                 linecolor=linecolor,
                 linealpha=linealpha,
                 linestyle=linestyle,
@@ -384,9 +457,9 @@ class GerryPlotBase(ABC):
             )
         )
 
-    def add_horizontal_line(
+    def add_horizontal_lines(
         self,
-        y_value: float,
+        y_values: float | Iterable[float],
         *,
         linecolor: Color = "#cccccc",
         linealpha: float | None = None,
@@ -398,10 +471,13 @@ class GerryPlotBase(ABC):
         """Add a horizontal line to the figure.
 
         Args:
-            y_value (float): The y-value where the horizontal line should be drawn.
+            y_values (float | Iterable[float]): The y-value(s) where the horizontal line(s) should
+                be drawn.
 
         Kwargs:
             linecolor (Color, optional): The color of the horizontal line. Defaults to "#cccccc".
+            linealpha (float | None, optional): The alpha transparency of the horizontal line.
+                Defaults to None in which case the alpha from linecolor is used if specified.
             linestyle (str, optional): The linestyle of the horizontal line. Defaults to "-".
             linewidth (float, optional): The width of the horizontal line. Defaults to 1.0.
             zorder (int, optional): The z-order of the horizontal line. Defaults to -2.
@@ -410,17 +486,25 @@ class GerryPlotBase(ABC):
         Returns:
             None
         """
-        self._horizontal_lines.append(
-            LineData(
-                value=float(y_value),
-                linecolor=linecolor,
-                linealpha=linealpha,
-                linestyle=linestyle,
-                linewidth=float(linewidth),
-                zorder=zorder,
-                name=name,
+        if isinstance(y_values, (str, bytes)):
+            raise TypeError("x_values must be a number or an iterable of numbers, not a string.")
+        # Safe to shadow here because we pass ints and floats by value not object reference
+        if isinstance(y_values, Real):
+            y_values = [float(y_values)]
+
+        for yv in y_values:
+            self._horizontal_lines.append(
+                LineData(
+                    value=float(yv),
+                    linecolor=linecolor,
+                    linealpha=linealpha,
+                    linestyle=linestyle,
+                    linewidth=float(linewidth),
+                    zorder=zorder,
+                    name=name,
+                )
             )
-        )
+        return
 
     def add_horizontal_band(
         self,
@@ -428,7 +512,7 @@ class GerryPlotBase(ABC):
         y_high: float,
         *,
         bandcolor: Color = "#cccccc",
-        alpha: float | None = None,
+        bandalpha: float | None = None,
         linecolor: Color | None = None,
         linealpha: float | None = None,
         linestyle: str = "-",
@@ -444,11 +528,13 @@ class GerryPlotBase(ABC):
 
         Kwargs:
             bandcolor (Color | None, optional): The fill color of the band. Defaults to "#cccccc".
-            alpha (float | None, optional): The alpha transparency of the band. Defaults to None
+            bandalpha (float | None, optional): The alpha transparency of the band. Defaults to None
             linecolor (Color | None, optional): The color of the bounding lines of the band.
                 If set to None and bandcolor is also None, defaults to "#cccccc".
                 If set to None and bandcolor is not None, defaults to bandcolor.
                 Defaults to None.
+            linealpha (float | None, optional): The alpha transparency of the bounding lines.
+                Defaults to None which uses the alpha from linecolor if specified.
             linestyle (str, optional): The linestyle of the bounding lines of the band.
                 Defaults to "-".
             linewidth (float, optional): The width of the bounding lines of the band.
@@ -464,7 +550,7 @@ class GerryPlotBase(ABC):
                 lower_bound=min(y_low, y_high),
                 upper_bound=max(y_low, y_high),
                 bandcolor=bandcolor,
-                alpha=alpha,
+                bandalpha=bandalpha,
                 linecolor=linecolor,
                 linealpha=linealpha,
                 linestyle=linestyle,
@@ -484,6 +570,12 @@ class GerryPlotBase(ABC):
         self._horizontal_lines.clear()
         self._horizontal_bands.clear()
 
+    def _default_x_tick_locations(self) -> list[float] | None:
+        return None
+
+    def _default_x_tick_labels(self, tick_locations: list[float]) -> list[str] | None:
+        return None
+
     def _set_x_axis(self) -> None:
         """Set x-axis limits, ticks, and labels in the plot."""
         x_limits = self._x_limits if self._x_limits is not None else self.ax.get_xlim()
@@ -491,26 +583,35 @@ class GerryPlotBase(ABC):
 
         if self._x_tick_locations is not None:
             x_tick_locations = list(self._x_tick_locations)
-            self.ax.set_xticks(x_tick_locations)
         else:
-            x_tick_locations = self.ax.get_xticks().tolist()
+            default_locs = self._default_x_tick_locations()
+            x_tick_locations = (
+                list(default_locs) if default_locs is not None else self.ax.get_xticks().tolist()
+            )
 
-        if self._x_tick_labels is None:
-            return
+        self.ax.set_xticks(x_tick_locations)
 
         if self._x_tick_labels == []:
-            self.ax.set_xticks(ticks=x_tick_locations)
             self.ax.tick_params(axis="x", labelbottom=False)
             return
 
-        if self._x_tick_locations is None:
-            self.ax.set_xticks(x_tick_locations)
+        # If user didn't provide labels, allow subclass defaults
+        if self._x_tick_labels is None:
+            labels = self._default_x_tick_labels(x_tick_locations)
+            if labels is None:
+                return
+            if len(labels) != len(x_tick_locations):
+                raise ValueError(
+                    f"Expected {len(x_tick_locations)} x tick labels, got {len(labels)}."
+                )
+            self.ax.set_xticklabels(list(labels))
+            return
 
+        # User provided labels
         if len(self._x_tick_labels) != len(x_tick_locations):
             raise ValueError(
                 f"Expected {len(x_tick_locations)} x tick labels, got {len(self._x_tick_labels)}."
             )
-
         self.ax.set_xticklabels(list(self._x_tick_labels))
 
     def _set_y_axis(self) -> None:
@@ -565,6 +666,13 @@ class GerryPlotBase(ABC):
             return
 
         if locations is not None and labels is not None:
+            if (locations == [] and labels not in (None, [])) or (
+                labels == [] and locations not in (None, [])
+            ):
+                raise ValueError(
+                    "If clearing ticks/labels, clear both (locations=[] and labels=[])."
+                )
+
             if labels != [] and locations != [] and len(locations) != len(labels):
                 raise ValueError(
                     f"Locations length {len(locations)} does not match labels length {len(labels)}."
@@ -628,6 +736,13 @@ class GerryPlotBase(ABC):
             return
 
         if locations is not None and labels is not None:
+            if (locations == [] and labels not in (None, [])) or (
+                labels == [] and locations not in (None, [])
+            ):
+                raise ValueError(
+                    "If clearing ticks/labels, clear both (locations=[] and labels=[])."
+                )
+
             if labels != [] and locations != [] and len(locations) != len(labels):
                 raise ValueError(
                     f"Locations length {len(locations)} does not match labels length {len(labels)}."
@@ -666,13 +781,210 @@ class GerryPlotBase(ABC):
             self._y_tick_labels = list(labels)
             return
 
-    def set_xaxis_fontsize(self, size: float) -> None:
-        """Set the font size of x-axis tick labels."""
-        self.ax.tick_params(axis="x", labelsize=size)
+    @staticmethod
+    def _apply_ticklabel_textprops(
+        labels,
+        *,
+        fontweight: str | None = None,
+        fontstyle: str | None = None,
+        fontfamily: str | None = None,
+    ) -> None:
+        """Apply text properties to tick labels.
 
-    def set_yaxis_fontsize(self, size: float) -> None:
-        """Set the font size of y-axis tick labels."""
-        self.ax.tick_params(axis="y", labelsize=size)
+        Args:
+            labels: List of tick label objects.
+
+        Kwargs:
+            fontweight (str | None, optional): Font weight to apply. Defaults to None.
+            fontstyle (str | None, optional): Font style to apply. Defaults to None.
+            fontfamily (str | None, optional): Font family to apply. Defaults to None.
+
+        Returns:
+            None
+        """
+        # These are matplotlib.text.Text objects.
+        for text in labels:
+            if fontweight is not None:
+                text.set_fontweight(fontweight)
+            if fontstyle is not None:
+                text.set_fontstyle(fontstyle)
+            if fontfamily is not None:
+                text.set_fontfamily(fontfamily)
+
+    def _apply_tick_style(self, axis: Literal["x", "y", "both"], style: TickStyle) -> None:
+        """Apply tick style to the specified axis.
+
+        Args:
+            axis (Literal["x", "y", "both"]): The axis to apply the style to.
+            style (TickStyle): The tick style to apply.
+
+        Returns:
+            None
+        """
+        # Tick marks + tick label basics
+        label_color_resolved = mcolors.to_rgba(style.fontcolor, alpha=style.fontalpha)
+        tick_color_resolved = mcolors.to_rgba(style.tickcolor, alpha=style.tickalpha)
+        self.ax.tick_params(
+            axis=axis,
+            which=style.ticktype,
+            labelsize=style.size,
+            rotation=style.rotation,
+            labelcolor=label_color_resolved,
+            color=tick_color_resolved,
+        )
+
+        # Tick label text styling (weight/style/family)
+        if axis in ("x", "both"):
+            if style.ticktype in ("major", "both"):
+                self._apply_ticklabel_textprops(
+                    self.ax.get_xticklabels(minor=False),
+                    fontweight=style.fontweight,
+                    fontstyle=style.fontstyle,
+                    fontfamily=style.fontfamily,
+                )
+            if style.ticktype in ("minor", "both"):
+                self._apply_ticklabel_textprops(
+                    self.ax.get_xticklabels(minor=True),
+                    fontweight=style.fontweight,
+                    fontstyle=style.fontstyle,
+                    fontfamily=style.fontfamily,
+                )
+
+        if axis in ("y", "both"):
+            if style.ticktype in ("major", "both"):
+                self._apply_ticklabel_textprops(
+                    self.ax.get_yticklabels(minor=False),
+                    fontweight=style.fontweight,
+                    fontstyle=style.fontstyle,
+                    fontfamily=style.fontfamily,
+                )
+            if style.ticktype in ("minor", "both"):
+                self._apply_ticklabel_textprops(
+                    self.ax.get_yticklabels(minor=True),
+                    fontweight=style.fontweight,
+                    fontstyle=style.fontstyle,
+                    fontfamily=style.fontfamily,
+                )
+
+    def _apply_deferred_tick_styles(self) -> None:
+        """Apply the tick styles if they were set.
+
+        To be called after the axes have been fully configured so that any call to ax.clear()
+        does not wipe out the tick styles.
+
+        Returns:
+            None
+        """
+        if self._x_tick_style is not None:
+            self._apply_tick_style("x", self._x_tick_style)
+        if self._y_tick_style is not None:
+            self._apply_tick_style("y", self._y_tick_style)
+
+    def set_xaxis_tick_style(
+        self,
+        *,
+        size: float | int = 10,
+        rotation: float | int = 0,
+        fontcolor: Color = "black",
+        fontalpha: float | None = None,
+        tickcolor: Color = "black",
+        tickalpha: float | None = None,
+        fontweight: str = "normal",
+        fontstyle: str = "normal",
+        fontfamily: str = "sans-serif",
+        ticktype: TickType = "major",
+    ) -> None:
+        """Set x-axis tick style.
+
+        Kwargs:
+            size (float, optional): Font size of tick labels. Defaults to 10.
+            rotation (float | int, optional): Rotation angle of tick labels in degrees.
+                Defaults to 0.
+            fontcolor (str, optional): Color of tick labels. Defaults to "black".
+            fontalpha (float, optional): Alpha transparency of tick label color. If None,
+                uses alpha from color if specified or will fall back to 1.0. Defaults to None.
+            tickcolor (str, optional): Color of tick marks. Defaults to "black".
+            tickalpha (float, optional): Alpha transparency of tick mark color. If None,
+                uses alpha from color if specified or will fall back to 1.0. Defaults to None.
+            fontweight (str, optional): Font weight of tick labels (e.g., 'normal 'bold').
+                Defaults to "normal".
+            fontstyle (str, optional): Font style of tick labels (e.g., 'normal', 'italic').
+                Defaults to "normal".
+            fontfamily (str, optional): Font family of tick labels (e.g., 'serif', 'sans-serif').
+                Defaults to "sans-serif".
+            ticktype (TickType, optional): Type of ticks to style ('major', 'minor', 'both').
+                Defaults to 'major'.
+
+        Returns:
+            None
+        """
+        style = TickStyle(
+            size=size,
+            rotation=rotation,
+            fontcolor=fontcolor,
+            fontalpha=fontalpha,
+            tickcolor=tickcolor,
+            tickalpha=tickalpha,
+            fontweight=fontweight,
+            fontstyle=fontstyle,
+            fontfamily=fontfamily,
+            ticktype=ticktype,
+        )
+        self._x_tick_style = style
+        self._apply_tick_style("x", style)
+
+    def set_yaxis_tick_style(
+        self,
+        *,
+        size: float | int = 10,
+        rotation: float | int = 0,
+        fontcolor: Color = "black",
+        fontalpha: float | None = None,
+        tickcolor: Color = "black",
+        tickalpha: float | None = None,
+        fontweight: str = "normal",
+        fontstyle: str = "normal",
+        fontfamily: str = "sans-serif",
+        ticktype: TickType = "major",
+    ) -> None:
+        """Set y-axis tick style.
+
+        Kwargs:
+            size (float, optional): Font size of tick labels. Defaults to 10.
+            rotation (float | int, optional): Rotation angle of tick labels in degrees.
+                Defaults to 0.
+            fontcolor (str, optional): Color of tick labels. Defaults to "black".
+            fontalpha (float, optional): Alpha transparency of tick label color. If None,
+                uses alpha from color if specified or will fall back to 1.0. Defaults to None.
+            tickcolor (str, optional): Color of tick marks. Defaults to "black".
+            tickalpha (float, optional): Alpha transparency of tick mark color. If None,
+                uses alpha from color if specified or will fall back to 1.0. Defaults to None.
+            fontweight (str, optional): Font weight of tick labels (e.g., 'normal 'bold').
+                Defaults to "normal".
+            fontstyle (str, optional): Font style of tick labels (e.g., 'normal', 'italic').
+                Defaults to "normal".
+            fontfamily (str, optional): Font family of tick labels (e.g., 'serif', 'sans-serif').
+                Defaults to "sans-serif".
+            ticktype (TickType, optional): Type of ticks to style ('major', 'minor', 'both').
+                Defaults to 'major'.
+
+        Returns:
+            None
+        """
+        style = TickStyle(
+            size=size,
+            rotation=rotation,
+            fontcolor=fontcolor,
+            fontalpha=fontalpha,
+            tickcolor=tickcolor,
+            tickalpha=tickalpha,
+            fontweight=fontweight,
+            fontstyle=fontstyle,
+            fontfamily=fontfamily,
+            ticktype=ticktype,
+        )
+        self._y_tick_style = style
+        self._apply_tick_style("y", style)
 
     def clear_xtick_labels(self) -> None:
         """Clear x-tick labels."""
@@ -693,35 +1005,51 @@ class GerryPlotBase(ABC):
         self._y_tick_labels = []
 
     def set_xlimits(self, lower: float, upper: float) -> None:
-        """Set x-axis limits."""
-        self._x_limits = (lower, upper)
+        """Set x-axis limits.
 
-    def set_ylimits(self, lower: float, upper: float) -> None:
-        """Set y-axis limits."""
-        self._y_limits = (lower, upper)
-
-    def hide_frame(
-        self, top: bool = True, right: bool = True, left: bool = True, bottom: bool = True
-    ) -> None:
-        """Hide the frame of the plot.
-
-        Kwargs:
-            top (bool, optional): Whether to hide the top spine. Defaults to True.
-            right (bool, optional): Whether to hide the right spine. Defaults to True.
-            left (bool, optional): Whether to hide the left spine. Defaults to True.
-            bottom (bool, optional): Whether to hide the bottom spine. Defaults to True.
+        Args:
+            lower (float): The lower x-axis limit.
+            upper (float): The upper x-axis limit.
 
         Returns:
             None
         """
-        if top:
-            self.ax.spines["top"].set_visible(False)
-        if right:
-            self.ax.spines["right"].set_visible(False)
-        if left:
-            self.ax.spines["left"].set_visible(False)
-        if bottom:
-            self.ax.spines["bottom"].set_visible(False)
+        self._x_limits = (lower, upper)
+
+    def set_ylimits(self, lower: float, upper: float) -> None:
+        """Set y-axis limits.
+
+        Args:
+            lower (float): The lower y-axis limit.
+            upper (float): The upper y-axis limit.
+
+        Returns:
+            None
+        """
+        self._y_limits = (lower, upper)
+
+    def show_or_hide_frame(
+        self,
+        show_top: bool = True,
+        show_right: bool = True,
+        show_left: bool = True,
+        show_bottom: bool = True,
+    ) -> None:
+        """Hide the frame of the plot.
+
+        Args:
+            show_top (bool, optional): Whether to hide the top spine. Defaults to True.
+            show_right (bool, optional): Whether to hide the right spine. Defaults to True.
+            show_left (bool, optional): Whether to hide the left spine. Defaults to True.
+            show_bottom (bool, optional): Whether to hide the bottom spine. Defaults to True.
+
+        Returns:
+            None
+        """
+        self.ax.spines["top"].set_visible(show_top)
+        self.ax.spines["right"].set_visible(show_right)
+        self.ax.spines["left"].set_visible(show_left)
+        self.ax.spines["bottom"].set_visible(show_bottom)
 
     def _draw_verticals(self) -> None:
         """Draw vertical lines and bands on the plot."""
@@ -734,11 +1062,7 @@ class GerryPlotBase(ABC):
             self.ax.axvspan(
                 band.lower_bound,
                 band.upper_bound,
-                facecolor=(
-                    mcolors.to_rgba(band.bandcolor, alpha=band.alpha)
-                    if band.bandcolor is not None
-                    else "none"
-                ),
+                facecolor=mcolors.to_rgba(band.bandcolor, alpha=band.bandalpha),
                 edgecolor=edgecolor,
                 linestyle=band.linestyle,
                 linewidth=band.linewidth,
@@ -765,11 +1089,7 @@ class GerryPlotBase(ABC):
             self.ax.axhspan(
                 band.lower_bound,
                 band.upper_bound,
-                facecolor=(
-                    mcolors.to_rgba(band.bandcolor, alpha=band.alpha)
-                    if band.bandcolor is not None
-                    else "none"
-                ),
+                facecolor=mcolors.to_rgba(band.bandcolor, alpha=band.bandalpha),
                 edgecolor=edgecolor,
                 linestyle=band.linestyle,
                 linewidth=band.linewidth,
@@ -823,11 +1143,7 @@ class GerryPlotBase(ABC):
                 else mcolors.to_rgba(band.linecolor, alpha=band.linealpha)
             )
             handle = Patch(
-                facecolor=(
-                    "none"
-                    if band.bandcolor is None
-                    else mcolors.to_rgba(band.bandcolor, alpha=band.alpha)
-                ),
+                facecolor=mcolors.to_rgba(band.bandcolor, alpha=band.bandalpha),
                 edgecolor=edgecolor,
                 linestyle=band.linestyle,
                 linewidth=band.linewidth,
@@ -900,9 +1216,24 @@ class GerryPlotBase(ABC):
         )
         plt.close(legend_fig)
 
+    @abstractmethod
+    def _build_plot(self) -> Axes:
+        """Build the plot by applying all settings and drawing elements."""
+        pass
+
+    def _build_and_apply_settings(self) -> Axes:
+        """Build the plot by applying all settings and drawing elements.
+
+        Returns:
+            Axes: The matplotlib Axes object.
+        """
+        self._build_plot()
+        self._apply_deferred_tick_styles()
+        return self.ax
+
     def show(self) -> None:
         """Display the figure."""
-        self._build_plot()
+        self._build_and_apply_settings()
         plt.show()
 
     def save(self, filepath: str, **kwargs) -> None:
@@ -917,13 +1248,9 @@ class GerryPlotBase(ABC):
         Returns:
             None
         """
-        self._build_plot()
+        self._build_and_apply_settings()
+
         kwargs["bbox_inches"] = kwargs.get("bbox_inches", "tight")
         kwargs["dpi"] = kwargs.get("dpi", self.fig.dpi)
 
         self.fig.savefig(filepath, **kwargs)
-
-    @abstractmethod
-    def _build_plot(self) -> Axes:
-        """Build the plot by applying all settings and drawing elements."""
-        pass
