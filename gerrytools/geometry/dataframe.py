@@ -21,9 +21,7 @@ def dataframe(
         `DataFrame` with attached graph data.
     """
     # Create dataframe.
-    gdf = pd.DataFrame.from_records(
-        {index: v, **d} for v, d in P.graph.nodes(data=True)
-    )
+    gdf = pd.DataFrame.from_records({index: v, **d} for v, d in P.graph.nodes(data=True))
 
     # Assign vertices.
     assignedvertices = P.assignment.to_dict()

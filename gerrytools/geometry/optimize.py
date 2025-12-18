@@ -128,9 +128,7 @@ def populationoverlap(
         agg = subright.groupby(assignment, as_index=False).sum()
 
         # Now figure out the shared populations.
-        records.append(
-            {i: shared for i, shared in zip(agg[assignment], agg[population])}
-        )
+        records.append({i: shared for i, shared in zip(agg[assignment], agg[population])})
 
     # Create the cost matrix!
     C = pd.DataFrame.from_records(records).fillna(0)
@@ -282,9 +280,7 @@ def minimize_dispersion(
     model = gp.Model("state_model")
     model.setParam("OutputFlag", int(verbose))
 
-    numbering = model.addVars(
-        len(districts), len(districts), vtype=GRB.BINARY, name="numbering"
-    )
+    numbering = model.addVars(len(districts), len(districts), vtype=GRB.BINARY, name="numbering")
 
     exprs = []
     if verbose:
@@ -299,10 +295,7 @@ def minimize_dispersion(
 
     for district in wrapper(districts):  # iter over proposed
         enacted_intersection = (
-            units[units[proposed_col] == district]
-            .groupby(enacted_col)
-            .sum()[pop_col]
-            .to_dict()
+            units[units[proposed_col] == district].groupby(enacted_col).sum()[pop_col].to_dict()
         )
 
         for (
@@ -314,12 +307,8 @@ def minimize_dispersion(
         if extra_constraints is not None:
             extra_constraints(model, numbering, district, districts)
 
-    model.addConstrs(
-        (numbering.sum("*", v) == 1 for v in range(len(districts))), name="v"
-    )
-    model.addConstrs(
-        (numbering.sum(v, "*") == 1 for v in range(len(districts))), name="h"
-    )
+    model.addConstrs((numbering.sum("*", v) == 1 for v in range(len(districts))), name="v")
+    model.addConstrs((numbering.sum(v, "*") == 1 for v in range(len(districts))), name="h")
 
     obj = gp.quicksum(exprs)
     model.setObjective(obj, GRB.MAXIMIZE)
@@ -372,9 +361,7 @@ def minimize_parity(
     model.setParam("OutputFlag", int(verbose))
 
     districts = list(set(units[proposed_col].astype(int)))
-    districts_even = model.addVars(
-        len(districts), vtype=GRB.BINARY, name="districts_even"
-    )
+    districts_even = model.addVars(len(districts), vtype=GRB.BINARY, name="districts_even")
 
     exprs = []
     if verbose:
@@ -443,9 +430,7 @@ def minimize_dispersion_with_parity(
 
         extra_constraints(model, numbering, district, districts)
 
-    return minimize_dispersion(
-        units, enacted_col, proposed_col, pop_col, parity_constraint
-    )
+    return minimize_dispersion(units, enacted_col, proposed_col, pop_col, parity_constraint)
 
 
 def calculate_dispersion(
@@ -492,9 +477,7 @@ def calculate_dispersion_per_district(
 
     dispersion_dict = {
         district: sum(
-            units[pop_col][
-                (units[enacted_col] == district) & (units[proposed_col] != district)
-            ]
+            units[pop_col][(units[enacted_col] == district) & (units[proposed_col] != district)]
         )
         for district in sorted(units[enacted_col].unique())
     }

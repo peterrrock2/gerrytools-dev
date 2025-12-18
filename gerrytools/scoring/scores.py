@@ -77,8 +77,7 @@ def summarize(
             gdf = gdf.copy(deep=False)
         else:
             assignment = {
-                part.graph.nodes[node][join_on]: label
-                for node, label in part.assignment.items()
+                part.graph.nodes[node][join_on]: label for node, label in part.assignment.items()
             }
             gdf = gdf.set_index(join_on)
 
@@ -145,9 +144,7 @@ def summarize_many(
             return result
         return [summarize(part, scores=scores) for part in parts]
     else:
-        with (
-            gzip.open(f"{output_file}.gz", "wt") if compress else open(output_file, "w")
-        ) as fout:
+        with gzip.open(f"{output_file}.gz", "wt") if compress else open(output_file, "w") as fout:
             iterator = tqdm(enumerate(parts)) if verbose else enumerate(parts)
             for i, part in iterator:
                 plan_details = summarize(part, scores=scores, gdf=gdf, join_on=join_on)

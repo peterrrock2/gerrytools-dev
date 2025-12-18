@@ -9,10 +9,15 @@ __pycache__/
 tests/test-reports/*
 */**/*.svg
 tests/*.ipynb
+tests_previous/
 
 # Python virtual environment files.
 .venv*
 .docs_venv
+
+
+# FIX: ADD ME BACK IN LATER
+docs/notebooks/
 
 
 # Other dev stuff

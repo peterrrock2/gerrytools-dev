@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import os
 import traceback
@@ -7,6 +9,8 @@ from typing import Optional, Type, Union
 
 import docker
 from gerrychain import Graph, Partition
+
+from gerrytools.mgrp.run_info import ForestRunInfo, RecomRunInfo
 
 
 class RunnerConfig(ABC):
@@ -110,7 +114,7 @@ class RunContainer:
         try:
             print(f"Pulling Docker image {config_args['image']}")
             self.client.images.pull(config_args["image"])
-        except Exception as e:
+        except Exception:
             print(
                 f"Error comparing docker container {config_args['image']} against web version. "
                 f"Attempting to run using local image"
@@ -228,7 +232,6 @@ class RunContainer:
             )
 
         cmd = self.config.run_command(*args, **kwargs)
-        log_file = self.config.log_file(*args, **kwargs)
         exec_id = self.client.api.exec_create(
             self.container.id,
             cmd=cmd,
@@ -307,7 +310,6 @@ class RunContainer:
 
         cmd = self.config.run_command(run_info)
 
-        log_file = self.config.log_file(run_info)
         exec_id = self.client.api.exec_create(
             self.container.id,
             cmd=cmd,

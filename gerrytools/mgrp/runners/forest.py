@@ -1,4 +1,3 @@
-import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -31,7 +30,7 @@ class ForestRunInfo:
     rng_seed: int = 42
     """The random seed to be used in the MSMS code."""
     output_file_name: Optional[str] = None
-    """The name of the output file that the MSMS code should write to. If None, then the 
+    """The name of the output file that the MSMS code should write to. If None, then the
         output file name will be determined according to a set of heuristics."""
     standard_jsonl: bool = True
     """Whether or not the output should be in the standard JSONL format."""
@@ -41,7 +40,7 @@ class ForestRunInfo:
     """Whether or not the output should be printed to the console. This will overwrite the
         output_file_name attribute."""
     updaters: Dict[str, Callable] = field(default_factory=dict)
-    """A dictionary of updaters that should be used when running the chain using the 
+    """A dictionary of updaters that should be used when running the chain using the
         mcmc_run_with_updaters method."""
 
 

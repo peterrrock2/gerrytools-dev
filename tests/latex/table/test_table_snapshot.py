@@ -3,7 +3,6 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from dev_files.tex_maker import tex_twocolor_gradient_command
 from gerrytools.latex.commands import (
     tex_diverging_gradient_command,
     tex_gradient_command,

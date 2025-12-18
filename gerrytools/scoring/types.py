@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Callable, Mapping, NamedTuple, Union
+from typing import Callable, Mapping, Union
 
 from geopandas import GeoDataFrame
 from gerrychain import Partition

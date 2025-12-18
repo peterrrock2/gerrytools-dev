@@ -55,24 +55,30 @@ install-docs: check_prereqs
 	uv sync --group docs --python $(PYTHON_VERSION)
 	uv pip install -e ".[mgrp]"
 
-test:
-	@echo "Running test suite..."
-	uv run pytest -v $(TEST_PATHS)
 
 snapshots:
 	@echo "Updating test snapshots..."
 	UPDATE_SNAPSHOTS=1 uv run pytest -m latex -v tests	
 
-type-check:
-	@echo "Running type checking with mypy..."
-	uv run mypy $(PKG) $(TEST_PATHS)
+check:
+	$(MAKE) format
+	$(MAKE) lint
+
+test:
+	@echo "Running test suite..."
+	PYTHONHASHSEED=0 uv run pytest -v $(TEST_PATHS)
+
+# Add this in later
+# type-check:
+# 	@echo "Running type checking with mypy..."
+# 	uv run mypy $(PKG) ${TEST_PATHS}
 
 format:
 	@echo "Formatting codebase with black..."
 	uv run isort $(PKG) $(TEST_PATHS)
 	uv run black $(PKG) $(TEST_PATHS)
 
-lint:
+lint: 
 	@echo "Running linters (ruff)..."
 	uv run ruff check $(PKG) $(TEST_PATHS)
 

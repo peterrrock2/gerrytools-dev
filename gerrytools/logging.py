@@ -1,7 +1,7 @@
 import logging
 import os
 import sys
-from typing import Optional, TextIO
+from typing import TextIO
 
 _GERRYTOOLS_LOGGER_NAME = "gerrytools"
 

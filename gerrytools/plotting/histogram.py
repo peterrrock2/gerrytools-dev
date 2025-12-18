@@ -1,7 +1,6 @@
 import random
 
 from matplotlib.axes import Axes
-import numpy as np
 
 from .bins import bins
 from .colors import citizenBlue, defaultGray, districtr
@@ -47,9 +46,7 @@ def histogram(
     all_scores = scores["ensemble"] + scores["citizen"] + scores["proposed"]
     if not bin_width:
         # Get the necessary bins, ticks, labels, and bin width.
-        hist_bins, tick_bins, tick_labels, bin_width = bins(
-            set(all_scores).union(limits)
-        )
+        hist_bins, tick_bins, tick_labels, bin_width = bins(set(all_scores).union(limits))
     else:
         hist_bins, tick_bins, tick_labels, bin_width = bins(
             set(all_scores).union(limits), bin_width
