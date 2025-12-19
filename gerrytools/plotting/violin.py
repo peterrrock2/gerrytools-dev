@@ -3,7 +3,7 @@ import random
 import numpy as np
 from matplotlib.axes import Axes
 
-from .colors import CITIZEN_BLUE, DEFAULT_GREY, districtr
+from gerrytools.colors import CITIZEN_BLUE, DEFAULT_GREY, districtr
 
 
 def violin(

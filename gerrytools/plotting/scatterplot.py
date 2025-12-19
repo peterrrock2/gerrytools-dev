@@ -1,7 +1,7 @@
 import numpy as np
 from matplotlib.axes import Axes
 
-from .colors import districtr
+from gerrytools.colors import districtr
 
 
 def scatterplot(

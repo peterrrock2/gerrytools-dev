@@ -1,6 +1,6 @@
 from matplotlib.axes import Axes
 
-from .colors import DEFAULT_GREY
+from gerrytools.colors import DEFAULT_GREY
 
 
 def arrow(ax, text, orientation="horizontal", color=DEFAULT_GREY, padding=0.1) -> Axes:
