@@ -3,7 +3,8 @@ import random
 import numpy as np
 from matplotlib.axes import Axes
 
-from .colors import DEFAULT_GREY
+from gerrytools.colors import DEFAULT_GREY
+
 from .utils import sort_elections
 
 
