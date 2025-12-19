@@ -1,17 +1,15 @@
 import logging
 import math
-import re
 from numbers import Real
 from typing import Any, TypeGuard
 
 import matplotlib.colors as mcolors
 
+from gerrytools.colors._regex import HEX8_OR_NONE_PATTERN
+from gerrytools.colors.districtr import DISTRICTR_COLOR_DICT
+from gerrytools.colors.latex import get_color_from_latex_string
+from gerrytools.colors.latex_full import LATEX_COLOR_DICT
 from gerrytools.logging import get_logger
-from gerrytools.plotting.colors.districtr import DISTRICTR_COLOR_DICT, districtr
-from gerrytools.plotting.colors.latex import get_color_from_latex_string
-from gerrytools.plotting.colors.latex_full import LATEX_COLOR_DICT
-from gerrytools.plotting.colors.seaborn import flare, greens, purples, redbluecmap
-from gerrytools.plotting.colors.utils import compare_palettes, preview_palette
 from gerrytools.typing import Color
 
 gt_logger = get_logger(__name__)
@@ -58,11 +56,6 @@ GERRYTOOLS_EXTRA_COLORS_DICT = (
     | {name: mcolors.to_hex(name) for name in OVERLAYS}
     | ENSEMBLE_COLORS
 )
-
-HEX8_PATTERN = re.compile(r"^#[0-9A-Fa-f]{8}$")
-"""A compiled regular expression pattern to match 8-digit hexadecimal color strings."""
-HEX8_OR_NONE_PATTERN = re.compile(r"^(#[0-9A-Fa-f]{8}|none)$", re.IGNORECASE)
-"""A compiled regular expression pattern to match 8-digit hexadecimal color strings or "none"."""
 
 
 def get_all_supported_colors_dict() -> dict[str, Any]:
@@ -287,24 +280,3 @@ def resolve_color_and_alpha(
         )
 
     return hex6, a
-
-
-__all__ = [
-    "districtr",
-    "redbluecmap",
-    "flare",
-    "purples",
-    "greens",
-    "convert_color_to_hexa_or_none",
-    "get_color_from_latex_string",
-    "get_all_supported_colors_dict",
-    "DEFAULT_GREY",
-    "CITIZEN_BLUE",
-    "OVERLAYS",
-    "ENSEMBLE_COLORS",
-    "compare_palettes",
-    "preview_palette",
-    "HEX8_PATTERN",
-    "HEX8_OR_NONE_PATTERN",
-    "resolve_color_and_alpha",
-]

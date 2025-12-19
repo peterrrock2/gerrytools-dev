@@ -6,10 +6,9 @@ from warnings import warn
 import matplotlib.colors as mcolors
 from matplotlib.typing import ColorType
 
-from gerrytools.typing import _check_is_hex_color
-
-from .districtr import DISTRICTR_COLOR_DICT
-from .latex_full import LATEX_COLOR_DICT
+from gerrytools.colors._regex import VALID_COLOR_HEX_RE
+from gerrytools.colors.districtr import DISTRICTR_COLOR_DICT
+from gerrytools.colors.latex_full import LATEX_COLOR_DICT
 
 
 def _norm_hex(s: str) -> str:
@@ -25,7 +24,7 @@ def _norm_hex(s: str) -> str:
         ValueError: If the input string is not a valid hex color.
     """
     s = s.strip()
-    if not _check_is_hex_color(s):
+    if VALID_COLOR_HEX_RE.match(s) is None:
         raise ValueError(f"Not a valid hex color: {s!r}")
     if len(s.strip("#")) == 3:
         s = "#" + "".join(c * 2 for c in s.strip("#"))
