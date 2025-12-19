@@ -12,8 +12,8 @@ from matplotlib.axes import Axes
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 
+from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
-from gerrytools.plotting.colors import resolve_color_and_alpha
 from gerrytools.plotting.utils import _coerce_real_iter
 from gerrytools.typing import Color, TickType
 
