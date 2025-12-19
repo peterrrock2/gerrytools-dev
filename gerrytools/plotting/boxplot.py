@@ -9,7 +9,6 @@ from typing import Any
 import matplotlib.colors as mcolors
 import numpy as np
 import pandas as pd
-from matplotlib.axes import Axes
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 
@@ -127,6 +126,28 @@ class BoxPlotSetData:
 class BoxPlot(GerryPlotBase):
     """A class for creating boxplot comparison figures with multiple boxplot sets and point sets
     representing a distribution of scores across multiple categories.
+
+    Typical usage:
+        boxplot = BoxPlot(figure_size=(12, 8), dpi=300)
+        boxplot.add_boxplot_datasets(
+            scores={'Category A': [1, 2, 3], 'Category B': [2, 3, 4]},
+            name='Model 1',
+            facecolor='blue',
+            edgecolor='black'
+        )
+        boxplot.add_boxplot_datasets(
+            scores={'Category A': [2, 3, 4], 'Category B': [3, 4, 5]},
+            name='Model 2',
+            facecolor='green',
+            edgecolor='black'
+        )
+        boxplot.add_pointset(
+            values={'Category A': 2.5, 'Category B': 3.5},
+            name='Mean Scores',
+            facecolor='red',
+            marker='o'
+        )
+        boxplot.show()
     """
 
     def __init__(
@@ -136,7 +157,7 @@ class BoxPlot(GerryPlotBase):
         *,
         boxplot_width_scale: float = 0.8,
         boxplot_group_width: float = 0.7,
-        include_legend: bool = False,
+        include_legend: bool = True,
         include_boxplot_group_vlines: bool = True,
     ) -> None:
         """Initialize a BoxPlotComparison instance.
@@ -174,7 +195,7 @@ class BoxPlot(GerryPlotBase):
 
         self._include_boxplot_group_vlines = include_boxplot_group_vlines
         self._boxplot_group_vline_settings = LineData(
-            value=float("inf"),  # placeholder
+            values=float("inf"),  # placeholder
             linecolor="#cccccc",
             linealpha=1.0,
             linestyle="-",
@@ -243,7 +264,7 @@ class BoxPlot(GerryPlotBase):
             "or pd.DataFrame."
         )
 
-    def add_boxplot_set(
+    def add_boxplot_datasets(
         self,
         scores: dict[str, list[float]] | list[float] | list[list[float]] | pd.DataFrame,
         *,
@@ -605,7 +626,6 @@ class BoxPlot(GerryPlotBase):
 
     def _draw_boxplot(self) -> None:
         """Draw the boxplots on the plot."""
-        ax = self._ax
         n_boxplot_sets = len(self._boxplot_data_list)
 
         # Category centers on x axis
@@ -635,7 +655,7 @@ class BoxPlot(GerryPlotBase):
             if len(data_k) == 0:
                 continue
 
-            bp = ax.boxplot(
+            bp = self._ax.boxplot(
                 data_k,
                 positions=pos_k,
                 widths=widths,
@@ -663,7 +683,7 @@ class BoxPlot(GerryPlotBase):
             for artist in bp.get("fliers", []):
                 artist.set_zorder(boxplot_data.zorder)
 
-    def _build_plot(self) -> Axes:
+    def _build_plot(self) -> None:
         """Build the boxplot figure."""
         if self._labels is None or len(self._labels) == 0:
             raise ValueError("No labels defined yet.")
@@ -671,8 +691,7 @@ class BoxPlot(GerryPlotBase):
         if len(self._boxplot_data_list) == 0:
             raise ValueError("No boxplot sets added yet.")
 
-        ax = self._ax
-        ax.clear()
+        self._ax.clear()
 
         self._draw_pointset(self._boxplot_centers)
         self._draw_verticals()
@@ -687,13 +706,10 @@ class BoxPlot(GerryPlotBase):
         self._set_y_axis()
 
         if self.include_legend:
-            ax.legend(
+            self._ax.legend(
                 handles=self._legend_handles,
-                loc=self.legend_loc,
-                bbox_to_anchor=self.legend_bbox_to_anchor,
+                **self._legend_options.to_dict(),
             )
-
-        return ax
 
     def _get_boxplot_legend_handles(self) -> list[Any]:
         """Generate legend handles for boxplot sets.
