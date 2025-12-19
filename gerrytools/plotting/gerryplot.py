@@ -135,7 +135,7 @@ class LineData:
     linealpha: float | None = None
     linestyle: str = "-"
     linewidth: float = 1.0
-    zorder: int = -1
+    zorder: int = 3
     name: str | None = None
 
     def __post_init__(self) -> None:
@@ -196,7 +196,7 @@ class BandData:
     linealpha: float | None = None
     linestyle: str = "-"
     linewidth: float = 1.0
-    zorder: int = -1
+    zorder: int = 3
     name: str | None = None
 
     def __post_init__(self) -> None:
@@ -338,7 +338,7 @@ class GerryPlotBase(ABC):
             include_legend (bool, optional): Whether to include a legend in the plot.
                 Defaults to False.
         """
-        self.fig, self.ax = plt.subplots(figsize=figure_size, dpi=dpi)
+        self.fig, self._ax = plt.subplots(figsize=figure_size, dpi=dpi)
 
         self.include_legend = include_legend
         self.legend_loc = "center left"
@@ -369,7 +369,7 @@ class GerryPlotBase(ABC):
         linealpha: float | None = None,
         linestyle: str = "-",
         linewidth: float = 1.0,
-        zorder: int = -1,
+        zorder: int = 3,
         name: str | None = None,
     ) -> None:
         """Add a vertical line to the figure.
@@ -384,7 +384,7 @@ class GerryPlotBase(ABC):
                 Defaults to None in which case the alpha from linecolor is used if specified.
             linestyle (str, optional): The linestyle of the vertical line. Defaults to "-".
             linewidth (float, optional): The width of the vertical line. Defaults to 1.0.
-            zorder (int, optional): The z-order of the vertical line. Defaults to -1.
+            zorder (int, optional): The z-order of the vertical line. Defaults to 3.
             name (str | None, optional): The name of the line for legend purposes. Defaults to None.
 
         Returns:
@@ -423,7 +423,7 @@ class GerryPlotBase(ABC):
         linealpha: float | None = None,
         linestyle: str = "-",
         linewidth: float = 1.0,
-        zorder: int = -1,
+        zorder: int = 3,
         name: str | None = None,
     ) -> None:
         """Add a vertical band to the figure.
@@ -445,7 +445,7 @@ class GerryPlotBase(ABC):
                 Defaults to "-".
             linewidth (float, optional): The width of the bounding lines of the band.
                 Defaults to 1.0.
-            zorder (int, optional): The z-order of the band. Defaults to -1.
+            zorder (int, optional): The z-order of the band. Defaults to 3.
             name (str | None, optional): The name of the band for legend purposes. Defaults to None.
 
         Returns:
@@ -474,7 +474,7 @@ class GerryPlotBase(ABC):
         linealpha: float | None = None,
         linestyle: str = "-",
         linewidth: float = 1.0,
-        zorder: int = -2,
+        zorder: int = 4,
         name: str | None = None,
     ) -> None:
         """Add a horizontal line to the figure.
@@ -489,7 +489,7 @@ class GerryPlotBase(ABC):
                 Defaults to None in which case the alpha from linecolor is used if specified.
             linestyle (str, optional): The linestyle of the horizontal line. Defaults to "-".
             linewidth (float, optional): The width of the horizontal line. Defaults to 1.0.
-            zorder (int, optional): The z-order of the horizontal line. Defaults to -2.
+            zorder (int, optional): The z-order of the horizontal line. Defaults to 4.
             name (str | None, optional): The name of the line for legend purposes. Defaults to None.
 
         Returns:
@@ -530,7 +530,7 @@ class GerryPlotBase(ABC):
         linealpha: float | None = None,
         linestyle: str = "-",
         linewidth: float = 1.0,
-        zorder: int = -2,
+        zorder: int = 4,
         name: str | None = None,
     ) -> None:
         """Add a horizontal band to the figure.
@@ -552,7 +552,7 @@ class GerryPlotBase(ABC):
                 Defaults to "-".
             linewidth (float, optional): The width of the bounding lines of the band.
                 Defaults to 1.0.
-            zorder (int, optional): The z-order of the band. Defaults to -2.
+            zorder (int, optional): The z-order of the band. Defaults to 4.
             name (str | None, optional): The name of the band for legend purposes. Defaults to None.
 
         Returns:
@@ -591,21 +591,21 @@ class GerryPlotBase(ABC):
 
     def _set_x_axis(self) -> None:
         """Set x-axis limits, ticks, and labels in the plot."""
-        x_limits = self._x_limits if self._x_limits is not None else self.ax.get_xlim()
-        self.ax.set_xlim(x_limits)
+        x_limits = self._x_limits if self._x_limits is not None else self._ax.get_xlim()
+        self._ax.set_xlim(x_limits)
 
         if self._x_tick_locations is not None:
             x_tick_locations = list(self._x_tick_locations)
         else:
             default_locs = self._default_x_tick_locations()
             x_tick_locations = (
-                list(default_locs) if default_locs is not None else self.ax.get_xticks().tolist()
+                list(default_locs) if default_locs is not None else self._ax.get_xticks().tolist()
             )
 
-        self.ax.set_xticks(x_tick_locations)
+        self._ax.set_xticks(x_tick_locations)
 
         if self._x_tick_labels == []:
-            self.ax.tick_params(axis="x", labelbottom=False)
+            self._ax.tick_params(axis="x", labelbottom=False)
             return
 
         # If user didn't provide labels, allow subclass defaults
@@ -617,7 +617,7 @@ class GerryPlotBase(ABC):
                 raise ValueError(
                     f"Expected {len(x_tick_locations)} x tick labels, got {len(labels)}."
                 )
-            self.ax.set_xticklabels(list(labels))
+            self._ax.set_xticklabels(list(labels))
             return
 
         # User provided labels
@@ -625,35 +625,35 @@ class GerryPlotBase(ABC):
             raise ValueError(
                 f"Expected {len(x_tick_locations)} x tick labels, got {len(self._x_tick_labels)}."
             )
-        self.ax.set_xticklabels(list(self._x_tick_labels))
+        self._ax.set_xticklabels(list(self._x_tick_labels))
 
     def _set_y_axis(self) -> None:
         """Set y-axis limits, ticks, and labels in the plot."""
-        y_limits = self._y_limits if self._y_limits is not None else self.ax.get_ylim()
-        self.ax.set_ylim(y_limits)
+        y_limits = self._y_limits if self._y_limits is not None else self._ax.get_ylim()
+        self._ax.set_ylim(y_limits)
 
         if self._y_tick_locations is not None:
             y_tick_locations = list(self._y_tick_locations)
-            self.ax.set_yticks(y_tick_locations)
+            self._ax.set_yticks(y_tick_locations)
         else:
-            y_tick_locations = self.ax.get_yticks().tolist()
+            y_tick_locations = self._ax.get_yticks().tolist()
 
         if self._y_tick_labels is None:
             return
 
         if self._y_tick_labels == []:
-            self.ax.tick_params(axis="y", labelleft=False)
+            self._ax.tick_params(axis="y", labelleft=False)
             return
 
         if self._y_tick_locations is None:
-            self.ax.set_yticks(y_tick_locations)
+            self._ax.set_yticks(y_tick_locations)
 
         if len(self._y_tick_labels) != len(y_tick_locations):
             raise ValueError(
                 f"Expected {len(y_tick_locations)} y tick labels, got {len(self._y_tick_labels)}."
             )
 
-        self.ax.set_yticklabels(list(self._y_tick_labels))
+        self._ax.set_yticklabels(list(self._y_tick_labels))
 
     def update_xtick_values(
         self, *, locations: list[float] | None = None, labels: list[str] | None = None
@@ -845,7 +845,7 @@ class GerryPlotBase(ABC):
         # Tick marks + tick label basics
         label_color_resolved = mcolors.to_rgba(style.fontcolor, alpha=style.fontalpha)
         tick_color_resolved = mcolors.to_rgba(style.tickcolor, alpha=style.tickalpha)
-        self.ax.tick_params(
+        self._ax.tick_params(
             axis=axis,
             which=style.ticktype,
             labelsize=style.size,
@@ -858,14 +858,14 @@ class GerryPlotBase(ABC):
         if axis in ("x", "both"):
             if style.ticktype in ("major", "both"):
                 self._apply_ticklabel_textprops(
-                    self.ax.get_xticklabels(minor=False),
+                    self._ax.get_xticklabels(minor=False),
                     fontweight=style.fontweight,
                     fontstyle=style.fontstyle,
                     fontfamily=style.fontfamily,
                 )
             if style.ticktype in ("minor", "both"):
                 self._apply_ticklabel_textprops(
-                    self.ax.get_xticklabels(minor=True),
+                    self._ax.get_xticklabels(minor=True),
                     fontweight=style.fontweight,
                     fontstyle=style.fontstyle,
                     fontfamily=style.fontfamily,
@@ -874,14 +874,14 @@ class GerryPlotBase(ABC):
         if axis in ("y", "both"):
             if style.ticktype in ("major", "both"):
                 self._apply_ticklabel_textprops(
-                    self.ax.get_yticklabels(minor=False),
+                    self._ax.get_yticklabels(minor=False),
                     fontweight=style.fontweight,
                     fontstyle=style.fontstyle,
                     fontfamily=style.fontfamily,
                 )
             if style.ticktype in ("minor", "both"):
                 self._apply_ticklabel_textprops(
-                    self.ax.get_yticklabels(minor=True),
+                    self._ax.get_yticklabels(minor=True),
                     fontweight=style.fontweight,
                     fontstyle=style.fontstyle,
                     fontfamily=style.fontfamily,
@@ -1063,10 +1063,10 @@ class GerryPlotBase(ABC):
         Returns:
             None
         """
-        self.ax.spines["top"].set_visible(show_top)
-        self.ax.spines["right"].set_visible(show_right)
-        self.ax.spines["left"].set_visible(show_left)
-        self.ax.spines["bottom"].set_visible(show_bottom)
+        self._ax.spines["top"].set_visible(show_top)
+        self._ax.spines["right"].set_visible(show_right)
+        self._ax.spines["left"].set_visible(show_left)
+        self._ax.spines["bottom"].set_visible(show_bottom)
 
     def _draw_verticals(self) -> None:
         """Draw vertical lines and bands on the plot."""
@@ -1076,7 +1076,7 @@ class GerryPlotBase(ABC):
                 if band.linecolor is None or band.linewidth == 0.0
                 else mcolors.to_rgba(band.linecolor, alpha=band.linealpha)
             )
-            self.ax.axvspan(
+            self._ax.axvspan(
                 band.lower_bound,
                 band.upper_bound,
                 facecolor=mcolors.to_rgba(band.bandcolor, alpha=band.bandalpha),
@@ -1087,7 +1087,7 @@ class GerryPlotBase(ABC):
             )
 
         for ln in self._vertical_lines:
-            self.ax.axvline(
+            self._ax.axvline(
                 ln.value,
                 color=mcolors.to_rgba(ln.linecolor, alpha=ln.linealpha),
                 linestyle=ln.linestyle,
@@ -1103,7 +1103,7 @@ class GerryPlotBase(ABC):
                 if band.linecolor is None or band.linewidth == 0.0
                 else mcolors.to_rgba(band.linecolor, alpha=band.linealpha)
             )
-            self.ax.axhspan(
+            self._ax.axhspan(
                 band.lower_bound,
                 band.upper_bound,
                 facecolor=mcolors.to_rgba(band.bandcolor, alpha=band.bandalpha),
@@ -1114,7 +1114,7 @@ class GerryPlotBase(ABC):
             )
 
         for ln in self._horizontal_lines:
-            self.ax.axhline(
+            self._ax.axhline(
                 ln.value,
                 color=mcolors.to_rgba(ln.linecolor, alpha=ln.linealpha),
                 linestyle=ln.linestyle,
@@ -1170,16 +1170,6 @@ class GerryPlotBase(ABC):
 
         return handles
 
-    @property
-    @abstractmethod
-    def _legend_handles(self) -> list[Any]:
-        """Get legend handles for all named elements in the plot.
-
-        Returns:
-            list[Any]: A list of legend handles.
-        """
-        pass
-
     def save_legend(
         self,
         filepath: str,
@@ -1233,20 +1223,20 @@ class GerryPlotBase(ABC):
         )
         plt.close(legend_fig)
 
-    @abstractmethod
-    def _build_plot(self) -> Axes:
-        """Build the plot by applying all settings and drawing elements."""
-        pass
+    def _build_and_apply_settings(self) -> None:
+        """Build the plot and apply all settings."""
+        self._build_plot()
+        self._apply_deferred_tick_styles()
 
-    def _build_and_apply_settings(self) -> Axes:
+    @property
+    def ax(self) -> Axes:
         """Build the plot by applying all settings and drawing elements.
 
         Returns:
-            Axes: The matplotlib Axes object.
+            Axes: The matplotlib Axes object with all of the settings applied.
         """
-        self._build_plot()
-        self._apply_deferred_tick_styles()
-        return self.ax
+        self._build_and_apply_settings()
+        return self._ax
 
     def show(self) -> None:
         """Display the figure."""
@@ -1271,3 +1261,18 @@ class GerryPlotBase(ABC):
         kwargs["dpi"] = kwargs.get("dpi", self.fig.dpi)
 
         self.fig.savefig(filepath, **kwargs)
+
+    @abstractmethod
+    def _build_plot(self) -> Axes:
+        """Build the plot by applying all settings and drawing elements."""
+        pass
+
+    @property
+    @abstractmethod
+    def _legend_handles(self) -> list[Any]:
+        """Get legend handles for all named elements in the plot.
+
+        Returns:
+            list[Any]: A list of legend handles.
+        """
+        pass
