@@ -18,27 +18,11 @@ from gerrytools.plotting.gerryplot import (
     GerryPlotBase,
     LineData,
     PointMarkerSettings,
+    PointSetData,
 )
 from gerrytools.typing import Color
 
 logger = get_logger(__name__)
-
-
-@dataclass(frozen=True)
-class PointSetData:
-    """A dataclass representing a set of points to be plotted on a boxplot figure.
-
-    Attributes:
-        name (str): The name of the point set.
-        values_dict (dict[str, float]): A dictionary mapping labels to point values.
-        point_data (PointMarkerSettings): The settings for the points.
-        x_offset (float | None): An optional absolute x-offset from category center.
-    """
-
-    name: str
-    values_dict: dict[str, float]  # one value per label
-    point_data: PointMarkerSettings
-    x_offset: float | None = None  # optional absolute x-offset from category center
 
 
 @dataclass(frozen=True)
@@ -160,7 +144,7 @@ class BoxPlot(GerryPlotBase):
         include_legend: bool = True,
         include_boxplot_group_vlines: bool = True,
     ) -> None:
-        """Initialize a BoxPlotComparison instance.
+        """Initialize a BoxPlot instance.
 
         Args:
             figure_size (tuple[float, float], optional): The size of the figure in inches.
@@ -173,7 +157,7 @@ class BoxPlot(GerryPlotBase):
             boxplot_width_scale (float, optional): The scaling factor for boxplot widths
                 within each group. Defaults to 0.8.
             include_legend (bool, optional): Whether to include a legend in the plot.
-                Defaults to False.
+                Defaults to True.
             include_boxplot_group_vlines (bool, optional): Whether to include vertical lines
                 at the center of the boxplot groups. Defaults to True.
         """
@@ -530,7 +514,7 @@ class BoxPlot(GerryPlotBase):
         """
         self._include_boxplot_group_vlines = True
         self._boxplot_group_vline_settings = LineData(
-            value=float("inf"),  # placeholder
+            values=float("inf"),  # placeholder
             linecolor=linecolor,
             linealpha=linealpha,
             linestyle=linestyle,

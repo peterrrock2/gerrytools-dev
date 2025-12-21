@@ -116,6 +116,23 @@ class PointMarkerSettings:
 
 
 @dataclass(frozen=True)
+class PointSetData:
+    """A dataclass representing a set of points to be plotted on a boxplot figure.
+
+    Attributes:
+        name (str): The name of the point set.
+        values_dict (dict[str, float]): A dictionary mapping labels to point values.
+        point_data (PointMarkerSettings): The settings for the points.
+        x_offset (float | None): An optional absolute x-offset from category center.
+    """
+
+    name: str
+    values_dict: dict[str, float]  # one value per label
+    point_data: PointMarkerSettings
+    x_offset: float | None = None  # optional absolute x-offset from category center
+
+
+@dataclass(frozen=True)
 class LineData:
     """Data class representing a line to be drawn on a plot.
 
@@ -371,7 +388,7 @@ class GerryPlotBase(ABC):
         figure_size: tuple[float, float] = (10, 6),
         dpi: int = 300,
         *,
-        include_legend: bool = False,
+        include_legend: bool = True,
     ) -> None:
         """Initialize a GerryPlotBase instance.
 
@@ -382,7 +399,7 @@ class GerryPlotBase(ABC):
 
         Kwargs:
             include_legend (bool, optional): Whether to include a legend in the plot.
-                Defaults to False.
+                Defaults to True.
         """
         self.fig, self._ax = plt.subplots(figsize=figure_size, dpi=dpi)
 
