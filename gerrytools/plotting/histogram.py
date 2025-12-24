@@ -250,12 +250,16 @@ class Histogram(GerryPlotBase):
         grid: bool = False,
         hide_warnings: bool = False,
     ) -> None:
-        super().__init__(figure_size=figure_size, dpi=dpi, include_legend=include_legend)
+        super().__init__(
+            figure_size=figure_size,
+            dpi=dpi,
+            include_legend=include_legend,
+            xlabel=xlabel,
+            ylabel=ylabel,
+            title=title,
+        )
         self.hide_warnings = hide_warnings
 
-        self.xlabel = xlabel
-        self.ylabel = ylabel
-        self.title = title
         self.grid = grid
         self._bins: BinsType | None = None
         self._bin_alignment = "edge"
@@ -724,13 +728,6 @@ class Histogram(GerryPlotBase):
 
         self._draw_verticals()
         self._draw_horizontals()
-
-        if self.xlabel is not None:
-            self._ax.set_xlabel(self.xlabel)
-        if self.ylabel is not None:
-            self._ax.set_ylabel(self.ylabel)
-        if self.title is not None:
-            self._ax.set_title(self.title)
 
         self._ax.grid(self.grid)
 

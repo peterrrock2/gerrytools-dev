@@ -1,4 +1,3 @@
-
 import requests
 
 
@@ -18,9 +17,7 @@ def dualgraphs20(state, filepath, geometry="block group"):
 
     # Specify the base url.
     base = "http://data.mggg.org.s3-website.us-east-2.amazonaws.com/dual-graphs/"
-    suffix = (
-        f"{state.abbr.lower()}-{geometry}-connected.json"
-    )
+    suffix = f"{state.abbr.lower()}-{geometry}-connected.json"
 
     # Send the request!
     request = requests.get(base + suffix)
@@ -39,9 +36,7 @@ def vtds20(state, filepath):
     """
     # Specify the base url.
     base = "http://data.mggg.org.s3-website.us-east-2.amazonaws.com/vtd-shapefiles/"
-    suffix = (
-        f"{state.abbr.upper()}_" f"vtd20.zip"
-    )
+    suffix = f"{state.abbr.upper()}_" f"vtd20.zip"
 
     # Send the request!
     request = requests.get(base + suffix)
@@ -85,9 +80,7 @@ def geometries20(state, filepath, geometry="tract"):
 
     # Specify the base url.
     base = "http://data.mggg.org.s3-website.us-east-2.amazonaws.com/census-2020/"
-    suffix = (
-        f"{state.abbr.lower()}/{state.abbr.lower()}_" f"{geometrymap[geometry]}.zip"
-    )
+    suffix = f"{state.abbr.lower()}/{state.abbr.lower()}_" f"{geometrymap[geometry]}.zip"
 
     # Send the request!
     request = requests.get(base + suffix)

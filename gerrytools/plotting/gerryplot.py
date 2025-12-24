@@ -380,6 +380,164 @@ class LegendOptions:
         return output
 
 
+@dataclass(frozen=True)
+class AxisLabelStyle:
+    """Dataclass meant to mirror some matplotlib styling options for axis labels.
+
+    Attributes:
+        fontsize (float | int | None): Font size for the axis label text.
+        fontweight (str | None): Font weight (e.g., "normal", "bold").
+        fontstyle (str | None): Font style (e.g., "normal", "italic").
+        fontfamily (str | None): Font family (e.g., "sans-serif", "serif").
+        fontcolor (Color): Axis label text color.
+        fontalpha (float | None): Axis label text alpha. If None, uses alpha from color if
+            specified.
+        labelpad (float | None): Padding between the label and the axis (in points).
+    """
+
+    fontsize: float | int | None = None
+    fontweight: str | None = None
+    fontstyle: str | None = None
+    fontfamily: str | None = None
+
+    fontcolor: Color = "black"
+    fontalpha: float | None = None
+
+    labelpad: float | None = None
+
+    def __post_init__(self) -> None:
+        if self.fontsize is not None:
+            if not isinstance(self.fontsize, (int, float)):
+                raise TypeError("AxisLabelStyle.fontsize must be a float or int.")
+            size = float(self.fontsize)
+            if not math.isfinite(size):
+                raise ValueError("AxisLabelStyle.fontsize must be finite.")
+            if size < 0:
+                raise ValueError("AxisLabelStyle.fontsize must be nonnegative.")
+            object.__setattr__(self, "fontsize", self.fontsize)
+
+        if self.labelpad is not None:
+            if not isinstance(self.labelpad, (int, float)):
+                raise TypeError("AxisLabelStyle.labelpad must be a float or int.")
+            pad = float(self.labelpad)
+            if not math.isfinite(pad):
+                raise ValueError("AxisLabelStyle.labelpad must be finite.")
+            if pad < 0:
+                raise ValueError("AxisLabelStyle.labelpad must be nonnegative.")
+            object.__setattr__(self, "labelpad", pad)
+
+        resolved_c, resolved_a = resolve_color_and_alpha(
+            self.fontcolor,
+            self.fontalpha,
+            allow_none=True,
+            field="fontcolor",
+            owner="AxisLabelStyle",
+            logger=logger,
+        )
+        object.__setattr__(self, "fontcolor", resolved_c)
+        object.__setattr__(self, "fontalpha", resolved_a)
+
+    def to_mpl_settings_dict(self) -> dict[str, Any]:
+        """Convert to Matplotlib keyword dictionary for ``Axes.set_xlabel`` /
+        ``Axes.set_ylabel``.
+        """
+        settings_dict: dict[str, Any] = {
+            "color": mcolors.to_rgba(self.fontcolor, alpha=self.fontalpha),
+        }
+        if self.fontsize is not None:
+            settings_dict["fontsize"] = self.fontsize
+        if self.fontweight is not None:
+            settings_dict["fontweight"] = self.fontweight
+        if self.fontstyle is not None:
+            settings_dict["fontstyle"] = self.fontstyle
+        if self.fontfamily is not None:
+            settings_dict["fontfamily"] = self.fontfamily
+        if self.labelpad is not None:
+            settings_dict["labelpad"] = self.labelpad
+        return settings_dict
+
+
+@dataclass(frozen=True)
+class TitleStyle:
+    """Dataclass meant to mirror some matplotlib styling options for an axes title.
+
+    Attributes:
+        fontsize (float | int | None): Font size for the title text.
+        fontweight (str | None): Font weight (e.g., "normal", "bold").
+        fontstyle (str | None): Font style (e.g., "normal", "italic").
+        fontfamily (str | None): Font family (e.g., "sans-serif", "serif").
+        fontcolor (Color): Title text color.
+        fontalpha (float | None): Title text alpha. If None, uses alpha from color if specified.
+        loc (Literal["left", "center", "right"] | None): Title location.
+        pad (float | None): Padding between the title and the axes (in points).
+    """
+
+    fontsize: float | int | None = None
+    fontweight: str | None = None
+    fontstyle: str | None = None
+    fontfamily: str | None = None
+
+    fontcolor: Color = "black"
+    fontalpha: float | None = None
+
+    loc: Literal["left", "center", "right"] | None = None
+    pad: float | None = None
+
+    def __post_init__(self) -> None:
+        if self.fontsize is not None:
+            if not isinstance(self.fontsize, (int, float)):
+                raise TypeError("TitleStyle.fontsize must be a float or int.")
+            size = float(self.fontsize)
+            if not math.isfinite(size):
+                raise ValueError("TitleStyle.fontsize must be finite.")
+            if size < 0:
+                raise ValueError("TitleStyle.fontsize must be nonnegative.")
+            object.__setattr__(self, "fontsize", self.fontsize)
+
+        if self.pad is not None:
+            if not isinstance(self.pad, (int, float)):
+                raise TypeError("TitleStyle.pad must be a float or int.")
+            pad = float(self.pad)
+            if not math.isfinite(pad):
+                raise ValueError("TitleStyle.pad must be finite.")
+            if pad < 0:
+                raise ValueError("TitleStyle.pad must be nonnegative.")
+            object.__setattr__(self, "pad", pad)
+
+        if self.loc is not None and self.loc not in ("left", "center", "right"):
+            raise ValueError("TitleStyle.loc must be one of {'left','center','right'}.")
+
+        resolved_c, resolved_a = resolve_color_and_alpha(
+            self.fontcolor,
+            self.fontalpha,
+            allow_none=True,
+            field="fontcolor",
+            owner="TitleStyle",
+            logger=logger,
+        )
+        object.__setattr__(self, "fontcolor", resolved_c)
+        object.__setattr__(self, "fontalpha", resolved_a)
+
+    def to_mpl_settings_dict(self) -> dict[str, Any]:
+        """Convert to Matplotlib kwargs for ``Axes.set_title``."""
+        settings_dict: dict[str, Any] = {
+            "color": mcolors.to_rgba(self.fontcolor, alpha=self.fontalpha),
+        }
+        if self.fontsize is not None:
+            settings_dict["fontsize"] = self.fontsize
+        if self.fontweight is not None:
+            settings_dict["fontweight"] = self.fontweight
+        if self.fontstyle is not None:
+            settings_dict["fontstyle"] = self.fontstyle
+        if self.fontfamily is not None:
+            settings_dict["fontfamily"] = self.fontfamily
+        if self.loc is not None:
+            settings_dict["loc"] = self.loc
+        if self.pad is not None:
+            settings_dict["pad"] = self.pad
+        return settings_dict
+
+
 class GerryPlotBase(ABC):
     """Abstract base class for GerryPlot plotting classes."""
 
@@ -389,6 +547,9 @@ class GerryPlotBase(ABC):
         dpi: int = 300,
         *,
         include_legend: bool = True,
+        xlabel: str | None = None,
+        ylabel: str | None = None,
+        title: str | None = None,
     ) -> None:
         """Initialize a GerryPlotBase instance.
 
@@ -405,6 +566,14 @@ class GerryPlotBase(ABC):
 
         self.include_legend = include_legend
         self._legend_options = LegendOptions(loc="center left", bbox_to_anchor=(1.01, 0.5))
+
+        self.xlabel = xlabel
+        self.ylabel = ylabel
+        self.title = title
+
+        self._xlabel_style: AxisLabelStyle | None = None
+        self._ylabel_style: AxisLabelStyle | None = None
+        self._title_style: TitleStyle | None = None
 
         self._x_tick_locations: list[float] | None = None
         self._x_tick_labels: list[str] | None = None
@@ -961,6 +1130,168 @@ class GerryPlotBase(ABC):
         if self._y_tick_style is not None:
             self._apply_tick_style("y", self._y_tick_style)
 
+    def _apply_deferred_label_styles(self) -> None:
+        """Apply xlabel/ylabel/title text and any configured styles.
+
+        Designed to run after ``_build_plot()`` so that any subclass call to ``ax.clear()``
+        doesn't wipe out label/title configuration.
+        """
+        if self.xlabel is not None:
+            kwargs = self._xlabel_style.to_mpl_settings_dict() if self._xlabel_style else {}
+            self._ax.set_xlabel(self.xlabel, **kwargs)
+
+        if self.ylabel is not None:
+            kwargs = self._ylabel_style.to_mpl_settings_dict() if self._ylabel_style else {}
+            self._ax.set_ylabel(self.ylabel, **kwargs)
+
+        if self.title is not None:
+            kwargs = self._title_style.to_mpl_settings_dict() if self._title_style else {}
+            self._ax.set_title(self.title, **kwargs)
+
+    def set_xaxis_label_style(
+        self,
+        *,
+        fontsize: float | int | None = None,
+        fontweight: str | None = None,
+        fontstyle: str | None = None,
+        fontfamily: str | None = None,
+        fontcolor: Color = "black",
+        fontalpha: float | None = None,
+        labelpad: float | None = None,
+    ) -> None:
+        """Sets the styling for the x-axis label.
+
+        Kwargs:
+            fontsize (float | int | None, optional): Font size for the x-axis label.
+                Defaults to None.
+            fontweight (str | None, optional): Font weight (e.g., "normal", "bold").
+                Defaults to None.
+            fontstyle (str | None, optional): Font style (e.g., "normal", "italic").
+                Defaults to None.
+            fontfamily (str | None, optional): Font family (e.g., "sans-serif", "serif").
+                Defaults to None.
+            fontcolor (Color, optional): Color of the x-axis label. Defaults to "black".
+            fontalpha (float | None, optional): Alpha transparency of the x-axis label color.
+                If None, uses alpha from color if specified. Defaults to None.
+            labelpad (float | None, optional): Padding between the x-axis label and the axis
+                in points. Defaults to None.
+
+        Returns:
+            None
+        """
+        self._xlabel_style = AxisLabelStyle(
+            fontsize=fontsize,
+            fontweight=fontweight,
+            fontstyle=fontstyle,
+            fontfamily=fontfamily,
+            fontcolor=fontcolor,
+            fontalpha=fontalpha,
+            labelpad=labelpad,
+        )
+
+    def set_yaxis_label_style(
+        self,
+        *,
+        fontsize: float | int | None = None,
+        fontweight: str | None = None,
+        fontstyle: str | None = None,
+        fontfamily: str | None = None,
+        fontcolor: Color = "black",
+        fontalpha: float | None = None,
+        labelpad: float | None = None,
+    ) -> None:
+        """Sets the styling for the y-axis label.
+
+        Kwargs:
+            fontsize (float | int | None, optional): Font size for the y-axis label.
+                Defaults to None.
+            fontweight (str | None, optional): Font weight (e.g., "normal", "bold").
+                Defaults to None.
+            fontstyle (str | None, optional): Font style (e.g., "normal", "italic").
+                Defaults to None.
+            fontfamily (str | None, optional): Font family (e.g., "sans-serif", "serif").
+                Defaults to None.
+            fontcolor (Color, optional): Color of the y-axis label. Defaults to "black".
+            fontalpha (float | None, optional): Alpha transparency of the y-axis label color.
+                If None, uses alpha from color if specified. Defaults to None.
+            labelpad (float | None, optional): Padding between the y-axis label and the axis
+                in points. Defaults to None.
+
+        Returns:
+            None
+        """
+        self._ylabel_style = AxisLabelStyle(
+            fontsize=fontsize,
+            fontweight=fontweight,
+            fontstyle=fontstyle,
+            fontfamily=fontfamily,
+            fontcolor=fontcolor,
+            fontalpha=fontalpha,
+            labelpad=labelpad,
+        )
+
+    def set_title_style(
+        self,
+        *,
+        fontsize: float | int | None = None,
+        fontweight: str | None = None,
+        fontstyle: str | None = None,
+        fontfamily: str | None = None,
+        fontcolor: Color = "black",
+        fontalpha: float | None = None,
+        loc: Literal["left", "center", "right"] | None = None,
+        pad: float | None = None,
+    ) -> None:
+        """Sets the styling for the axes title.
+
+        Kwargs:
+            fontsize (float | int | None, optional): Font size for the title. Defaults to None.
+            fontweight (str | None, optional): Font weight (e.g., "normal", "bold").
+                Defaults to None.
+            fontstyle (str | None, optional): Font style (e.g., "normal", "italic").
+                Defaults to None.
+            fontfamily (str | None, optional): Font family (e.g., "sans-serif", "serif").
+                Defaults to None.
+            fontcolor (Color, optional): Color of the title. Defaults to "black".
+            fontalpha (float | None, optional): Alpha transparency of the title color.
+                If None, uses alpha from color if specified. Defaults to None.
+            loc (Literal["left", "center", "right"] | None, optional): Title location.
+                Defaults to None.
+            pad (float | None, optional): Padding between the title and the axes in points.
+                Defaults to None.
+
+        Returns:
+            None
+        """
+        self._title_style = TitleStyle(
+            fontsize=fontsize,
+            fontweight=fontweight,
+            fontstyle=fontstyle,
+            fontfamily=fontfamily,
+            fontcolor=fontcolor,
+            fontalpha=fontalpha,
+            loc=loc,
+            pad=pad,
+        )
+
+    def set_xlabel(self, text: str | None) -> None:
+        """Set the x-axis label text (deferred until build)."""
+        self.xlabel = text
+
+    def set_ylabel(self, text: str | None) -> None:
+        """Set the y-axis label text (deferred until build)."""
+        self.ylabel = text
+
+    def set_title(self, text: str | None) -> None:
+        """Set the axes title text (deferred until build)."""
+        self.title = text
+
+    def clear_xlabel_ylabel_and_title_styles(self) -> None:
+        """Clear all xlabel/ylabel/title styles."""
+        self._xlabel_style = None
+        self._ylabel_style = None
+        self._title_style = None
+
     def set_xaxis_tick_style(
         self,
         *,
@@ -1371,8 +1702,6 @@ class GerryPlotBase(ABC):
 
         leg = legend_ax.legend(
             handles=self._legend_handles,
-            loc="center",
-            frameon=True,
             **legend_options,
         )
 
@@ -1404,7 +1733,9 @@ class GerryPlotBase(ABC):
         """Build the plot and apply all settings."""
         self._build_plot()
         self._apply_deferred_tick_styles()
-        self._update_legend()
+        self._apply_deferred_label_styles()
+        if self.include_legend:
+            self._update_legend()
 
     @property
     def ax(self) -> Axes:

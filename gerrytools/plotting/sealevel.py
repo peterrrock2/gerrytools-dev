@@ -78,13 +78,17 @@ class SeaLevel(GerryPlotBase):
             include_legend (bool, optional): Whether to include a legend in the plot.
                 Defaults to True.
         """
-        super().__init__(figure_size=figure_size, dpi=dpi, include_legend=include_legend)
+        super().__init__(
+            figure_size=figure_size,
+            dpi=dpi,
+            include_legend=include_legend,
+            xlabel=xlabel,
+            ylabel=ylabel,
+            title=title,
+        )
 
         self.hide_warnings = hide_warnings
 
-        self.xlabel = xlabel
-        self.ylabel = ylabel
-        self.title = title
         self.grid = grid
 
         self._sealevel_data_list: list[SeaLevelSetData] = []
