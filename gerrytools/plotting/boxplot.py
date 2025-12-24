@@ -139,9 +139,12 @@ class BoxPlot(GerryPlotBase):
         figure_size: tuple[float, float] = (10, 6),
         dpi: int = 300,
         *,
+        include_legend: bool = True,
+        xlabel: str | None = None,
+        ylabel: str | None = None,
+        title: str | None = None,
         boxplot_width_scale: float = 0.8,
         boxplot_group_width: float = 0.7,
-        include_legend: bool = True,
         include_boxplot_group_vlines: bool = True,
     ) -> None:
         """Initialize a BoxPlot instance.
@@ -161,7 +164,14 @@ class BoxPlot(GerryPlotBase):
             include_boxplot_group_vlines (bool, optional): Whether to include vertical lines
                 at the center of the boxplot groups. Defaults to True.
         """
-        super().__init__(figure_size=figure_size, dpi=dpi, include_legend=include_legend)
+        super().__init__(
+            figure_size=figure_size,
+            dpi=dpi,
+            include_legend=include_legend,
+            xlabel=xlabel,
+            ylabel=ylabel,
+            title=title,
+        )
 
         self._boxplot_data_list: list[BoxPlotSetData] = []
         self._pointset_data_list: list[PointSetData] = []

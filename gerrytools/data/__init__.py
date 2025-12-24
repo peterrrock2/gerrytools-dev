@@ -7,7 +7,7 @@ from .census.census import census
 from .districtr.legacy.fetch import Submission as LegacySubmission
 from .districtr.legacy.fetch import submissions as legacy_submissions
 from .districtr.legacy.fetch import tabularized as legacy_tabularized
-from .geometries import geometries20, vtds20, dualgraphs20
+from .geometries import dualgraphs20, geometries20, vtds20
 
 __all__ = [
     "legacy_submissions",

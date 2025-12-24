@@ -1,17 +1,8 @@
-import inspect
-import logging
-import re
-import warnings
 from dataclasses import dataclass
-from typing import Any, Callable, Iterable, Optional, cast, Literal
-
-import pandas as pd
+from typing import Iterable, Literal
 
 from gerrytools.latex.document import TexDocument
-from gerrytools.latex.formatters import round_decimals
-from gerrytools.colors import is_latex_color_string
 from gerrytools.logging import get_logger
-from gerrytools.typing import CellWrapper, Color
 
 logger = get_logger(__name__)
 
