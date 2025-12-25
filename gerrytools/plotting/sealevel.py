@@ -464,21 +464,7 @@ class SeaLevel(GerryPlotBase):
         if len(self._sealevel_data_list) == 0:
             raise ValueError("No sealevel sets added yet.")
 
-        self._ax.clear()
-
-        self._draw_verticals()
-        self._draw_horizontals()
-
         self._draw_sealevels()
-
-        self._set_x_axis()
-        self._set_y_axis()
-
-        if self.include_legend:
-            self._ax.legend(
-                handles=self._legend_handles,
-                **self._legend_options.to_dict(),
-            )
 
     def _get_sealevel_legend_handles(self) -> list[Any]:
         """Generate legend handles for sealevel sets.

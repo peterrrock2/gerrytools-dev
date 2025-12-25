@@ -137,7 +137,7 @@ class LineData:
     """Data class representing a line to be drawn on a plot.
 
     Attributes:
-        value (float): The position of the line on the axis.
+        values (float | Iterable[float]): The position(s) of the line on the axis.
         linecolor (Color): The color of the line.
         linealpha (float | None): The alpha transparency of the line color.
             If None, uses the alpha from the color if specified.
@@ -561,6 +561,9 @@ class GerryPlotBase(ABC):
         Kwargs:
             include_legend (bool, optional): Whether to include a legend in the plot.
                 Defaults to True.
+            xlabel (str | None, optional): The label for the x-axis. Defaults to None.
+            ylabel (str | None, optional): The label for the y-axis. Defaults to None.
+            title (str | None, optional): The title of the plot. Defaults to None.
         """
         self.fig, self._ax = plt.subplots(figsize=figure_size, dpi=dpi)
 
@@ -589,6 +592,13 @@ class GerryPlotBase(ABC):
         self._vertical_bands: list[BandData] = []
         self._horizontal_lines: list[LineData] = []
         self._horizontal_bands: list[BandData] = []
+
+        self._frame_visibility: dict[str, bool] = {
+            "top": True,
+            "right": True,
+            "bottom": True,
+            "left": True,
+        }
 
         self._finalizer = weakref.finalize(self, plt.close, self.fig)
 
@@ -816,6 +826,7 @@ class GerryPlotBase(ABC):
         return None
 
     def _default_x_tick_labels(self, tick_locations: list[float]) -> list[str] | None:
+        """Get default x-tick labels for the categorical data."""
         return None
 
     def _set_x_axis(self) -> None:
@@ -1454,10 +1465,12 @@ class GerryPlotBase(ABC):
         Returns:
             None
         """
-        self._ax.spines["top"].set_visible(show_top)
-        self._ax.spines["right"].set_visible(show_right)
-        self._ax.spines["left"].set_visible(show_left)
-        self._ax.spines["bottom"].set_visible(show_bottom)
+        self._frame_visibility = {
+            "top": show_top,
+            "right": show_right,
+            "left": show_left,
+            "bottom": show_bottom,
+        }
 
     def _draw_verticals(self) -> None:
         """Draw vertical lines and bands on the plot."""
@@ -1479,8 +1492,8 @@ class GerryPlotBase(ABC):
 
         for ln in self._vertical_lines:
             vals = ln.values
-            if isinstance(vals, (int, float)):
-                vals = [vals]
+            if isinstance(vals, Real) and not isinstance(vals, bool):
+                vals = [float(vals)]
             for value in vals:
                 self._ax.axvline(
                     value,
@@ -1510,8 +1523,8 @@ class GerryPlotBase(ABC):
 
         for ln in self._horizontal_lines:
             vals = ln.values
-            if isinstance(vals, (int, float)):
-                vals = [vals]
+            if isinstance(vals, Real) and not isinstance(vals, bool):
+                vals = [float(vals)]
             for value in vals:
                 self._ax.axhline(
                     value,
@@ -1735,9 +1748,23 @@ class GerryPlotBase(ABC):
 
         self._ax.legend(handles=self._legend_handles, **(self._legend_options.to_dict()))
 
+    def _apply_frame_visibility(self) -> None:
+        """Apply frame visibility settings to the axes."""
+        if self._frame_visibility is None:
+            return
+
+        for spine, visible in self._frame_visibility.items():
+            self._ax.spines[spine].set_visible(visible)
+
     def _build_and_apply_settings(self) -> None:
         """Build the plot and apply all settings."""
+        self._ax.clear()
         self._build_plot()
+        self._draw_verticals()
+        self._draw_horizontals()
+        self._set_x_axis()
+        self._set_y_axis()
+        self._apply_frame_visibility()
         self._apply_deferred_tick_styles()
         self._apply_deferred_label_styles()
         if self.include_legend:

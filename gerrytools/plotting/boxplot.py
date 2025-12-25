@@ -36,7 +36,7 @@ class BoxPlotSetData:
         facealpha (float | None): The alpha transparency of the boxplots.
         edgecolor (Color): The edge color of the boxplots.
         edgealpha (float | None): The alpha transparency of the boxplot edges.
-        linewidth (float): The linewidth of the boxplot edges.
+        edgewidth (float): The edgewidth of the boxplot edges.
         percentiles (tuple[float, float]): The percentiles for the whiskers.
         showfliers (bool): Whether to show outliers.
         fliersettings (PointMarkerSettings): The settings for outlier points.
@@ -49,10 +49,10 @@ class BoxPlotSetData:
     facealpha: float | None = None
     edgecolor: Color = "black"
     edgealpha: float | None = None
+    edgewidth: float = 0.8
     percentiles: tuple[float, float] = (1, 99)
     showfliers: bool = False
     fliersettings: PointMarkerSettings = field(default_factory=PointMarkerSettings)
-    linewidth: float = 0.8
     zorder: int = 1
 
     def __post_init__(self) -> None:
@@ -64,12 +64,12 @@ class BoxPlotSetData:
         if not (lo < hi):
             raise ValueError("percentiles must satisfy low < high.")
 
-        lw = float(self.linewidth)
+        lw = float(self.edgewidth)
         if not math.isfinite(lw):
-            raise ValueError("linewidth must be a finite number")
+            raise ValueError("edgewidth must be a finite number")
         if lw < 0:
-            raise ValueError("linewidth must be nonnegative")
-        object.__setattr__(self, "linewidth", lw)
+            raise ValueError("edgewidth must be nonnegative")
+        object.__setattr__(self, "edgewidth", lw)
 
         resolved_facecolor, resolved_alpha = resolve_color_and_alpha(
             self.facecolor,
@@ -98,12 +98,12 @@ class BoxPlotSetData:
                 level=logging.DEBUG,
                 msg=(
                     f"For BoxPlotSetData {self.name}: edgecolor is 'none' but "
-                    f"linewidth is {lw}>0; setting linewidth to 0."
+                    f"edgewidth is {lw}>0; setting edgewidth to 0."
                 ),
             )
             lw = 0.0
 
-        object.__setattr__(self, "linewidth", lw)
+        object.__setattr__(self, "edgewidth", lw)
         object.__setattr__(self, "zorder", int(self.zorder))
 
 
@@ -145,7 +145,7 @@ class BoxPlot(GerryPlotBase):
         title: str | None = None,
         boxplot_width_scale: float = 0.8,
         boxplot_group_width: float = 0.7,
-        include_boxplot_group_vlines: bool = True,
+        include_boxplot_group_vlines: bool = False,
     ) -> None:
         """Initialize a BoxPlot instance.
 
@@ -155,14 +155,17 @@ class BoxPlot(GerryPlotBase):
             dpi (int, optional): The dots per inch (DPI) of the figure. Defaults to 300.
 
         Kwargs:
+            include_legend (bool, optional): Whether to include a legend in the plot.
+                Defaults to True.
+            xlabel (str | None, optional): The label for the x-axis. Defaults to None.
+            ylabel (str | None, optional): The label for the y-axis. Defaults to None.
+            title (str | None, optional): The title of the plot. Defaults to None.
             boxplot_group_width (float, optional): The width of each boxplot group.
                 Defaults to 0.7
             boxplot_width_scale (float, optional): The scaling factor for boxplot widths
                 within each group. Defaults to 0.8.
-            include_legend (bool, optional): Whether to include a legend in the plot.
-                Defaults to True.
             include_boxplot_group_vlines (bool, optional): Whether to include vertical lines
-                at the center of the boxplot groups. Defaults to True.
+                at the center of the boxplot groups. Defaults to False.
         """
         super().__init__(
             figure_size=figure_size,
@@ -268,7 +271,7 @@ class BoxPlot(GerryPlotBase):
         facealpha: float | None = None,
         edgecolor: Color = "black",
         edgealpha: float | None = None,
-        linewidth: float = 0.8,
+        edgewidth: float = 0.8,
         percentiles: tuple[float, float] = (1, 99),
         showfliers: bool = False,
         fliersettings: PointMarkerSettings | None = None,
@@ -292,7 +295,7 @@ class BoxPlot(GerryPlotBase):
             edgecolor (Color, optional): The edge color of the boxplots. Defaults to "black".
             edgealpha (float | None, optional): The alpha transparency of the boxplot edges.
                 Defaults to None.
-            linewidth (float, optional): The linewidth of the boxplot edges. Defaults to 0.8.
+            edgewidth (float, optional): The edgewidth of the boxplot edges. Defaults to 0.8.
             percentiles (tuple[float, float], optional): The percentiles for the whiskers.
                 Defaults to (1, 99).
             showfliers (bool, optional): Whether to show outliers. Defaults to False.
@@ -337,7 +340,7 @@ class BoxPlot(GerryPlotBase):
                 facealpha=facealpha,
                 edgecolor=edgecolor,
                 edgealpha=edgealpha,
-                linewidth=linewidth,
+                edgewidth=edgewidth,
                 percentiles=percentiles,
                 showfliers=showfliers,
                 fliersettings=fliersettings,
@@ -664,14 +667,14 @@ class BoxPlot(GerryPlotBase):
                 patch.set_facecolor(
                     mcolors.to_rgba(boxplot_data.facecolor, alpha=boxplot_data.facealpha)
                 )
-                patch.set_linewidth(boxplot_data.linewidth)
+                patch.set_linewidth(boxplot_data.edgewidth)
                 patch.set_edgecolor(edgecolor)
                 patch.set_zorder(boxplot_data.zorder)
 
             for key in ("whiskers", "caps", "medians", "means"):
                 for artist in bp.get(key, []):
                     artist.set_color(edgecolor)
-                    artist.set_linewidth(boxplot_data.linewidth)
+                    artist.set_linewidth(boxplot_data.edgewidth)
                     artist.set_zorder(boxplot_data.zorder)
 
             for artist in bp.get("fliers", []):
@@ -685,25 +688,11 @@ class BoxPlot(GerryPlotBase):
         if len(self._boxplot_data_list) == 0:
             raise ValueError("No boxplot sets added yet.")
 
-        self._ax.clear()
-
-        self._draw_pointset(self._boxplot_centers)
-        self._draw_verticals()
-        self._draw_horizontals()
-
         self._draw_boxplot()
+        self._draw_pointset(self._boxplot_centers)
 
         if self._include_boxplot_group_vlines:
             self._draw_boxplot_group_vlines()
-
-        self._set_x_axis()
-        self._set_y_axis()
-
-        if self.include_legend:
-            self._ax.legend(
-                handles=self._legend_handles,
-                **self._legend_options.to_dict(),
-            )
 
     def _get_boxplot_legend_handles(self) -> list[Any]:
         """Generate legend handles for boxplot sets.

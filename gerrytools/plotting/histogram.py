@@ -153,7 +153,7 @@ class HistogramData:
         facealpha: Alpha transparency for the fill color.
         edgecolor: Edge color for the histogram bars.
         edgealpha: Alpha transparency for the edge color.
-        linewidth: Line width for the histogram bar edges.
+        edgewidth: Line width for the histogram bar edges.
         zorder: Z-order for layering the histogram in the plot.
     """
 
@@ -166,7 +166,7 @@ class HistogramData:
 
     edgecolor: Color = "black"
     edgealpha: float | None = None
-    linewidth: float = 0.8
+    edgewidth: float = 0.8
 
     zorder: int = 0
 
@@ -187,12 +187,12 @@ class HistogramData:
             raise ValueError(f"HistogramData {self.name!r}: weights must be finite.")
         object.__setattr__(self, "weights", w_arr)
 
-        lw = float(self.linewidth)
+        lw = float(self.edgewidth)
         if not math.isfinite(lw):
-            raise ValueError("linewidth must be finite")
+            raise ValueError("edgewidth must be finite")
         if lw < 0:
-            raise ValueError("linewidth must be nonnegative")
-        object.__setattr__(self, "linewidth", lw)
+            raise ValueError("edgewidth must be nonnegative")
+        object.__setattr__(self, "edgewidth", lw)
 
         resolved_fc, resolved_a = resolve_color_and_alpha(
             self.facecolor,
@@ -218,11 +218,11 @@ class HistogramData:
 
         if resolved_ec.lower() == "none" and lw > 0:
             logger.debug(
-                "For HistogramData %s: edge_color is 'none' but linewidth is %s>0; setting linewidth to 0.",
+                "For HistogramData %s: edge_color is 'none' but edgewidth is %s>0; setting edgewidth to 0.",
                 self.name,
                 lw,
             )
-            object.__setattr__(self, "linewidth", 0.0)
+            object.__setattr__(self, "edgewidth", 0.0)
 
         object.__setattr__(self, "zorder", int(self.zorder))
 
@@ -250,6 +250,22 @@ class Histogram(GerryPlotBase):
         grid: bool = False,
         hide_warnings: bool = False,
     ) -> None:
+        """Initialize the Histogram figure.
+
+        Args:
+            figure_size (tuple[float, float], optional): The size of the figure in inches.
+            dpi (int, optional): The dots per inch (DPI) of the figure. Defaults to 300.
+
+        Kwargs:
+            include_legend (bool, optional): Whether to include a legend in the plot.
+                Defaults to True.
+            xlabel (str | None, optional): The label for the x-axis. Defaults to None.
+            ylabel (str | None, optional): The label for the y-axis. Defaults to None.
+            title (str | None, optional): The title of the plot. Defaults to None.
+            grid (bool, optional): Whether to show a grid on the plot. Defaults to False.
+            hide_warnings (bool, optional): Whether to hide warnings about potentially
+                problematic histogram settings. Defaults to False.
+        """
         super().__init__(
             figure_size=figure_size,
             dpi=dpi,
@@ -344,7 +360,7 @@ class Histogram(GerryPlotBase):
         facealpha: float | None = None,
         edgecolor: Color = "none",
         edgealpha: float | None = None,
-        linewidth: float = 0.0,
+        edgewidth: float = 0.0,
         histtype: HistType = "overlay",
         zorder: int = 2,
     ) -> None:
@@ -371,7 +387,7 @@ class Histogram(GerryPlotBase):
             histograms, and the stacking order is determined by the order in which they were added.
 
         Note:
-            When using 'outline' histograms, it is recommended to set ``linewidth`` to
+            When using 'outline' histograms, it is recommended to set ``edgewidth`` to
             a positive value (e.g., 0.8) to ensure the outline is visible. Additionally,
             setting ``facecolor`` to 'none' and ``edgecolor`` to a visible color (e.g., 'black')
             is advisable for clarity.
@@ -392,7 +408,7 @@ class Histogram(GerryPlotBase):
             edgecolor (Color, optional): The edge color of the histogram bars. Defaults to "black".
             edgealpha (float | None, optional): The alpha transparency of the histogram bar edges.
                 Defaults to None.
-            linewidth (float, optional): The width of the histogram bar edges. Defaults to 0.0.
+            edgewidth (float, optional): The width of the histogram bar edges. Defaults to 0.0.
             histtype (HistType, optional): The type of histogram to add. Must be one of
                 'overlay', 'stack', 'weave', 'outline'. Defaults to 'overlay'.
             zorder (int, optional): The z-order of the points. Defaults to 2.
@@ -407,14 +423,14 @@ class Histogram(GerryPlotBase):
             )
 
         if histtype == "outline":
-            if linewidth <= 0.0:
+            if edgewidth <= 0.0:
                 if not self.hide_warnings:
                     warn(
-                        "Outline histogram specified with linewidth <= 0; setting linewidth "
+                        "Outline histogram specified with edgewidth <= 0; setting edgewidth "
                         "to 0.8.",
                         UserWarning,
                     )
-                linewidth = 0.8
+                edgewidth = 0.8
             if facecolor != "none":
                 if not self.hide_warnings:
                     warn(
@@ -443,7 +459,7 @@ class Histogram(GerryPlotBase):
                 facealpha=facealpha,
                 edgecolor=edgecolor,
                 edgealpha=edgealpha,
-                linewidth=linewidth,
+                edgewidth=edgewidth,
                 zorder=zorder,
             )
         )
@@ -551,9 +567,9 @@ class Histogram(GerryPlotBase):
             n_bins_per_bar = 1
             if histtype in ("weave", "stack"):
                 for hdata in histlist:
-                    if hdata.linewidth > 0.0 and not self.hide_warnings:
+                    if hdata.edgewidth > 0.0 and not self.hide_warnings:
                         warn(
-                            f"{histtype.capitalize()} histogram {hdata.name!r} has linewidth > 0; "
+                            f"{histtype.capitalize()} histogram {hdata.name!r} has edgewidth > 0; "
                             "line edges will overlap in the plot.",
                             UserWarning,
                         )
@@ -579,10 +595,10 @@ class Histogram(GerryPlotBase):
                         hist_heights,
                         bin_edges - offset,
                         fill=False,
-                        linewidth=hdata.linewidth,
+                        linewidth=hdata.edgewidth,
                         edgecolor=(
                             "none"
-                            if hdata.edgecolor == "none" or hdata.linewidth == 0.0
+                            if hdata.edgecolor == "none" or hdata.edgewidth == 0.0
                             else mcolors.to_rgba(hdata.edgecolor, alpha=hdata.edgealpha)
                         ),
                         zorder=hdata.zorder,
@@ -603,10 +619,10 @@ class Histogram(GerryPlotBase):
                     facecolor=mcolors.to_rgba(hdata.facecolor, alpha=hdata.facealpha),
                     edgecolor=(
                         "none"
-                        if hdata.edgecolor == "none" or hdata.linewidth == 0.0
+                        if hdata.edgecolor == "none" or hdata.edgewidth == 0.0
                         else mcolors.to_rgba(hdata.edgecolor, alpha=hdata.edgealpha)
                     ),
-                    linewidth=hdata.linewidth,
+                    linewidth=hdata.edgewidth,
                     zorder=hdata.zorder,
                 )
 
@@ -723,25 +739,9 @@ class Histogram(GerryPlotBase):
         """Build the histogram plot."""
         if sum(len(lst) for lst in self._hist_data_dict.values()) == 0:
             raise ValueError("No histogram sets added yet.")
-
-        self._ax.clear()
-
-        self._draw_verticals()
-        self._draw_horizontals()
-
         self._ax.grid(self.grid)
-
         self._draw_histograms()
-        self._set_x_axis()
-        self._set_y_axis()
-
         self._draw_points()
-
-        if self.include_legend:
-            self._ax.legend(
-                handles=self._legend_handles,
-                **self._legend_options.to_dict(),
-            )
 
     def _get_histogram_legend_handles(self) -> list[Any]:
         """Get legend handles for the histogram sets."""
@@ -752,10 +752,10 @@ class Histogram(GerryPlotBase):
                     facecolor=mcolors.to_rgba(hdata.facecolor, alpha=hdata.facealpha),
                     edgecolor=(
                         "none"
-                        if hdata.edgecolor == "none" or hdata.linewidth == 0.0
+                        if hdata.edgecolor == "none" or hdata.edgewidth == 0.0
                         else mcolors.to_rgba(hdata.edgecolor, alpha=hdata.edgealpha)
                     ),
-                    linewidth=hdata.linewidth,
+                    linewidth=hdata.edgewidth,
                     label=hdata.name,
                 )
             )
