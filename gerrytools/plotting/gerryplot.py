@@ -1478,7 +1478,10 @@ class GerryPlotBase(ABC):
             )
 
         for ln in self._vertical_lines:
-            for value in ln.values:
+            vals = ln.values
+            if isinstance(vals, (int, float)):
+                vals = [vals]
+            for value in vals:
                 self._ax.axvline(
                     value,
                     color=mcolors.to_rgba(ln.linecolor, alpha=ln.linealpha),
@@ -1506,7 +1509,10 @@ class GerryPlotBase(ABC):
             )
 
         for ln in self._horizontal_lines:
-            for value in ln.values:
+            vals = ln.values
+            if isinstance(vals, (int, float)):
+                vals = [vals]
+            for value in vals:
                 self._ax.axhline(
                     value,
                     color=mcolors.to_rgba(ln.linecolor, alpha=ln.linealpha),

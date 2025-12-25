@@ -7,7 +7,6 @@ from gerrytools.colors import districtr, flare, latex, purples, redbluecmap
 
 from .annotation import arrow, ideal
 from .scatterplot import scatterplot
-from .violin import violin
 
 __all__ = [
     "arrow",
@@ -19,5 +18,4 @@ __all__ = [
     "redbluecmap",
     "histogram",
     "scatterplot",
-    "violin",
 ]

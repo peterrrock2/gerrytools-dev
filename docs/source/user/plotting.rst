@@ -118,7 +118,7 @@ the plan:
 .. code-block:: python
 
     import matplotlib.pyplot as plt
-    import gerrytools.plotting.colors as colors
+    import gerrytools.colors as colors
     import numpy as np
 
     N = len(new_plan)

@@ -1,3 +1,4 @@
+# pragma: no cover
 LATEX_COLOR_DICT = {
     "Air Force blue": "#5D8AA8",
     "Alice blue": "#F0F8FF",

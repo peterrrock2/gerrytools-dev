@@ -1,5 +1,5 @@
 import math
-from random import choice
+import random
 from string import hexdigits as hex
 
 DISTRICTR_COLOR_DICT = {
@@ -45,7 +45,7 @@ DISTRICTR_COLOR_DICT = {
 }
 
 
-def hexshift(color) -> str:
+def hexshift(color, *, seed: int = 42) -> str:
     """
     Randomly modifies the provided hexadecimal color.
 
@@ -55,15 +55,17 @@ def hexshift(color) -> str:
     Returns:
         A hexadecimal color string.
     """
+    rng = random.Random(seed)
+
     # Choose a hexidecimal digit, first paring down the digits we'll use.
     h = hex.lower()[:-6]
-    sub = choice(h)
-    char = choice(color[1:])
+    sub = rng.choice(h)
+    char = rng.choice(color[1:])
 
     # Find the character we're going to replace that's *not* the same character
     # as the one we got from the hexadecimal string.
     while sub == char:
-        sub = choice(h)
+        sub = rng.choice(h)
 
     # Return the subbed string.
     return color.replace(char, sub)

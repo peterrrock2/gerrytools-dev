@@ -506,6 +506,43 @@ class SeaLevel(GerryPlotBase):
 
         return handles
 
+    def format_ylabels_as_fractions(
+        self, denominator: int, *, minimum_numerator: int = 0, maximum_numerator: int | None = None
+    ) -> None:
+        """Format y-axis labels as fractions out of the given denominator.
+
+        Args:
+            denominator (int): The denominator to use for the fractions.
+
+        Returns:
+            None
+        """
+        if not isinstance(denominator, int):
+            raise TypeError("denominator must be an integer.")
+        if denominator <= 0:
+            raise ValueError("denominator must be a positive integer.")
+
+        original_maximum = maximum_numerator
+        if maximum_numerator is None:
+            maximum_numerator = denominator
+        if not isinstance(minimum_numerator, int):
+            raise TypeError("minimum_numerator must be an integer.")
+        if not isinstance(maximum_numerator, int):
+            raise TypeError("maximum_numerator must be an integer.")
+        if maximum_numerator > denominator:
+            raise ValueError("maximum_numerator cannot exceed denominator.")
+        if minimum_numerator > maximum_numerator:
+            if original_maximum is None:
+                raise ValueError(
+                    "minimum_numerator cannot exceed denominator when maximum_numerator is not set."
+                )
+            raise ValueError("minimum_numerator cannot exceed maximum_numerator.")
+
+        self.update_ytick_values(
+            locations=[n / denominator for n in range(minimum_numerator, maximum_numerator + 1)],
+            labels=[f"{n}/{denominator}" for n in range(minimum_numerator, maximum_numerator + 1)],
+        )
+
     @property
     def _legend_handles(self) -> list[Any]:
         """Generated legend handles for sealevel sets."""
