@@ -1,0 +1,207 @@
+import re
+
+# LaTeX control sequence names are letters only;
+_CMD_RE = re.compile(r"^[A-Za-z]+$")
+
+
+def _validate_command_name(cmd_str: str) -> None:
+    """Validates that a LaTeX command name is valid."""
+    if cmd_str.startswith("\\"):
+        raise ValueError(
+            f"`cmd` should not start with '\\\\' (got {cmd_str!r}). Use 'textbf', not '\\\\textbf'."
+        )
+
+    if not _CMD_RE.fullmatch(cmd_str):
+        raise ValueError(
+            f"Illegal LaTeX command name {cmd_str!r}. Please ensure command contains only letters (A-Z, a-z)."
+        )
+
+
+def tex_gradient_command(
+    cmd_str: str = "gradient",
+    color_name: str = "denim",
+    lo: float = 0.0,
+    hi: float = 1.0,
+) -> str:
+    """Generates a LaTeX command for gradient coloring of numerical values.
+
+    Emits a LaTeX command \\<cmd_str>{x} that colors the cell with a
+    gradient of <color_name> from  (full color) to 1 (white).
+
+    Requires: xcolor (with [table]), colortbl, xfp, siunitx.
+
+    Args:
+        cmd_str (str): The name of the LaTeX command to create.
+        color_name (str): The name of the color to use for the gradient.
+        lo (float): The lower bound of the numerical range.
+        hi (float): The upper bound of the numerical range.
+
+    Returns:
+        str: A string containing the LaTeX command definition.
+    """
+    _validate_command_name(cmd_str)
+
+    # Additional % at the end of lines to prevent unwanted spaces in output
+    return (
+        rf"\newcommand{{\{cmd_str}}}[1]{{%"
+        "\n"
+        r"\begingroup"
+        "\n"
+        rf"\cellcolor{{{color_name}!\fpeval{{round(100*(1-(#1-{lo})/({hi}-{lo})),0)}}}}%"
+        "\n"
+        r"\num[round-precision=4]{#1}%"
+        "\n"
+        r"\endgroup"
+        "\n"
+        r"}"
+    )
+
+
+def tex_twocolor_gradient_command(
+    cmd_str: str = "heat",
+    lo: float = 0.0,
+    hi: float = 1.0,
+    color_lo: str = "denim",
+    color_hi: str = "alizarin",
+    precision: int = 4,
+) -> str:
+    """Generates a LaTeX command for two-color gradient coloring of numerical values.
+
+    Emits a LaTeX command \\<cmd_str>{x} that colors the cell with a
+    two-color gradient from color_lo (at lo) to color_hi (at hi),
+    clamped outside the range.
+
+    Requires: xcolor (with [table]), colortbl, xfp, siunitx.
+
+    Note: color mixing is done in the xcolor, and is just a linear interpolation
+    by mixing satruation percentages of the two colors.
+
+    Args:
+        cmd_str (str): The name of the LaTeX command to create.
+        lo (float): The lower bound of the numerical range.
+        hi (float): The upper bound of the numerical range.
+        color_lo (str): The color at the lower bound.
+        color_hi (str): The color at the upper bound.
+        precision (int): Number of decimal places to round the number to.
+
+    Returns:
+        str: A string containing the LaTeX command definition to be added to preamble.
+    """
+    _validate_command_name(cmd_str)
+
+    return (
+        rf"\newcommand{{\{cmd_str}}}[1]{{%"
+        "\n"
+        r"  \begingroup%"
+        "\n"
+        rf"  \edef\heatlo{{{lo}}}\edef\heathi{{{hi}}}%"
+        "\n"
+        r"  \edef\heatrange{\fpeval{max(\heathi-\heatlo, 1e-12)}}%"
+        "\n"
+        r"  \edef\heatt{\fpeval{min(1, max(0, (#1-\heatlo)/\heatrange))}}%"
+        "\n"
+        r"  \edef\heatpct{\fpeval{round(100*\heatt,0)}}%"
+        "\n"
+        rf"  \edef\heatcolorspec{{{color_lo}!\heatpct!{color_hi}}}%"
+        "\n"
+        r"  \expandafter\cellcolor\expandafter{\heatcolorspec}%"
+        "\n"
+        rf"  \num[round-precision={precision}]{{#1}}%"
+        "\n"
+        r"  \endgroup%"
+        "\n"
+        r"}"
+    )
+
+
+def _tex_ident(s: str) -> str:
+    """Converts a string to a valid LaTeX identifier by removing invalid characters."""
+    return re.sub(r"[^A-Za-z0-9]+", "", s) or "X"
+
+
+def tex_diverging_gradient_command(
+    cmd_str: str = "heat",
+    lo: float = 0.0,
+    mid: float = 0.5,
+    hi: float = 1.0,
+    color_lo: str = "darkpastelgreen",
+    color_hi: str = "richlavender",
+    color_mid: str = "white",
+    precision: int = 4,
+) -> str:
+    """Generates a LaTeX command for diverging gradient coloring for numerical values in a table.
+
+    Emits a LaTeX command
+    \\<cmd_str>{x} with diverging gradient:
+      lo_color (at lo) -> mid_color (at mid) -> hi_color (at hi)
+    Clamped to [lo, hi].
+
+    Requires: xcolor[table], latexcolor, xfp, siunitx.
+
+    Args:
+        cmd_str (str): The name of the LaTeX command to create. Default is "heat".
+        lo (float): The lower bound of the numerical range. Default is 0.0.
+        mid (float): The midpoint of the numerical range. Default is 0.5.
+        hi (float): The upper bound of the numerical range. Default is 1.0.
+        color_lo (str): The color at the lower bound. Default is "darkpastelgreen".
+        color_hi (str): The color at the upper bound. Default is "richlavender".
+        color_mid (str): The color at the midpoint. Default is "white".
+        precision (int): Number of decimal places to round the number to. Default is 4.
+
+    Returns:
+        str: A string containing the LaTeX command definition to be added to preamble.
+    """
+    _validate_command_name(cmd_str)
+
+    lo_name = f"{cmd_str}Lo{_tex_ident(color_lo)}"
+    hi_name = f"{cmd_str}Hi{_tex_ident(color_hi)}"
+    mid_name = f"{cmd_str}Mid{_tex_ident(color_mid)}"
+
+    return (
+        rf"\colorlet{{{lo_name}}}{{{color_lo}}}%"
+        "\n"
+        rf"\colorlet{{{hi_name}}}{{{color_hi}}}%"
+        "\n"
+        rf"\colorlet{{{mid_name}}}{{{color_mid}}}%"
+        "\n"
+        rf"\newcommand{{\{cmd_str}}}[1]{{%"
+        "\n"
+        r"  \begingroup%"
+        "\n"
+        rf"  \edef\heatlo{{{lo}}}\edef\heatmid{{{mid}}}\edef\heathi{{{hi}}}%"
+        "\n"
+        r"  \edef\heatx{#1}%"
+        "\n"
+        # clamp x into [lo, hi]
+        r"  \edef\heatxc{\fpeval{min(\heathi, max(\heatlo, \heatx))}}%"
+        "\n"
+        # compute left/right ranges safely
+        r"  \edef\leftw{\fpeval{max(\heatmid-\heatlo, 1e-12)}}%"
+        "\n"
+        r"  \edef\rightw{\fpeval{max(\heathi-\heatmid, 1e-12)}}%"
+        "\n"
+        # choose side; compute pct in 0..100 moving away from the endpoint toward the other endpoint
+        r"  \ifdim \heatxc pt < \heatmid pt"
+        "\n"
+        # left: lo -> mid, so pct increases as x approaches mid
+        r"    \edef\heatpct{\fpeval{round(100*(1-(\heatxc-\heatlo)/\leftw),0)}}%"
+        "\n"
+        rf"    \edef\heatcolorspec{{{lo_name}!\heatpct!{mid_name}}}%"
+        "\n"
+        r"  \else"
+        "\n"
+        # right: mid -> hi, so pct increases as x approaches hi
+        r"    \edef\heatpct{\fpeval{round(100*(1-(\heatxc-\heatmid)/\rightw),0)}}%"
+        "\n"
+        rf"    \edef\heatcolorspec{{{mid_name}!\heatpct!{hi_name}}}%"
+        "\n"
+        r"  \fi"
+        "\n"
+        r"  \expandafter\cellcolor\expandafter{\heatcolorspec}%"
+        "\n"
+        rf"  \num[round-precision={precision}]{{#1}}%"
+        "\n"
+        r"  \endgroup%"
+        "\n"
+        r"}"
+    )

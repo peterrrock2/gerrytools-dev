@@ -92,9 +92,7 @@ def _splits(
         # Get the groups for each unit, then do the appropriate calculations.
         groups = _grouper(P, unit, popcol)
         geometrysplits = [
-            identifier
-            for identifier, group in groups
-            if len(group["DISTRICT"].unique()) > 1
+            identifier for identifier, group in groups if len(group["DISTRICT"].unique()) > 1
         ]
 
     # Otherwise, do things the normal way!

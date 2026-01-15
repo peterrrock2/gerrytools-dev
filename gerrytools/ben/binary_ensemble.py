@@ -1,10 +1,12 @@
-import docker
+import json
+import logging
+import os
 from pathlib import Path
 from typing import Optional
-import os
+
+import docker
+
 from .docker_manager import managed_docker_container
-import logging
-import json
 
 logger = logging.getLogger("ben")
 
@@ -111,7 +113,7 @@ def ben(
         try:
             print(f"Pulling Docker image {config_args['image']}")
             client.images.pull(config_args["image"])
-        except Exception as e:
+        except Exception:
             print(
                 f"Error comparing docker container {config_args['image']} against web version. "
                 f"Attempting to run using local image"
@@ -132,9 +134,7 @@ def ben(
             container.id, cmd=cmd, tty=False, stdout=True, stderr=True, stdin=False
         )
 
-        output_generator = client.api.exec_start(
-            exec_id=exec_id, stream=True, detach=False
-        )
+        output_generator = client.api.exec_start(exec_id=exec_id, stream=True, detach=False)
 
         for output in output_generator:
             print(output.decode("utf-8"), end="")
@@ -199,7 +199,7 @@ def ben_replay(
         try:
             print(f"Pulling Docker image {config_args['image']}")
             client.images.pull(config_args["image"])
-        except Exception as e:
+        except Exception:
             print(
                 f"Error comparing docker container {config_args['image']} against web version. "
                 f"Attempting to run using local image"

@@ -1,9 +1,11 @@
-import docker
+import logging
+import os
 from pathlib import Path
 from typing import Optional
-import os
+
+import docker
+
 from .docker_manager import managed_docker_container
-import logging
 
 logger = logging.getLogger("ben")
 
@@ -54,7 +56,7 @@ def canonicalize_ben_file(
     try:
         print(f"Pulling Docker image {docker_image_name}")
         client.images.pull(docker_image_name)
-    except Exception as e:
+    except Exception:
         print(
             f"Error comparing docker container {docker_image_name} against web version. "
             f"Attempting to run using local image"
@@ -122,9 +124,7 @@ def canonicalize_ben_file(
             container.id, cmd=cmd, tty=False, stdout=True, stderr=True, stdin=False
         )
 
-        output_generator = client.api.exec_start(
-            exec_id=exec_id, stream=True, detach=False
-        )
+        output_generator = client.api.exec_start(exec_id=exec_id, stream=True, detach=False)
 
         for output in output_generator:
             print(output.decode("utf-8"), end="")
@@ -173,7 +173,7 @@ def relabel_json_file_by_key(
     try:
         print(f"Pulling Docker image {docker_image_name}")
         client.images.pull(docker_image_name)
-    except Exception as e:
+    except Exception:
         print(
             f"Error comparing docker container {docker_image_name} against web version. "
             f"Attempting to run using local image"
@@ -242,9 +242,7 @@ def relabel_json_file_by_key(
             container.id, cmd=cmd, tty=False, stdout=True, stderr=True, stdin=False
         )
 
-        output_generator = client.api.exec_start(
-            exec_id=exec_id, stream=True, detach=False
-        )
+        output_generator = client.api.exec_start(exec_id=exec_id, stream=True, detach=False)
 
         for output in output_generator:
             print(output.decode("utf-8"), end="")
@@ -297,7 +295,7 @@ def relabel_ben_file_by_key(
     try:
         print(f"Pulling Docker image {docker_image_name}")
         client.images.pull(docker_image_name)
-    except Exception as e:
+    except Exception:
         print(
             f"Error comparing docker container {docker_image_name} against web version. "
             f"Attempting to run using local image"
@@ -329,10 +327,7 @@ def relabel_ben_file_by_key(
         "network_mode": "none",
     }
 
-    if (
-        input_parent_path == output_parent_path
-        and input_parent_path == dual_graph_parent_path
-    ):
+    if input_parent_path == output_parent_path and input_parent_path == dual_graph_parent_path:
         config_args["volumes"] = {
             input_parent_path.resolve(): {
                 "bind": "/home/ben/io",
@@ -428,9 +423,7 @@ def relabel_ben_file_by_key(
             container.id, cmd=cmd, tty=False, stdout=True, stderr=True, stdin=False
         )
 
-        output_generator = client.api.exec_start(
-            exec_id=exec_id, stream=True, detach=False
-        )
+        output_generator = client.api.exec_start(exec_id=exec_id, stream=True, detach=False)
 
         for output in output_generator:
             print(output.decode("utf-8"), end="")
@@ -479,7 +472,7 @@ def relabel_ben_file_with_map(
     try:
         print(f"Pulling Docker image {docker_image_name}")
         client.images.pull(docker_image_name)
-    except Exception as e:
+    except Exception:
         print(
             f"Error comparing docker container {docker_image_name} against web version. "
             f"Attempting to run using local image"
@@ -511,10 +504,7 @@ def relabel_ben_file_with_map(
         "network_mode": "none",
     }
 
-    if (
-        input_parent_path == output_parent_path
-        and input_parent_path == map_file_parent_path
-    ):
+    if input_parent_path == output_parent_path and input_parent_path == map_file_parent_path:
         config_args["volumes"] = {
             input_parent_path.resolve(): {
                 "bind": "/home/ben/io",
@@ -610,9 +600,7 @@ def relabel_ben_file_with_map(
             container.id, cmd=cmd, tty=False, stdout=True, stderr=True, stdin=False
         )
 
-        output_generator = client.api.exec_start(
-            exec_id=exec_id, stream=True, detach=False
-        )
+        output_generator = client.api.exec_start(exec_id=exec_id, stream=True, detach=False)
 
         for output in output_generator:
             print(output.decode("utf-8"), end="")

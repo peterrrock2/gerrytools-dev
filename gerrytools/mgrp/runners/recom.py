@@ -1,9 +1,10 @@
-from dataclasses import dataclass, field
-import os
 import json
+import os
+from dataclasses import dataclass, field
 from pathlib import Path
-from .. import RunnerConfig
 from typing import Callable, Dict
+
+from .. import RunnerConfig
 
 
 @dataclass
@@ -30,9 +31,9 @@ class RecomRunInfo:
     batch_size: int = 1
     """The batch size to be used in the frcw code."""
     writer: str = "canonical"
-    """The type of writer that should be used to write the output of the frcw code. Options 
+    """The type of writer that should be used to write the output of the frcw code. Options
     are:
-        
+
     - tsv
     - jsonl
     - pcompress
@@ -53,10 +54,10 @@ class RecomRunInfo:
     rng_seed: int = 42
     """The random number generator seed to be used in the frcw code."""
     force_print: bool = False
-    """If true, the output of the frcw code will be printed to the console instead of 
+    """If true, the output of the frcw code will be printed to the console instead of
         being written to a file."""
     updaters: Dict[str, Callable] = field(default_factory=dict)
-    """A dictionary of updaters that should be used when running the chain using the 
+    """A dictionary of updaters that should be used when running the chain using the
         mcmc_run_with_updaters method."""
 
 
@@ -182,7 +183,7 @@ class RecomRunnerConfig(RunnerConfig):
         # if run_info.spanning_tree_counts:
         #     rust_cmd += " --st-counts"
 
-        if run_info.force_print == True:
+        if run_info.force_print:
             pass
         elif run_info.writer == "pcompress":
             rust_cmd += f" > /home/recom/output/{self.json_name[:-5]}/Recom{run_info.variant}_{run_info.assignment_col}_{run_info.rng_seed}_{run_info.n_steps}_pcompress.chain"

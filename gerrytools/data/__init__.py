@@ -2,33 +2,20 @@
 Facilities for processing data and districting plans in a standardized fashion.
 """
 
-from .acs import acs5, cvap
-from .AssignmentCompressor import AssignmentCompressor
-from .census import census10, census20, variables
-from .estimatecvap import estimatecvap2010, estimatecvap2020, fetchgeometries
-from .fetch import Submission, submissions, tabularized
-from .geometries import geometries20, vtds20, dualgraphs20
-from .remap import remap
-from .URLs import csvs, ids, one
+from .census.acs import acs5, cvap
+from .census.census import census
+from .districtr.legacy.fetch import Submission as LegacySubmission
+from .districtr.legacy.fetch import submissions as legacy_submissions
+from .districtr.legacy.fetch import tabularized as legacy_tabularized
+from .geometries import dualgraphs20, geometries20, vtds20
 
 __all__ = [
-    "submissions",
-    "tabularized",
-    "remap",
-    "ids",
-    "one",
-    "csvs",
-    "AssignmentCompressor",
-    "Submission",
+    "legacy_submissions",
+    "legacy_tabularized",
+    "LegacySubmission",
     "cvap",
     "acs5",
-    "census20",
-    "variables",
-    "estimatecvap2010",
-    "estimatecvap2020",
-    "fetchgeometries",
-    "census10",
-    "geometries20",
+    "census",
     "vtds20",
-    "dualgraphs20"
+    "dualgraphs20",
 ]

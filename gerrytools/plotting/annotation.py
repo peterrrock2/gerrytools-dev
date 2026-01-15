@@ -1,9 +1,9 @@
 from matplotlib.axes import Axes
 
-from .colors import defaultGray
+from gerrytools.colors import DEFAULT_GREY
 
 
-def arrow(ax, text, orientation="horizontal", color=defaultGray, padding=0.1) -> Axes:
+def arrow(ax, text, orientation="horizontal", color=DEFAULT_GREY, padding=0.1) -> Axes:
     """
     For some partisan metrics, we want to draw an arrow showing where the POV-party's
     advantage is. Depending on the orientation of the scores (histograms have
@@ -55,7 +55,7 @@ def arrow(ax, text, orientation="horizontal", color=defaultGray, padding=0.1) ->
     return ax
 
 
-def ideal(ax, label, placement, orientation, color=defaultGray, alpha=0.1):
+def ideal(ax, label, placement, orientation, color=DEFAULT_GREY, alpha=0.1):
     """
     Adds a vertical line, horizontal line, or band indicating the ideal value
     (or range of values) for the provided score.
@@ -67,7 +67,7 @@ def ideal(ax, label, placement, orientation, color=defaultGray, alpha=0.1):
             a band, a tuple of (start, end) values.
         orientation (str): Indicates the direction of the line or band. Acceptable
             values are `"horizontal"` or `"vertical"`.
-        color (str, optional): Color of the line or band. Defaults to `defaultGray`.
+        color (str, optional): Color of the line or band. Defaults to `DEFAULT_GREY`.
         alpha (float, optional): Opacity of the line or band. Defaults to `0.1`.
     """
     orig_xlims = ax.get_xlim()

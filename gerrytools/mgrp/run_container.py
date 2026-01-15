@@ -1,11 +1,16 @@
-import docker
+from __future__ import annotations
+
+import json
+import os
 import traceback
 from abc import ABC, abstractmethod
-from typing import Union, Optional, Type
 from types import TracebackType
-import json
+from typing import Optional, Type, Union
+
+import docker
 from gerrychain import Graph, Partition
-import os
+
+from gerrytools.mgrp.run_info import ForestRunInfo, RecomRunInfo
 
 
 class RunnerConfig(ABC):
@@ -109,7 +114,7 @@ class RunContainer:
         try:
             print(f"Pulling Docker image {config_args['image']}")
             self.client.images.pull(config_args["image"])
-        except Exception as e:
+        except Exception:
             print(
                 f"Error comparing docker container {config_args['image']} against web version. "
                 f"Attempting to run using local image"
@@ -227,7 +232,6 @@ class RunContainer:
             )
 
         cmd = self.config.run_command(*args, **kwargs)
-        log_file = self.config.log_file(*args, **kwargs)
         exec_id = self.client.api.exec_create(
             self.container.id,
             cmd=cmd,
@@ -306,7 +310,6 @@ class RunContainer:
 
         cmd = self.config.run_command(run_info)
 
-        log_file = self.config.log_file(run_info)
         exec_id = self.client.api.exec_create(
             self.container.id,
             cmd=cmd,
@@ -323,9 +326,7 @@ class RunContainer:
             demux=True,
         )
 
-        self.graph = Graph.from_json(
-            os.path.join(self.config.json_dir, self.config.json_name)
-        )
+        self.graph = Graph.from_json(os.path.join(self.config.json_dir, self.config.json_name))
 
         updater_values = {}
 
@@ -382,9 +383,7 @@ class RunContainer:
             Tuple[Dict, str]: Dictionary of the sample number and updater values and the
             error message (if any)
         """
-        partition = Partition(
-            self.graph, dict(enumerate(canon_json_line["assignment"]))
-        )
+        partition = Partition(self.graph, dict(enumerate(canon_json_line["assignment"])))
 
         for func_name, func in updater_dict.items():
             updater_values[func_name] = func(partition)
