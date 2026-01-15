@@ -364,25 +364,25 @@ class PaintBall:
     #   OPTION SETTERS
     # ==================
 
-    def set_xlim(self, xmin: float, xmax: float, rescale=True) -> None:
+    def set_xlim(self, xmin: float, xmax: float, rescale=False) -> None:
         """Sets the x-axis limits for the paintball plot.
 
         Args:
             xmin (float): The minimum x-axis limit.
             xmax (float): The maximum x-axis limit.
-            rescale (bool): Whether to rescale the x-axis to fit the new limits.
+            rescale (bool): Whether to rescale the x-axis to fit the new limits. Defaults to False.
         """
         self.options.xlim = (xmin, xmax)
         if rescale:
             self.set_xscale(self.options.xscale * (1.0 / (xmax - xmin)))
 
-    def set_ylim(self, ymin: float, ymax: float, rescale=True) -> None:
+    def set_ylim(self, ymin: float, ymax: float, rescale=False) -> None:
         """Sets the y-axis limits for the paintball plot.
 
         Args:
             ymin (float): The minimum y-axis limit.
             ymax (float): The maximum y-axis limit.
-            rescale (bool): Whether to rescale the y-axis to fit the new limits.
+            rescale (bool): Whether to rescale the y-axis to fit the new limits. Defaults to False.
         """
         self.options.ylim = (ymin, ymax)
         if rescale:
