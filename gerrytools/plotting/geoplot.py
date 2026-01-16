@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from io import BytesIO
-from typing import Any, Literal
+from typing import Any, Callable, Literal, Union
 
 import geopandas as gpd
 import matplotlib.patheffects as patheffects
@@ -15,7 +15,7 @@ from matplotlib.cm import ScalarMappable
 from matplotlib.colors import BoundaryNorm, Colormap, ListedColormap, Normalize, to_hex
 from matplotlib.figure import Figure
 from matplotlib.pyplot import get_cmap
-from shapely.geometry import Point
+from shapely.geometry import Point, box
 
 from gerrytools.colors import districtr, resolve_color_and_alpha
 from gerrytools.plotting.gerryplot import PointMarkerSettings
@@ -49,7 +49,7 @@ class _GeoLayer(ABC):
     """
 
     # Try to keep the GeoSource as a reference so that users don't copy the polygons all the time.
-    geosource: GeoSource
+    geometry_source: GeoSource
     geometry_mask: pd.Series | None = None
     datacolumn: str | None = None
     colormap: str | Color | Colormap | dict[Any, Color] | pd.Series = "Purples"
@@ -98,10 +98,20 @@ class _GeoLayer(ABC):
     @property
     def geometries(self) -> gpd.GeoSeries:
         """Get this layer's geometries, applying any geometry mask."""
-        gs = _as_geoseries(self.geosource)
+        gs = _as_geoseries(self.geometry_source)
         if self.geometry_mask is not None:
             gs = gs[self.geometry_mask]
         return gs
+
+    @property
+    def geosource(self) -> GeoSource:
+        """Get this layer's geosource, applying any geometry mask."""
+        if self.geometry_mask is not None:
+            if isinstance(self.geometry_source, GeoDataFrame):
+                return self.geometry_source[self.geometry_mask]
+            else:
+                return self.geometry_source[self.geometry_mask]
+        return self.geometry_source
 
     @abstractmethod
     def render(self, ax: Axes, **kwargs) -> Axes:
@@ -129,10 +139,10 @@ class _ContinuousColorLayer(_GeoLayer):
 
     def __post_init__(self) -> None:
         super(_ContinuousColorLayer, self).__post_init__()
-        if not isinstance(self.geosource, GeoDataFrame):
+        if not isinstance(self.geometry_source, GeoDataFrame):
             raise TypeError(
                 "Tried to create a continuous color layer using geosource of type "
-                f"{type(self.geosource).__name__!r}; geosource must be a GeoDataFrame",
+                f"{type(self.geometry_source).__name__!r}; geosource must be a GeoDataFrame",
             )
 
         if not isinstance(self.colormap, (str, Colormap)):
@@ -150,7 +160,7 @@ class _ContinuousColorLayer(_GeoLayer):
 
     def _data_series(self) -> pd.Series:
         """Get the data series (used in color mapping)."""
-        return self.geosource[self.datacolumn]
+        return self.geometry_source[self.datacolumn]
 
     def _effective_bounds(self, dataseries: pd.Series) -> tuple[float, float]:
         """Determine the effective data bounds for color mapping.
@@ -322,10 +332,10 @@ class _ContinuousColorLayer(_GeoLayer):
             unknown = ", ".join(kwargs.keys())
             raise TypeError(f"Unknown keyword argument(s) passed to render: {unknown}")
 
-        if self.datacolumn not in self.geosource.columns:
+        if self.datacolumn not in self.geometry_source.columns:
             raise KeyError(
                 f"Column {self.datacolumn!r} not found in GeoDataFrame."
-                f" Available columns: {list(self.geosource.columns)}"
+                f" Available columns: {list(self.geometry_source.columns)}"
             )
 
         edge_color_tup = resolve_color_and_alpha(
@@ -360,7 +370,7 @@ class _CategoricalColorLayer(_GeoLayer):
     def __post_init__(self) -> None:
         super(_CategoricalColorLayer, self).__post_init__()
 
-        if isinstance(self.geosource, GeoSeries) and self.colormap == "districtr":
+        if isinstance(self.geometry_source, GeoSeries) and self.colormap == "districtr":
             object.__setattr__(self, "colormap", "none")
 
         needs_datacolumn = (
@@ -370,14 +380,14 @@ class _CategoricalColorLayer(_GeoLayer):
         )
 
         if (
-            isinstance(self.geosource, GeoDataFrame)
+            isinstance(self.geometry_source, GeoDataFrame)
             and needs_datacolumn
             and self.datacolumn is None
         ):
             raise TypeError("'datacolumn' must be set for color-mapped layers")
 
-        if self.colormap == "districtr" and isinstance(self.geosource, GeoDataFrame):
-            unique_values = self.geosource[self.datacolumn].unique()
+        if self.colormap == "districtr" and isinstance(self.geometry_source, GeoDataFrame):
+            unique_values = self.geometry_source[self.datacolumn].unique()
             districtr_colors = districtr(len(unique_values))
             object.__setattr__(
                 self,
@@ -427,14 +437,16 @@ class _CategoricalColorLayer(_GeoLayer):
 
         if self.colormap is None:
             ret_colors_series = pd.Series(
-                ["none"] * len(self.geosource), index=self.geosource.index
+                ["none"] * len(self.geometry_source), index=self.geometry_source.index
             )
 
         elif isinstance(self.colormap, str) and (
             self.colormap not in plt.colormaps() or self.datacolumn is None
         ):
             color = resolve_color_and_alpha(self.colormap, alpha=self.facealpha)
-            ret_colors_series = pd.Series([color] * len(self.geosource), index=self.geosource.index)
+            ret_colors_series = pd.Series(
+                [color] * len(self.geometry_source), index=self.geometry_source.index
+            )
 
         elif isinstance(self.colormap, pd.Series):
             new_entries = [resolve_color_and_alpha(c, alpha=self.facealpha) for c in self.colormap]
@@ -454,12 +466,12 @@ class _CategoricalColorLayer(_GeoLayer):
                 n_colors = 256
 
             value_to_color_dict = self.__map_unique_values_to_colors(
-                self.geosource[self.datacolumn].unique(),
+                self.geometry_source[self.datacolumn].unique(),
                 [to_hex(cmap(i), keep_alpha=True) for i in range(n_colors)],
             )
 
             new_entries = []
-            for val in self.geosource[self.datacolumn]:
+            for val in self.geometry_source[self.datacolumn]:
                 new_color = self.missing_color
                 if pd.notna(val):
                     # Try to convert to integer index
@@ -467,15 +479,15 @@ class _CategoricalColorLayer(_GeoLayer):
                         value_to_color_dict[val], alpha=self.facealpha
                     )
                 new_entries.append(new_color)
-            ret_colors_series = pd.Series(new_entries, index=self.geosource.index)
+            ret_colors_series = pd.Series(new_entries, index=self.geometry_source.index)
 
         elif isinstance(self.colormap, dict):
             new_entries = []
-            for val in self.geosource[self.datacolumn]:
+            for val in self.geometry_source[self.datacolumn]:
                 color = self.colormap.get(val, self.missing_color)
                 color_tup = resolve_color_and_alpha(color, alpha=self.facealpha)
                 new_entries.append(color_tup)
-            ret_colors_series = pd.Series(new_entries, index=self.geosource.index)
+            ret_colors_series = pd.Series(new_entries, index=self.geometry_source.index)
         else:
             raise TypeError(
                 "'colormap' must be one of: None, str (named colormap or color), "
@@ -501,13 +513,13 @@ class _CategoricalColorLayer(_GeoLayer):
             raise TypeError(f"Unknown keyword argument(s) passed to render: {unknown}")
 
         if (
-            not isinstance(self.geosource, GeoSeries)
+            not isinstance(self.geometry_source, GeoSeries)
             and self.datacolumn is not None
-            and self.datacolumn not in self.geosource.columns
+            and self.datacolumn not in self.geometry_source.columns
         ):
             raise KeyError(
                 f"Column {self.datacolumn!r} not found in GeoDataFrame."
-                f" Available columns: {list(self.geosource.columns)}"
+                f" Available columns: {list(self.geometry_source.columns)}"
             )
 
         edge_color_tup = resolve_color_and_alpha(
@@ -527,25 +539,277 @@ class _CategoricalColorLayer(_GeoLayer):
         return ax
 
 
+FontStyle = Literal["normal", "italic", "oblique"]
+"""How the glyphs are slanted.
+
+- "normal": Upright (no slant). This is the default for most fonts.
+- "italic": Uses the font's *italic face* if it exists (often a distinct, designed italic).
+  This typically changes letterforms (e.g., a, f) and the slant.
+- "oblique": Applies a *slant* to the regular face (or uses an oblique face if the font has one).
+  Oblique is usually a geometric slant rather than a redesigned italic.
+"""
+
+FontVariant = Literal["normal", "small-caps"]
+"""Glyph variant selection.
+
+- "normal": Standard lowercase/uppercase forms.
+- "small-caps": Lowercase letters are drawn as *small capital* forms (if the font supports it).
+  If the font does not provide true small-caps, Matplotlib/font rendering may fall back to
+  a synthetic approximation or ignore the request depending on backend/font.
+"""
+
+FontStretchName = Literal[
+    "ultra-condensed",
+    "extra-condensed",
+    "condensed",
+    "semi-condensed",
+    "normal",
+    "semi-expanded",
+    "expanded",
+    "extra-expanded",
+    "ultra-expanded",
+]
+FontStretch = Union[FontStretchName, int, float]
+"""Width of the font face (condensed/expanded).
+
+Named values (most common):
+- "ultra-condensed": Extremely narrow.
+- "extra-condensed": Very narrow.
+- "condensed": Narrow.
+- "semi-condensed": Slightly narrow.
+- "normal": Standard width.
+- "semi-expanded": Slightly wide.
+- "expanded": Wide.
+- "extra-expanded": Very wide.
+- "ultra-expanded": Extremely wide.
+
+Numeric values:
+- Matplotlib also accepts numeric stretch values in the range 0–1000.
+  (In practice, named values are more portable; numeric values depend on the font/backend.)
+"""
+
+FontWeightName = Literal[
+    "ultralight",
+    "light",
+    "normal",
+    "regular",
+    "book",
+    "medium",
+    "roman",
+    "semibold",
+    "demibold",
+    "demi",
+    "bold",
+    "heavy",
+    "extra bold",
+    "black",
+]
+FontWeight = Union[FontWeightName, int, float]
+"""Stroke thickness / darkness of glyphs.
+
+Named weights (portable, when a font provides them):
+- "ultralight": Very thin strokes.
+- "light": Thin strokes.
+- "normal": Default weight.
+- "regular": Synonym-ish for normal, depends on font naming.
+- "book": Slightly heavier than normal for some typefaces.
+- "medium": Between normal and bold.
+- "roman": Often synonymous with normal/regular in some families.
+- "semibold": Between medium and bold.
+- "demibold" / "demi": Another naming convention for semibold-ish weights.
+- "bold": Clearly heavier strokes, common emphasis.
+- "heavy": Heavier than bold.
+- "extra bold": Very heavy (note the space).
+- "black": Heaviest strokes in many families.
+
+Numeric weights:
+- Matplotlib also accepts numeric weights in the range 0–1000.
+  (Common convention: ~400 normal, ~700 bold, but exact mapping is font-dependent.)
+"""
+
+GenericFontFamily = Literal[
+    "serif",
+    "sans-serif",
+    "sans serif",
+    "sans",
+    "monospace",
+    "cursive",
+    "fantasy",
+]
+FontFamily = Union[GenericFontFamily, str, Sequence[str]]
+"""Font family selection.
+
+- Generic families:
+  - "serif": Fonts with serifs (e.g., DejaVu Serif, Times).
+  - "sans-serif" / "sans serif" / "sans": Sans fonts (e.g., DejaVu Sans, Arial).
+  - "monospace": Fixed-width fonts (e.g., DejaVu Sans Mono, Courier).
+  - "cursive": Script-like fonts.
+  - "fantasy": Decorative/display fonts.
+- Specific font name:
+  - Any installed font family name, e.g. "Nunito", "DejaVu Sans", "Arial".
+- Fallback list:
+  - A list/tuple of names like ["Nunito", "DejaVu Sans", "sans-serif"].
+  - Matplotlib will pick the first available font from the list.
+"""
+
+
 @dataclass(frozen=True, slots=True)
 class LabelFontOptions:
     """Font options for labels on marker layers.
 
+    This is a thin, typed wrapper around Matplotlib’s text/font controls (used via
+    `Axes.text(..., **to_mpl_text_kwargs())`).
+
+    Face selection (what font Matplotlib will actually draw)
+    --------------------------------------------------------
+    Matplotlib chooses a *font face* by combining several independent knobs:
+
+    1) `fontfamily` (which family to use)
+       - You may pass a specific family name like `"Nunito"` or `"DejaVu Sans"`.
+       - You may pass a generic family like `"sans-serif"`, `"serif"`, `"monospace"`, etc.
+       - You may pass a *fallback list* like `["Nunito", "DejaVu Sans", "sans-serif"]`.
+         Matplotlib will pick the first available entry on the current machine.
+       - Important: specific font names only work if the font is installed or registered
+         with Matplotlib (e.g., via `matplotlib.font_manager.fontManager.addfont()`).
+
+    2) `fontweight` (how thick/dark the strokes are)
+       - Named weights like `"normal"`, `"medium"`, `"semibold"`, `"bold"`, `"black"`, etc.
+       - Or numeric weights `0–1000` (common convention: ~400 normal, ~700 bold),
+         but the exact mapping is font-dependent.
+
+    3) `fontstyle` (whether the glyphs are slanted)
+       - `"normal"`: upright.
+       - `"italic"`: uses the font’s designed italic face if present.
+       - `"oblique"`: slants the regular face (or uses an oblique face if the font provides one).
+
+    4) `fontvariant` (alternate glyph set)
+       - `"small-caps"` requests small-cap lowercase forms if the font supports them.
+         If not supported, Matplotlib/backends may approximate or ignore it.
+
+    5) `fontstretch` (condensed/expanded width)
+       - Requests narrower/wider variants like `"condensed"` or `"expanded"`, if present.
+       - Or numeric stretch `0–1000`. Support varies by font.
+
+    Notes & portability
+    -------------------
+    - The *same* settings can produce different results on different systems because the
+      available fonts differ. If you need consistency, bundle a font (e.g. Nunito .ttf)
+      and register it at runtime.
+    - If a requested face (e.g., italic + semibold + condensed) does not exist in the chosen
+      family, Matplotlib may fall back to the closest available face.
+
+    Outline / halo
+    --------------
+    `outlinecolor` and `outlinewidth` are applied via path effects around the glyphs to
+    improve legibility over busy map backgrounds.
+
     Attributes:
-        fontcolor (Color): The color of the font. Default is "white".
-        fontalpha (float | None): The alpha transparency of the font. Default is 1.0.
-        fontsize (float): The size of the font. Default is 6.0.
-        fontweight (str): The weight of the font. Default is "bold".
-        outlinecolor (Color): The color of the text outline. Default is "black".
-        outlinewidth (float): The width of the text outline. Default is 0.75.
+        fontcolor (Color): Fill color of the text.
+        fontalpha (float | None): Alpha transparency of the text fill.
+        fontsize (float): Font size (points).
+        fontfamily (FontFamily | None): Specific family name, generic family, or fallback list.
+        fontweight (FontWeight): Named or numeric weight (0–1000).
+        fontstyle (FontStyle): Upright/italic/oblique slant selection.
+        fontvariant (FontVariant): Normal vs small-caps glyph variant.
+        fontstretch (FontStretch | None): Condensed/expanded variant (named or numeric 0–1000).
+        outlinecolor (Color): Color of the glyph outline (halo).
+        outlinewidth (float): Width of the glyph outline (halo), in points.
     """
 
     fontcolor: Color = "white"
     fontalpha: float | None = 1.0
     fontsize: float = 6.0
-    fontweight: str = "bold"
+
+    # --- Style Options ---
+    fontweight: FontWeight = "bold"
+    fontstyle: FontStyle = "normal"
+    fontvariant: FontVariant = "normal"
+    fontstretch: FontStretch | None = None
+    fontfamily: FontFamily | None = None
+
     outlinecolor: Color = "black"
     outlinewidth: float = 0.75
+
+    def to_mpl_text_kwargs(self) -> dict:
+        """Return kwargs to pass into `ax.text(...)` for font styling.
+
+        This intentionally does NOT include color/alpha/zorder/ha/va/text/etc.
+        """
+        kw: dict = {
+            "color": to_hex(
+                resolve_color_and_alpha(self.fontcolor, self.fontalpha), keep_alpha=True
+            ),
+            "fontsize": float(self.fontsize),
+            "fontweight": self.fontweight,
+            "fontstyle": self.fontstyle,
+            "fontvariant": self.fontvariant,
+        }
+        if self.fontstretch is not None:
+            kw["fontstretch"] = self.fontstretch
+        if self.fontfamily is not None:
+            kw["fontfamily"] = self.fontfamily
+        return kw
+
+
+@dataclass(frozen=True, slots=True)
+class LabelBoxOptions:
+    """Background box options for text labels drawn via `Axes.text(..., bbox=...)`.
+
+    This controls the *box behind the text*. The box automatically sizes to the text.
+
+    Notes:
+      - `pad` lives inside the `boxstyle` string (e.g., "round,pad=0.25") and is in
+        *fraction of the font size* units (Matplotlib convention).
+      - Matplotlib's `bbox` patch effectively has a single alpha; if you set separate
+        face/edge alphas, the simplest thing is to apply one alpha to the whole patch.
+
+    Attributes:
+        enabled (bool): Whether to draw a background box behind the label text.
+        boxstyle (str): The style of the background box. Default is "round". Options are:
+              - "square"     : Plain rectangle
+              - "round"      : Rectangle with rounded corners
+              - "round4"     : Alternate rounded-rectangle style
+              - "circle"     : Circular box around the text's bounding rectangle
+              - "ellipse"    : Elliptical box around the text's bounding rectangle
+        pad (float): Padding between text and box, in fraction-of-fontsize units.
+        facecolor (Color): Fill color of the box (background).
+        facealpha (float | None): Alpha for the box fill. If None, uses the color's inherent
+            alpha (if any).
+        edgecolor (Color): Edge (stroke) color of the box.
+        edgealpha (float | None): Alpha for the box edge. If None, uses the color's inherent
+            alpha (if any).
+        linewidth (float): Line width of the box edge, in points.
+    """
+
+    enabled: bool = True
+    boxstyle: Literal["square", "round", "round4", "circle", "ellipse"] = "round4"
+    pad: float = 0.25
+    facecolor: Color = "black"
+    facealpha: float | None = 0.6
+    edgecolor: Color = "none"
+    edgealpha: float | None = 0.0
+    linewidth: float = 0.8
+
+    def to_mpl_bbox(self) -> dict | None:
+        """Return a dict suitable for passing as `bbox=` to `Axes.text`.
+
+        Returns:
+            dict | None: A Matplotlib bbox properties dict if enabled; otherwise None.
+        """
+        if not self.enabled:
+            return None
+
+        face_color = resolve_color_and_alpha(self.facecolor, alpha=self.facealpha)
+        edge_color = resolve_color_and_alpha(self.edgecolor, alpha=self.edgealpha)
+
+        bbox = {
+            "boxstyle": f"{self.boxstyle},pad={float(self.pad)}",
+            "fc": to_hex(face_color, keep_alpha=True),
+            "ec": to_hex(edge_color, keep_alpha=True),
+            "lw": float(self.linewidth),
+        }
+
+        return bbox
 
 
 @dataclass(frozen=True, slots=True)
@@ -569,11 +833,12 @@ class _MarkerLayer:
     labels: Sequence[str] | None = None
 
     # Marker style (shared across the layer)
-    marker_options: PointMarkerSettings = PointMarkerSettings()
+    marker_options: PointMarkerSettings = field(default_factory=PointMarkerSettings)
 
     # Label style (centered in marker)
     show_labels: bool = True
-    font_options: LabelFontOptions = LabelFontOptions()
+    labelfont_options: LabelFontOptions = field(default_factory=LabelFontOptions)
+    labelbox_options: LabelBoxOptions = field(default_factory=LabelBoxOptions)
     zorder: int = 2
 
     def __post_init__(self) -> None:
@@ -632,20 +897,20 @@ class _MarkerLayer:
             )
         else:
             outline_color, _ = resolve_color_and_alpha(
-                self.font_options.outlinecolor,
+                self.labelfont_options.outlinecolor,
                 alpha=1.0,
             )
             text_effects = [
                 patheffects.Stroke(
-                    linewidth=float(self.font_options.outlinewidth),
+                    linewidth=float(self.labelfont_options.outlinewidth),
                     foreground=outline_color,
                 ),
                 patheffects.Normal(),
             ]
 
             text_color, text_alpha = resolve_color_and_alpha(
-                self.font_options.fontcolor,
-                alpha=self.font_options.fontalpha,
+                self.labelfont_options.fontcolor,
+                alpha=self.labelfont_options.fontalpha,
             )
 
             for x_value, y_value, label_text in zip(x_coordinates, y_coordinates, self.labels):
@@ -664,12 +929,12 @@ class _MarkerLayer:
                     str(label_text),
                     ha="center",
                     va="center",
-                    fontsize=float(self.font_options.fontsize),
-                    fontweight=str(self.font_options.fontweight),
-                    color=text_color,
-                    alpha=float(text_alpha) if text_alpha is not None else None,
                     zorder=int(self.zorder),
+                    bbox=self.labelbox_options.to_mpl_bbox(),
+                    clip_on=True,
+                    **self.labelfont_options.to_mpl_text_kwargs(),
                 )
+                text_artist.set_clip_path(ax.patch)
                 text_artist.set_path_effects(text_effects)
 
         return ax
@@ -729,6 +994,16 @@ class ColorbarOptions:
     max_n_ticks: int | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class _LabelRequest:
+    gdf: GeoDataFrame
+    label_column: str
+    labelfont_options: LabelFontOptions | None
+    labelbox_options: LabelBoxOptions | None
+    label_format_fn: Callable[[Any], str] | None = None
+    zorder: int = 100
+
+
 class GeoPlot:
     """A class for creating geographic plots with multiple layers.
 
@@ -748,6 +1023,7 @@ class GeoPlot:
         show_axis: bool = False,
         target_crs=None,
         show_colorbars: bool = False,
+        include_default_outline: bool = True,
     ) -> None:
         self.gdf = gdf
 
@@ -771,7 +1047,17 @@ class GeoPlot:
         self._highlight_layers: list[_CategoricalColorLayer] = []
         self._marker_layers: list[_MarkerLayer] = []
 
+        self._label_requests: list[_LabelRequest] = []
+
         self._colorbar_axes: list[Axes] = []
+
+        if include_default_outline:
+            fully_dissolved_geos = GeoSeries(gdf.geometry.union_all())
+            self.add_outline_layer(
+                geosource=fully_dissolved_geos,
+                edgecolor="black",
+                edgewidth=0.5,
+            )
 
     def add_choropleth_layer(
         self,
@@ -812,7 +1098,7 @@ class GeoPlot:
         if geosource is None:
             geosource = self.gdf
         layer = _ContinuousColorLayer(
-            geosource=geosource,
+            geometry_source=geosource,
             datacolumn=datacolumn,
             colormap=colormap,
             missing_color=missing_color,
@@ -828,6 +1114,27 @@ class GeoPlot:
         )
         self._choropleth_layers.append(layer)
 
+    def __register_label_request(
+        self,
+        *,
+        gdf: GeoDataFrame,
+        label_column: str,
+        labelfont_options: LabelFontOptions | None,
+        labelbox_options: LabelBoxOptions | None,
+        label_format_fn: Callable[[Any], str] | None = None,
+        zorder: int = 100,
+    ) -> None:
+        self._label_requests.append(
+            _LabelRequest(
+                gdf=gdf,
+                label_column=label_column,
+                labelfont_options=labelfont_options,
+                labelbox_options=labelbox_options,
+                label_format_fn=label_format_fn,
+                zorder=zorder,
+            )
+        )
+
     def add_districting_plan_layer(
         self,
         *,
@@ -835,8 +1142,9 @@ class GeoPlot:
         plancolumn: str,
         dissolve: bool = False,
         show_labels: bool = False,
-        labelmarkeroptions: PointMarkerSettings | None = None,
-        labelfontoptions: LabelFontOptions | None = None,
+        exclude_labels: list[Any] | None = None,
+        labelfont_options: LabelFontOptions | None = None,
+        labelbox_options: LabelBoxOptions | None = None,
         colormap: str | Colormap | dict[Any, Color] | pd.Series = "districtr",
         missing_color: Any = "lightgrey",
         facealpha: float | None = None,
@@ -853,13 +1161,14 @@ class GeoPlot:
             plancolumn (str): The column containing district identifiers.
             dissolve (bool): Whether to dissolve geometries by district. Default is False.
             show_labels (bool): Whether to show district labels. Default is False.
-            labelmarkeroptions (PointMarkerSettings | None): Marker settings for district labels.
-                If None, uses default settings. Default is None.
+            exclude_labels (list[Any] | None): List of district labels to exclude from labeling.
+                If None, no labels are excluded. Does not do anything if show_labels is False.
+                Default is None.
             labelfontoptions (LabelFontOptions | None): Font options for district labels.
                 If None, uses default settings. Default is None.
             colormap (str | Colormap | dict[Any, Color] | pd.Series): Color mapping specification.
-                Can be a single color, a named colormap, a Colormap object, or a mapping from district
-                identifiers to colors. Default is "districtr".
+                Can be a single color, a named colormap, a Colormap object, or a mapping from
+                district identifiers to colors. Default is "districtr".
             missing_color (Any): Color to use for missing data. Default is "lightgrey".
             facealpha (float | None): Alpha transparency for face colors. Default is None.
             edgecolor (Color): Color for geometry edges. Default is "none".
@@ -876,7 +1185,7 @@ class GeoPlot:
             plan_gdf = GeoDataFrame(plan_gdf.dissolve(by=plancolumn).reset_index())
 
         layer = _CategoricalColorLayer(
-            geosource=plan_gdf,
+            geometry_source=plan_gdf,
             datacolumn=plancolumn,
             colormap=colormap,
             missing_color=missing_color,
@@ -889,57 +1198,44 @@ class GeoPlot:
         self._districting_plan_layers.append(layer)
 
         if show_labels:
-            # Use dissolved geometry for label placement so it's one marker per district
-            label_geometry_gdf = plan_gdf
-            if not dissolve:
-                label_geometry_gdf = GeoDataFrame(plan_gdf.dissolve(by=plancolumn).reset_index())
+            dissolved_plan_gdf = plan_gdf.dissolve(by=plancolumn).reset_index()
 
-            # Compute interior points in the plot CRS (so placement matches what you see)
-            label_geometries = label_geometry_gdf.geometry
-            if getattr(label_geometries, "crs", None) is not None and self.target_crs is not None:
-                if label_geometries.crs != self.target_crs:
-                    label_geometries = label_geometries.to_crs(self.target_crs)
-
-            label_points = label_geometries.representative_point()
-            label_text = []
-
-            for label in label_geometry_gdf[plancolumn].astype(str).tolist():
-                # try to convert to ints for labelling
+            def coerce_labels(x: Any) -> str:
                 try:
-                    label_text.append(str(int(label)))
-                except (ValueError, TypeError):
-                    label_text.append(label)
+                    return str(int(x))
+                except Exception:
+                    return str(x)
 
-            self.add_marker_layer(
-                points_geoseries=label_points,
-                labels=label_text,
-                labelmarker_options=(
-                    labelmarkeroptions
-                    if labelmarkeroptions is not None
-                    else PointMarkerSettings(
-                        markerfacecolor="none",
-                        markerfacealpha=0.0,
-                        marker="o",
-                        markersize=10.0,
-                        markeredgecolor="none",
-                        markeredgealpha=0.0,
-                        markeredgewidth=0.0,
-                    )
-                ),
-                labelfont_options=(
-                    labelfontoptions if labelfontoptions is not None else LabelFontOptions()
-                ),
+            dissolved_plan_gdf[plancolumn] = dissolved_plan_gdf[plancolumn].apply(coerce_labels)
+            new_exclude_labels = (
+                list(map(coerce_labels, exclude_labels)) if exclude_labels is not None else []
+            )
+            dissolved_plan_gdf = GeoDataFrame(
+                dissolved_plan_gdf.query(f"`{plancolumn}` not in {new_exclude_labels}")
+            )
+
+            self.__register_label_request(
+                gdf=dissolved_plan_gdf,
+                label_column=plancolumn,
+                labelfont_options=labelfont_options,
+                labelbox_options=labelbox_options,
+                label_format_fn=lambda x: str(int(x)),
+                zorder=zorder + 1,
             )
 
     def add_outline_layer(
         self,
         *,
         geosource: GeoDataFrame | GeoSeries | None = None,
-        dissolve_column: str | None = None,
         geometry_mask: pd.Series | None = None,
+        dissolve_column: str | None = None,
         edgecolor: Color = "black",
         edgealpha: float | None = None,
         edgewidth: float = 0.5,
+        show_labels: bool = False,
+        exclude_labels: list[Any] | None = None,
+        labelfont_options: LabelFontOptions | None = None,
+        labelbox_options: LabelBoxOptions | None = None,
         zorder: int = 3,
     ) -> None:
         """Add an outline layer to the GeoPlot.
@@ -947,10 +1243,24 @@ class GeoPlot:
         Args:
             geosource (GeoDataFrame | GeoSeries | None): The GeoDataFrame or GeoSeries source
                 for the layer. If None, uses the base gdf of the GeoPlot. Default is None.
-            dissolve_column (str | None): Optional column to dissolve geometries by
-                before outlining. Default is None.
             geometry_mask (pd.Series | None): Optional boolean mask to filter geometries.
                 Default is None.
+            dissolve_column (str | None): Optional column to dissolve geometries by
+                before outlining. Default is None.
+            show_labels (bool): Whether to show labels on the outlined geometries. Default is False.
+            exclude_labels (list[Any] | None): List of labels to exclude from labeling.
+                If None, no labels are excluded. Does not do anything if show_labels is False.
+                Default is None.
+            labelfont_options (LabelFontOptions | None): Font options for labels.
+                If None, uses the following defaults:
+                    - fontcolor="black",
+                    - fontsize=4,
+                    - fontweight="roman",
+                    - outlinecolor="grey",
+                    - outlinewidth=0.2.
+                Default is None.
+            labelbox_options (LabelBoxOptions | None): Box options for labels. If None the box
+                is disabled. Default is None.
             edgecolor (Color): Color for geometry edges. Default is "black".
             edgealpha (float | None): Alpha transparency for edge colors. Default is None.
             edgewidth (float): Width of geometry edges. Default is 0.5.
@@ -968,7 +1278,7 @@ class GeoPlot:
             geosource = GeoDataFrame(geosource.dissolve(by=dissolve_column).reset_index())
 
         layer = _CategoricalColorLayer(
-            geosource=geosource,
+            geometry_source=geosource,
             geometry_mask=geometry_mask,
             colormap="none",
             missing_color="none",
@@ -980,14 +1290,53 @@ class GeoPlot:
         )
         self._outline_layers.append(layer)
 
+        if show_labels:
+            processed_geosource = layer.geosource
+            if not isinstance(processed_geosource, GeoDataFrame):
+                raise TypeError(
+                    "Tried to add labels to geosource of type "
+                    f"{type(geosource).__name__!r}; geosource must be a GeoDataFrame",
+                )
+
+            if dissolve_column is None:
+                raise ValueError(
+                    "'dissolve_column' must be set to add labels to an outline layer",
+                )
+
+            new_exclude_labels = exclude_labels if exclude_labels is not None else []
+            labeled_gdf = GeoDataFrame(
+                processed_geosource.query(f"`{dissolve_column}` not in {new_exclude_labels}")
+            )
+
+            if labelfont_options is None:
+                labelfont_options = LabelFontOptions(
+                    fontcolor="black",
+                    fontsize=4,
+                    fontweight="roman",
+                    outlinecolor="grey",
+                    outlinewidth=0.2,
+                )
+
+            self.__register_label_request(
+                gdf=labeled_gdf,
+                label_column=dissolve_column,
+                labelfont_options=labelfont_options,
+                labelbox_options=labelbox_options,
+                zorder=zorder + 1,
+            )
+
     def add_highlight_layer(
         self,
         *,
         geosource: GeoDataFrame | GeoSeries | None = None,
         geometry_mask: pd.Series | None = None,
-        filter_pairs: tuple[Any, Any] | tuple[tuple[Any, Any], ...] | None = None,
+        dissolve_column: str | None = None,
         facecolor: Color = "gray",
         facealpha: float | None = 0.5,
+        show_labels: bool = False,
+        exclude_labels: list[Any] | None = None,
+        labelfont_options: LabelFontOptions | None = None,
+        labelbox_options: LabelBoxOptions | None = None,
         zorder: int = 10,
     ) -> None:
         """Add a highlight layer to the GeoPlot.
@@ -997,23 +1346,58 @@ class GeoPlot:
                 for the layer. If None, uses the base gdf of the GeoPlot. Default is None.
             geometry_mask (pd.Series | None): Optional boolean mask to filter geometries.
                 Default is None.
-            filter_pairs (tuple[Any, Any] | tuple[tuple[Any, Any], ...] | None): Optional pairs of
-                (column name, value) to filter geometries by. Default is None.
+            dissolve_column (str | None): Optional column to dissolve geometries by
+                before highlighting. Default is None.
             facecolor (Color): Color for geometry faces. Default is "gray".
             facealpha (float | None): Alpha transparency for face colors. Default is 0.5.
+            show_labels (bool): Whether to show labels on the highlighted geometries. Default is
+                False.
+            exclude_labels (list[Any] | None): List of labels to exclude from labeling.
+                If None, no labels are excluded. Does not do anything if show_labels is False.
+                Default is None.
+            labelfont_options (LabelFontOptions | None): Font options for labels.
+                If None uses the following defaults:
+                    - fontcolor="black",
+                    - fontsize=4,
+                    - fontweight="roman",
+                    - outlinecolor="grey",
+                    - outlinewidth=0.2.
+                Default is None.
+            labelbox_options (LabelBoxOptions | None): Box options for labels. If None the box
+                is disabled. Default is None.
             zorder (int): Z-order for rendering. Default is 10.
         """
+        if show_labels:
+            if dissolve_column is None:
+                raise ValueError(
+                    "add_highlight_layer(show_labels=True) requires dissolve_column=... to know "
+                    "what to label. Example: dissolve_column='COUNTYFP10'."
+                )
+            if geosource is None:
+                raise ValueError(
+                    "add_highlight_layer(show_labels=True) requires geosource=... (a GeoDataFrame) "
+                    "so the dissolve_column exists."
+                )
+            if not isinstance(geosource, GeoDataFrame):
+                raise TypeError(
+                    "add_highlight_layer(show_labels=True) requires geosource to be a GeoDataFrame "
+                    f"so it has the dissolve_column {dissolve_column!r}. "
+                    f"You passed {type(geosource).__name__!r}. "
+                    "Either pass a GeoDataFrame, or set show_labels=False."
+                )
+
         if geosource is None:
             geometries = self.gdf.geometry
         else:
             geometries = _as_geoseries(geosource)
+
         if geometry_mask is not None:
             geometries = geometries[geometry_mask]
 
         geometries = GeoSeries(geometries.union_all())
 
         layer = _CategoricalColorLayer(
-            geosource=geometries,
+            geometry_source=geometries,
             colormap=facecolor,
             missing_color="none",
             facealpha=facealpha,
@@ -1024,25 +1408,66 @@ class GeoPlot:
         )
         self._highlight_layers.append(layer)
 
+        if show_labels:
+            label_gdf = geosource
+            if label_gdf is None:
+                raise RuntimeError(
+                    "An unexpected error occured in add_highlight_layer. "
+                    "The geosource was None when trying to add labels."
+                )
+
+            if isinstance(label_gdf, GeoSeries):
+                raise TypeError(
+                    "add_highlight_layer(show_labels=True) requires geosource to be a GeoDataFrame "
+                    f"so it has the dissolve_column {dissolve_column!r}. "
+                    f"You passed a GeoSeries. Either pass a GeoDataFrame, or set show_labels=False."
+                )
+
+            if geometry_mask is not None:
+                label_gdf = GeoDataFrame(label_gdf.loc[geometry_mask])
+
+            new_exclude_labels = exclude_labels if exclude_labels is not None else []
+            labeled_gdf = GeoDataFrame(
+                label_gdf.query(f"`{dissolve_column}` not in {new_exclude_labels}")
+            )
+
+            if labelfont_options is None:
+                labelfont_options = LabelFontOptions(
+                    fontcolor="black",
+                    fontsize=4,
+                    fontweight="roman",
+                    outlinecolor="grey",
+                    outlinewidth=0.2,
+                )
+
+            if dissolve_column is None:
+                raise RuntimeError(
+                    "An unexpected error occured in add_highlight_layer. "
+                    "The dissolve_column was None when trying to add labels."
+                )
+
+            self.__register_label_request(
+                gdf=labeled_gdf,
+                label_column=dissolve_column,
+                labelfont_options=labelfont_options,
+                labelbox_options=labelbox_options,
+                zorder=zorder + 1,
+            )
+
+        return None
+
     def add_marker_layer(
         self,
         *,
         points_geoseries: gpd.GeoSeries | None = None,
         latitude_longitude_list: Sequence[tuple[float, float]] | None = None,
-        labels: Sequence[str] | None = None,
         input_crs=None,
-        zorder: int = 2,
-        labelmarker_options: PointMarkerSettings = PointMarkerSettings(
-            markerfacecolor="white",
-            markerfacealpha=1.0,
-            marker="o",
-            markersize=3.0,
-            markeredgecolor="black",
-            markeredgealpha=1.0,
-            markeredgewidth=0.5,
-        ),
+        marker_options: PointMarkerSettings | None = None,
         show_labels: bool = True,
-        labelfont_options: LabelFontOptions = LabelFontOptions(),
+        labels: Sequence[str] | None = None,
+        labelfont_options: LabelFontOptions | None = None,
+        labelbox_options: LabelBoxOptions | None = None,
+        zorder: int = 2,
     ) -> None:
         """Add a layer of markers (points) to the GeoPlot.
 
@@ -1052,12 +1477,10 @@ class GeoPlot:
             latitude_longitude_list (Sequence[tuple[float, float]] | None): A sequence of
                 (latitude, longitude) tuples for the marker locations. If None, `points_geoseries`
                 must be provided. Default is None.
-            labels (Sequence[str] | None): Optional labels for each marker. Default is None.
             input_crs: The CRS of the input points if using `latitude_longitude_list`.
                 If None, assumes EPSG:4326 (lat/lon). Default is None.
-            zorder (int) Z-order for rendering. Default is 2.
-            labelmarker_options (PointMarkerSettings): Marker style settings. Uses the following
-                defaults:
+            marker_options (PointMarkerSettings | None): Marker style settings.
+                If None, uses the following defaults:
                     - markerfacecolor="white",
                     - markerfacealpha=1.0,
                     - marker="o",
@@ -1065,10 +1488,30 @@ class GeoPlot:
                     - markeredgecolor="black",
                     - markeredgealpha=1.0,
                     - markeredgewidth=0.5.
+                Default is None.
             show_labels (bool): Whether to show labels on the markers. Default is True.
-            labelfont_options (LabelFontOptions): Font options for the labels. Uses default
-                constructor if not provided. Uses the default constructor if not provided.
+            labels (Sequence[str] | None): Optional labels for each marker. Default is None.
+            labelfont_options (LabelFontOptions | None): Font options for the labels If None, uses
+                default LabelFontOptions().
+            labelbox_options (LabelBoxOptions | None): Box options for the labels. If None the
+                box is disabled. Default is None.
+            zorder (int) Z-order for rendering. Default is 2.
         """
+        if marker_options is None:
+            marker_options = PointMarkerSettings(
+                markerfacecolor="white",
+                markerfacealpha=1.0,
+                marker="o",
+                markersize=3.0,
+                markeredgecolor="black",
+                markeredgealpha=1.0,
+                markeredgewidth=0.5,
+            )
+        if labelfont_options is None:
+            labelfont_options = LabelFontOptions()
+        if labelbox_options is None:
+            labelbox_options = LabelBoxOptions(enabled=False)
+
         if points_geoseries is None and latitude_longitude_list is None:
             raise ValueError("Either `points_geoseries` or `latitude_longitude_list` must be set.")
         if points_geoseries is not None and latitude_longitude_list is not None:
@@ -1104,12 +1547,98 @@ class GeoPlot:
         marker_layer = _MarkerLayer(
             point_geometries=point_geometries,
             labels=labels,
-            marker_options=labelmarker_options,
+            marker_options=marker_options,
             show_labels=show_labels,
-            font_options=labelfont_options,
+            labelfont_options=labelfont_options,
+            labelbox_options=labelbox_options,
             zorder=zorder,
         )
         self._marker_layers.append(marker_layer)
+
+    def add_label_layer(
+        self,
+        *,
+        points_geoseries: gpd.GeoSeries | None = None,
+        latitude_longitude_list: Sequence[tuple[float, float]] | None = None,
+        input_crs=None,
+        labels: Sequence[str] | None = None,
+        labelfont_options: LabelFontOptions | None = None,
+        labelbox_options: LabelBoxOptions | None = None,
+        zorder: int = 2,
+    ) -> None:
+        """Add a layer of markers (points) to the GeoPlot.
+
+        Args:
+            points_geoseries (gpd.GeoSeries | None): A GeoSeries of Point geometries for the
+                markers. If None, `latitude_longitude_list` must be provided. Default is None.
+            latitude_longitude_list (Sequence[tuple[float, float]] | None): A sequence of
+                (latitude, longitude) tuples for the marker locations. If None, `points_geoseries`
+                must be provided. Default is None.
+            input_crs: The CRS of the input points if using `latitude_longitude_list`.
+                If None, assumes EPSG:4326 (lat/lon). Default is None.
+            labels (Sequence[str] | None): Optional labels for each marker. Default is None which
+                results numerical labels.
+            labelfont_options (LabelFontOptions | None): Font options for the labels If None, uses
+                the following defaults:
+                    - fontcolor="black",
+                    - fontsize=4,
+                    - fontweight="roman",
+                    - outlinecolor="grey",
+                    - outlinewidth=0.2.
+            labelbox_options (LabelBoxOptions | None): Box options for the labels. If None the
+                box is disabled. Default is None.
+            zorder (int) Z-order for rendering. Default is 2.
+        """
+        if points_geoseries is None and latitude_longitude_list is None:
+            raise ValueError("Either `points_geoseries` or `latitude_longitude_list` must be set.")
+        if points_geoseries is not None and latitude_longitude_list is not None:
+            raise ValueError(
+                "Only one of `points_geoseries` or `latitude_longitude_list` "
+                "may be set at a time.",
+            )
+        if points_geoseries is None and latitude_longitude_list is not None:
+            n_labels = len(list(latitude_longitude_list))
+        elif points_geoseries is not None:
+            n_labels = len(points_geoseries)
+        else:
+            raise RuntimeError(
+                "An unexpected error occured in add_label_layer. One of the argurments "
+                "'points_geoseries' or 'latitude_longitude_list' was likely set incorrectly."
+                f"Type of 'points_geoseries': {type(points_geoseries).__name__!r}, "
+                f"type of 'latitude_longitude_list': {type(latitude_longitude_list).__name__!r}",
+            )
+
+        if labels is None:
+            labels = [str(i) for i in range(n_labels)]
+
+        if labelfont_options is None:
+            labelfont_options = LabelFontOptions(
+                fontcolor="black",
+                fontsize=4,
+                fontweight="roman",
+                outlinecolor="grey",
+                outlinewidth=0.2,
+            )
+
+        self.add_marker_layer(
+            points_geoseries=points_geoseries,
+            latitude_longitude_list=latitude_longitude_list,
+            input_crs=input_crs,
+            marker_options=PointMarkerSettings(
+                markerfacecolor="none",
+                markerfacealpha=0.0,
+                marker="o",
+                markersize=0.0,
+                markeredgecolor="none",
+                markeredgealpha=0.0,
+                markeredgewidth=0.0,
+            ),
+            show_labels=True,
+            labels=labels,
+            labelfont_options=labelfont_options,
+            labelbox_options=labelbox_options,
+            zorder=zorder,
+        )
 
     def set_colorbar_options(
         self,
@@ -1409,6 +1938,85 @@ class GeoPlot:
         if self._ylim is not None:
             self._ax.set_ylim(*self._ylim)
 
+    def _draw_deferred_labels(self) -> dict[str, Point]:
+        label_positions: dict[str, Point] = {}
+        if not self._label_requests:
+            return label_positions
+
+        ax = self._ax
+
+        xmin, xmax = ax.get_xlim()
+        ymin, ymax = ax.get_ylim()
+        clip_geom = box(min(xmin, xmax), min(ymin, ymax), max(xmin, xmax), max(ymin, ymax))
+
+        for req in self._label_requests:
+            # One label per dissolved part
+            dissolved = GeoDataFrame(req.gdf.dissolve(by=req.label_column).reset_index())
+
+            # Match plot CRS
+            if getattr(dissolved, "crs", None) is not None and self.target_crs is not None:
+                if dissolved.crs != self.target_crs:
+                    dissolved = dissolved.to_crs(self.target_crs)
+
+            # Clip to current view
+            clipped = dissolved.geometry.intersection(clip_geom)
+            keep = (~clipped.isna()) & (~clipped.is_empty)
+            if not keep.any():
+                continue
+
+            dissolved = dissolved.loc[keep].copy()
+            dissolved["geometry"] = clipped.loc[keep]
+
+            # Representative points inside the clipped geometry
+            pts = dissolved.representative_point()
+
+            labels: list[str] = []
+            for raw in dissolved[req.label_column].tolist():
+                txt = str(raw)
+                if req.label_format_fn is not None:
+                    try:
+                        txt = str(req.label_format_fn(raw))
+                    except Exception:
+                        pass
+                labels.append(txt)
+
+            # Defaults
+            font = (
+                req.labelfont_options if req.labelfont_options is not None else LabelFontOptions()
+            )
+            boxopt = (
+                req.labelbox_options
+                if req.labelbox_options is not None
+                else LabelBoxOptions(enabled=False)
+            )
+
+            # Ephemeral label-only marker options (no visible marker)
+            label_marker_opts = PointMarkerSettings(
+                markerfacecolor="none",
+                markerfacealpha=0.0,
+                marker="o",
+                markersize=0.0,
+                markeredgecolor="none",
+                markeredgealpha=0.0,
+                markeredgewidth=0.0,
+            )
+
+            # Create an ephemeral marker layer and render immediately
+            tmp = _MarkerLayer(
+                point_geometries=pts,
+                labels=labels,
+                marker_options=label_marker_opts,
+                show_labels=True,
+                labelfont_options=font,
+                labelbox_options=boxopt,
+                zorder=req.zorder,
+            )
+            tmp.render(ax, target_crs=self.target_crs)
+            label_positions.update(
+                {label: Point(pt.x, pt.y) for label, pt in zip(labels, pts.geometry.tolist())}
+            )
+        return label_positions
+
     def _build_plot(self) -> None:
         """Build the plot by rendering all layers and applying settings."""
         self._ax.clear()
@@ -1422,10 +2030,12 @@ class GeoPlot:
         if self.show_colorbars:
             self._draw_colorbars()
 
-    def _build_and_apply_settings(self) -> None:
+    def _build_and_apply_settings(self) -> dict[str, Point]:
         """Build the plot and apply stored settings like limits."""
         self._build_plot()
         self._apply_limits()
+        label_points = self._draw_deferred_labels()
+        return label_points
 
     @property
     def ax(self) -> Axes:
@@ -1433,7 +2043,19 @@ class GeoPlot:
         self._build_and_apply_settings()
         return self._ax
 
-    def show(self) -> None:
+    def get_label_positions(self, *, as_lat_long: bool = False) -> tuple[str, dict[str, Point]]:
+        """A dictionary mapping label text to Point objects for all labels in the plot."""
+        label_points = GeoSeries(self._build_and_apply_settings(), crs=self.target_crs)
+        if as_lat_long:
+            label_points = label_points.to_crs("EPSG:4326")
+        return (
+            label_points.crs.to_string() if label_points.crs is not None else "undefined",
+            {label: Point(pt.x, pt.y) for label, pt in label_points.items()},
+        )
+
+    def show(
+        self,
+    ) -> None:
         """Display the plot inline (e.g., in a Jupyter notebook) or in a window."""
         self._build_and_apply_settings()
 
@@ -1448,8 +2070,6 @@ class GeoPlot:
             display(Image(data=buf.getvalue()))
         except Exception:
             self.fig.show()
-
-        self._build_and_apply_settings()
 
     def save(self, filepath: str, **kwargs: Any) -> None:
         """Save the plot to a file."""
