@@ -500,6 +500,11 @@ class SeaLevel(GerryPlotBase):
         Args:
             denominator (int): The denominator to use for the fractions.
 
+        Kwargs:
+            minimum_numerator (int, optional): The minimum numerator to display. Defaults to 0.
+            maximum_numerator (int | None, optional): The maximum numerator to display.
+                Defaults to None, which uses the denominator as the maximum numerator.
+
         Returns:
             None
         """
