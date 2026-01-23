@@ -21,7 +21,7 @@ logger = get_logger(__name__)
 
 
 @dataclass(frozen=True)
-class PointMarkerSettings:
+class PointMarkerOptions:
     """Settings for points on a matplotlib plot (or for functions that use similar artists).
 
     Attributes:
@@ -66,7 +66,7 @@ class PointMarkerSettings:
             self.markerfacealpha,
             allow_none=True,
             field="markerfacecolor",
-            owner="PointMarkerSettings",
+            owner="PointMarkerOptions",
             logger=logger,
         )
 
@@ -78,7 +78,7 @@ class PointMarkerSettings:
             self.markeredgealpha,
             allow_none=True,
             field="markeredgecolor",
-            owner="PointMarkerSettings",
+            owner="PointMarkerOptions",
             logger=logger,
         )
 
@@ -89,17 +89,17 @@ class PointMarkerSettings:
             logger.log(
                 level=logging.DEBUG,
                 msg=(
-                    "PointMarkerSettings: markeredgecolor is 'none' but "
+                    "PointMarkerOptions: markeredgecolor is 'none' but "
                     f"markeredgewidth is {lw}>0; setting markeredgewidth to 0."
                 ),
             )
             object.__setattr__(self, "markeredgewidth", 0.0)
 
     def to_mpl_settings_dict(self) -> dict[str, Any]:
-        """Convert the PointMarkerSettings to a dictionary.
+        """Convert the PointMarkerOptions to a dictionary.
 
         Returns:
-            dict[str, Any]: A dictionary representation of the PointMarkerSettings that
+            dict[str, Any]: A dictionary representation of the PointMarkerOptions that
                 can be passed to Matplotlib plot functions.
         """
         # Matplotlib alpha applies to the entire marker, so we need to
@@ -122,13 +122,13 @@ class PointSetData:
     Attributes:
         name (str): The name of the point set.
         values_dict (dict[str, float]): A dictionary mapping labels to point values.
-        point_data (PointMarkerSettings): The settings for the points.
+        point_data (PointMarkerOptions): The settings for the points.
         x_offset (float | None): An optional absolute x-offset from category center.
     """
 
     name: str
     values_dict: dict[str, float]  # one value per label
-    point_data: PointMarkerSettings
+    point_data: PointMarkerOptions
     x_offset: float | None = None  # optional absolute x-offset from category center
 
 

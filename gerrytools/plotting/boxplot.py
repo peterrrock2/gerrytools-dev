@@ -17,7 +17,7 @@ from gerrytools.logging import get_logger
 from gerrytools.plotting.gerryplot import (
     GerryPlotBase,
     LineData,
-    PointMarkerSettings,
+    PointMarkerOptions,
     PointSetData,
 )
 from gerrytools.typing import Color
@@ -39,7 +39,7 @@ class BoxPlotSetData:
         edgewidth (float): The edgewidth of the boxplot edges.
         percentiles (tuple[float, float]): The percentiles for the whiskers.
         showfliers (bool): Whether to show outliers.
-        fliersettings (PointMarkerSettings): The settings for outlier points.
+        flier_options (PointMarkerOptions): The settings for outlier points.
         zorder (int): The z-order of the boxplots.
     """
 
@@ -52,7 +52,7 @@ class BoxPlotSetData:
     edgewidth: float = 0.8
     percentiles: tuple[float, float] = (1, 99)
     showfliers: bool = False
-    fliersettings: PointMarkerSettings = field(default_factory=PointMarkerSettings)
+    flier_options: PointMarkerOptions = field(default_factory=PointMarkerOptions)
     zorder: int = 1
 
     def __post_init__(self) -> None:
@@ -274,7 +274,7 @@ class BoxPlot(GerryPlotBase):
         edgewidth: float = 0.8,
         percentiles: tuple[float, float] = (1, 99),
         showfliers: bool = False,
-        fliersettings: PointMarkerSettings | None = None,
+        flier_options: PointMarkerOptions | None = None,
         add_extra_labels: bool = False,
         zorder: int = 1,
     ) -> None:
@@ -299,7 +299,7 @@ class BoxPlot(GerryPlotBase):
             percentiles (tuple[float, float], optional): The percentiles for the whiskers.
                 Defaults to (1, 99).
             showfliers (bool, optional): Whether to show outliers. Defaults to False.
-            fliersettings (PointMarkerSettings | None, optional): The settings for outlier points.
+            flier_options (PointMarkerOptions | None, optional): The settings for outlier points.
                 Defaults to None.
             add_extra_labels (bool, optional): Whether to allow adding new labels.
                 Defaults to False.
@@ -312,8 +312,8 @@ class BoxPlot(GerryPlotBase):
         Returns:
             None
         """
-        if fliersettings is None:
-            fliersettings = PointMarkerSettings()
+        if flier_options is None:
+            flier_options = PointMarkerOptions()
 
         scores_dict = self._convert_boxplot_data_to_dictionary(scores, scores_labels)
 
@@ -343,7 +343,7 @@ class BoxPlot(GerryPlotBase):
                 edgewidth=edgewidth,
                 percentiles=percentiles,
                 showfliers=showfliers,
-                fliersettings=fliersettings,
+                flier_options=flier_options,
                 zorder=zorder,
             )
         )
@@ -485,7 +485,7 @@ class BoxPlot(GerryPlotBase):
             PointSetData(
                 name=set_name,
                 values_dict=values_dict,
-                point_data=PointMarkerSettings(
+                point_data=PointMarkerOptions(
                     markerfacecolor=facecolor,
                     markerfacealpha=facealpha,
                     marker=marker,
@@ -659,7 +659,7 @@ class BoxPlot(GerryPlotBase):
                 patch_artist=True,
                 showfliers=boxplot_data.showfliers,
                 whis=boxplot_data.percentiles,
-                flierprops=boxplot_data.fliersettings.to_mpl_settings_dict(),
+                flierprops=boxplot_data.flier_options.to_mpl_settings_dict(),
             )
 
             edgecolor = mcolors.to_rgba(boxplot_data.edgecolor, alpha=boxplot_data.edgealpha)

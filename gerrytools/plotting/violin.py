@@ -17,7 +17,7 @@ from gerrytools.logging import get_logger
 from gerrytools.plotting.gerryplot import (
     GerryPlotBase,
     LineData,
-    PointMarkerSettings,
+    PointMarkerOptions,
     PointSetData,
 )
 from gerrytools.typing import Color
@@ -458,7 +458,7 @@ class ViolinPlot(GerryPlotBase):
             PointSetData(
                 name=set_name,
                 values_dict=values_dict,
-                point_data=PointMarkerSettings(
+                point_data=PointMarkerOptions(
                     markerfacecolor=facecolor,
                     markerfacealpha=facealpha,
                     marker=marker,

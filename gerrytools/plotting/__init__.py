@@ -3,8 +3,6 @@ Makes pretty pictures of districting plans, dual graphs, histograms, boxplots,
 and violin plots 🎻.
 """
 
-from gerrytols.plotting.subway import SubwaySignOptions, subway_signs
-
 from gerrytools.colors import districtr, flare, latex, purples, redbluecmap
 from gerrytools.plotting.boxplot import BoxPlot, BoxPlotSetData
 from gerrytools.plotting.geoplot import (
@@ -24,13 +22,14 @@ from gerrytools.plotting.gerryplot import (
     BandData,
     LegendOptions,
     LineData,
-    PointMarkerSettings,
+    PointMarkerOptions,
     PointSetData,
     TickStyle,
     TitleStyle,
 )
 from gerrytools.plotting.histogram import Histogram, HistogramData, HistPointList
 from gerrytools.plotting.sealevel import SeaLevel
+from gerrytools.plotting.subway import SubwaySignOptions, subway_signs
 from gerrytools.plotting.violin import ViolinPlot, ViolinPlotSetData
 
 from .annotation import arrow, ideal
@@ -58,7 +57,7 @@ __all__ = [
     "LabelBoxOptions",
     "LabelFontOptions",
     "ColorbarOptions",
-    "PointMarkerSettings",
+    "PointMarkerOptions",
     "PointSetData",
     "LineData",
     "BandData",

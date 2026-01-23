@@ -16,7 +16,7 @@ from numpy.typing import NDArray
 
 from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
-from gerrytools.plotting.gerryplot import GerryPlotBase, PointMarkerSettings
+from gerrytools.plotting.gerryplot import GerryPlotBase, PointMarkerOptions
 from gerrytools.typing import BinsType, Color, HistType
 
 logger = get_logger(__name__)
@@ -131,12 +131,12 @@ class HistPointList:
     Attributes:
         name (str): The name of the point set.
         values_list (list[float]): A list of float values representing the points to be plotted.
-        point_data (PointMarkerSettings): Settings for how the points should be marked on the plot
+        point_data (PointMarkerOptions): Settings for how the points should be marked on the plot
     """
 
     name: str
     values: NDArray[np.float64]
-    point_data: PointMarkerSettings
+    point_data: PointMarkerOptions
     y_offset: float = 0.02
     centered: bool = False
 
@@ -517,7 +517,7 @@ class Histogram(GerryPlotBase):
             HistPointList(
                 name=marker_name,
                 values=vals,
-                point_data=PointMarkerSettings(
+                point_data=PointMarkerOptions(
                     markerfacecolor=facecolor,
                     markerfacealpha=facealpha,
                     marker=marker,

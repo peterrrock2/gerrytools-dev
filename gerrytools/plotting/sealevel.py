@@ -14,7 +14,7 @@ from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
 from gerrytools.plotting.gerryplot import (
     GerryPlotBase,
-    PointMarkerSettings,
+    PointMarkerOptions,
 )
 from gerrytools.typing import Color
 
@@ -29,7 +29,7 @@ class SeaLevelSetData:
     linealpha: float | None = None
     linewidth: float = 2.0
     linestyle: str = "-"
-    markersettings: PointMarkerSettings = field(default_factory=PointMarkerSettings)
+    markersettings: PointMarkerOptions = field(default_factory=PointMarkerOptions)
     zorder: int = 1
 
     def __post_init__(self) -> None:
@@ -381,7 +381,7 @@ class SeaLevel(GerryPlotBase):
                 linealpha=linealpha,
                 linewidth=linewidth,
                 linestyle=linestyle,
-                markersettings=PointMarkerSettings(
+                markersettings=PointMarkerOptions(
                     markerfacecolor=markerfacecolor,
                     markerfacealpha=markerfacealpha,
                     marker=marker,

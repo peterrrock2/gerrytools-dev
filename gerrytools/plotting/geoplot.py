@@ -15,10 +15,11 @@ from matplotlib.cm import ScalarMappable
 from matplotlib.colors import BoundaryNorm, Colormap, ListedColormap, Normalize, to_hex
 from matplotlib.figure import Figure
 from matplotlib.pyplot import get_cmap
+from numpy import linspace
 from shapely.geometry import Point, box
 
 from gerrytools.colors import districtr, resolve_color_and_alpha
-from gerrytools.plotting.gerryplot import PointMarkerSettings
+from gerrytools.plotting.gerryplot import PointMarkerOptions
 from gerrytools.typing import Color
 
 GeoSource = GeoDataFrame | GeoSeries
@@ -124,17 +125,28 @@ class _ContinuousColorLayer(_GeoLayer):
     """A geographic layer with continuous color mapping based on a data column.
 
     Attributes:
+        geosource (GeoSource): The source of geometries for this layer.
+        geometry_mask (pd.Series | None): Optional boolean mask to filter geometries.
+            Default is None (no mask).
+        datacolumn (str | None): Optional data column for color mapping. Default is None.
+        colormap (str | Color | Colormap | dict[Any, Color] | pd.Series): Color mapping
+            specification. Can be a single color, a named colormap, a Colormap object, or
+            a mapping from data values to colors. Defaults to "Purples".
+        missing_color (Any): Color to use for missing data.
+        facealpha (float | None): Alpha transparency for face colors. Default is None.
+        edgecolor (Color): Color for geometry edges. Default is "none".
+        edgealpha (float | None): Alpha transparency for edge colors. Default is None.
+        edgewidth (float): Width of geometry edges. Default is 0.5.
+        zorder (int): Z-order for rendering. Default is 1.
         colormap (str | Colormap): The colormap to use for continuous color mapping.
-        vmin (float | None): Minimum data value for color mapping.
-        vmax (float | None): Maximum data value for color mapping.
-        norm (Normalize | None): Custom normalization for color mapping.
+        vmin (float | None): Lower bound value for color mapping.
+        vmax (float | None): Upper bound value for color mapping.
         bins (int | list[float] | None): Optional binning specification for discrete intervals.
     """
 
     colormap: str | Colormap = "Purples"
     vmin: float | None = None
     vmax: float | None = None
-    norm: Normalize | None = None
     bins: int | list[float] | None = None
 
     def __post_init__(self) -> None:
@@ -210,9 +222,30 @@ class _ContinuousColorLayer(_GeoLayer):
             tuple[list[float], list[str]]: The edges and corresponding hex colors for the bins.
         """
         cmap = get_cmap(self.colormap, lut=len(boundaries))
-        colors = [to_hex(cmap(i), keep_alpha=True) for i in range(len(boundaries))]
+        colors = []
+        for i in range(len(boundaries)):
+            rgba = cmap(i)
+            if self.facealpha is not None:
+                rgba = (rgba[0], rgba[1], rgba[2], float(self.facealpha))
+            colors.append(to_hex(rgba, keep_alpha=True))
         edges = boundaries.left.tolist() + [boundaries.right[-1]]
         return edges, colors
+
+    @staticmethod
+    def _with_alpha(cmap: Colormap, alpha: float) -> Colormap:
+        """Return a copy of the given colormap with the specified alpha applied.
+
+        Args:
+            cmap (Colormap): The original colormap.
+            alpha (float): The alpha value to apply (0.0 to 1.0).
+
+        Returns:
+            Colormap: A new colormap with the specified alpha applied.
+        """
+        n = getattr(cmap, "N", 256)
+        rgba = cmap(linspace(0, 1, n))
+        rgba[:, 3] = float(alpha)
+        return ListedColormap(rgba, name=f"{cmap.name}_a{alpha:g}")
 
     def _mappable(self) -> tuple[ScalarMappable, dict[str, Any]]:
         """Get a ScalarMappable and the colorbar kwargs for this layer.
@@ -239,18 +272,17 @@ class _ContinuousColorLayer(_GeoLayer):
                 "spacing": "uniform",
                 "boundaries": edges,
             }
-            return m, cbar_kwargs
-
-        if self.norm is not None:
-            norm = self.norm
         else:
             norm = Normalize(vmin=lower, vmax=upper)
 
-        cmap = get_cmap(self.colormap)
-        m = ScalarMappable(norm=norm, cmap=cmap)
-        m.set_array([])
+            cmap = get_cmap(self.colormap)
+            if self.facealpha is not None:
+                cmap = self._with_alpha(cmap, self.facealpha)
+            m = ScalarMappable(norm=norm, cmap=cmap)
+            m.set_array([])
+            cbar_kwargs = {}
 
-        return m, {}
+        return m, cbar_kwargs
 
     @property
     def color_series(self) -> pd.Series:
@@ -285,7 +317,12 @@ class _ContinuousColorLayer(_GeoLayer):
                         loc = boundaries.get_loc(value)
                         interval_i = int(loc) if not isinstance(loc, slice) else loc.start
                     except KeyError:
-                        interval_i = -1
+                        if value < boundaries.left[0]:
+                            interval_i = 0
+                        elif value > boundaries.right[-1]:
+                            interval_i = len(boundaries) - 1
+                        else:
+                            interval_i = -1
 
                 if interval_i == -1:
                     colors[idx] = self.missing_color
@@ -295,12 +332,8 @@ class _ContinuousColorLayer(_GeoLayer):
                         alpha=self.facealpha,
                     )
 
-            return pd.Series(colors).reindex(self.geometries.index)
         else:
-            if self.norm is not None:
-                norm = self.norm
-            else:
-                norm = Normalize(vmin=lower_bound, vmax=upper_bound)
+            norm = Normalize(vmin=lower_bound, vmax=upper_bound)
 
             cmap = get_cmap(self.colormap)
 
@@ -360,6 +393,19 @@ class _CategoricalColorLayer(_GeoLayer):
     """A geographic layer with categorical color mapping based on a data column.
 
     Attributes:
+        geosource (GeoSource): The source of geometries for this layer.
+        geometry_mask (pd.Series | None): Optional boolean mask to filter geometries.
+            Default is None (no mask).
+        datacolumn (str | None): Optional data column for color mapping. Default is None.
+        colormap (str | Color | Colormap | dict[Any, Color] | pd.Series): Color mapping
+            specification. Can be a single color, a named colormap, a Colormap object, or
+            a mapping from data values to colors. Defaults to "Purples".
+        missing_color (Any): Color to use for missing data.
+        facealpha (float | None): Alpha transparency for face colors. Default is None.
+        edgecolor (Color): Color for geometry edges. Default is "none".
+        edgealpha (float | None): Alpha transparency for edge colors. Default is None.
+        edgewidth (float): Width of geometry edges. Default is 0.5.
+        zorder (int): Z-order for rendering. Default is 1.
         colormap (str | Color | Colormap | dict[Any, Color] | pd.Series): Color mapping
             specification. Can be a single color, a named colormap, a Colormap object, or
             a mapping from data values to colors. Defaults to "districtr".
@@ -458,12 +504,9 @@ class _CategoricalColorLayer(_GeoLayer):
             if isinstance(self.colormap, str):
                 cmap = get_cmap(self.colormap)
 
-            # Almost all color maps have at most 256 discrete colors even the "continuous" ones.
+            # Almost all color maps have at most 256 discrete colors (even the "continuous" ones).
             # This is just a safeguard to avoid indexing errors
-            if hasattr(cmap, "N") and isinstance(cmap.N, int):
-                n_colors = cmap.N
-            else:
-                n_colors = 256
+            n_colors = int(getattr(cmap, "N", 256))
 
             value_to_color_dict = self.__map_unique_values_to_colors(
                 self.geometry_source[self.datacolumn].unique(),
@@ -482,7 +525,7 @@ class _CategoricalColorLayer(_GeoLayer):
             ret_colors_series = pd.Series(new_entries, index=self.geometry_source.index)
 
         elif isinstance(self.colormap, dict):
-            new_entries = []
+            new_entries: list[tuple[str, int | float]] = []
             for val in self.geometry_source[self.datacolumn]:
                 color = self.colormap.get(val, self.missing_color)
                 color_tup = resolve_color_and_alpha(color, alpha=self.facealpha)
@@ -503,7 +546,8 @@ class _CategoricalColorLayer(_GeoLayer):
         Args:
             ax (Axes): The Axes to render onto.
             target_crs: The target CRS to reproject geometries to.
-            **kwargs: Additional keyword arguments (not used).
+            **kwargs: Additional keyword arguments (not used but included to satisfy
+                render function signature contract).
 
         Returns:
             Axes: The Axes with the layer rendered.
@@ -819,7 +863,7 @@ class _MarkerLayer:
     Attributes:
         point_geometries (GeoSeries): A GeoSeries of Point geometries for the markers.
         labels (Sequence[str] | None): Optional labels for each marker.
-        marker_options (PointMarkerSettings): Marker style settings. Uses default constructor if
+        marker_options (PointMarkerOptions): Marker style settings. Uses default constructor if
             not provided.
         show_labels (bool): Whether to show labels on the markers. Default is True.
         font_options (LabelFontOptions): Font options for the labels. Uses default constructor if
@@ -833,7 +877,7 @@ class _MarkerLayer:
     labels: Sequence[str] | None = None
 
     # Marker style (shared across the layer)
-    marker_options: PointMarkerSettings = field(default_factory=PointMarkerSettings)
+    marker_options: PointMarkerOptions = field(default_factory=PointMarkerOptions)
 
     # Label style (centered in marker)
     show_labels: bool = True
@@ -849,7 +893,7 @@ class _MarkerLayer:
             raise ValueError("`labels` must have the same length as `point_geometries`.")
 
         if self.marker_options is None:
-            object.__setattr__(self, "marker_options", PointMarkerSettings())
+            object.__setattr__(self, "marker_options", PointMarkerOptions())
 
     @property
     def color_series(self) -> pd.Series:
@@ -883,7 +927,7 @@ class _MarkerLayer:
         x_coordinates = point_geometries.x.to_numpy()
         y_coordinates = point_geometries.y.to_numpy()
 
-        # PointMarkerSettings already returns RGBA colors with alpha baked in.
+        # PointMarkerOptions already returns RGBA colors with alpha baked in.
         marker_kwargs = dict(self.marker_options.to_mpl_settings_dict())
         marker_kwargs.pop("zorder", None)
 
@@ -941,14 +985,26 @@ class _MarkerLayer:
 
 
 @dataclass(slots=True)
+class ColorbarLayoutOptions:
+    """Layout options for positioning colorbars in GeoPlot.
+    Attributes:
+        outer_pad (float): Padding between the colorbars and the plot edges (figure-relative).
+        inner_pad (float): Padding between the colorbars and the main plot area (figure-relative).
+        width (float): Width of the colorbars (figure-relative).
+        right_margin (float): Margin to the right of the colorbars (figure-relative).
+    """
+
+    outer_pad: float = 0.03
+    inner_pad: float = 0.06
+    width: float = 0.02
+    right_margin: float = 0.02
+
+
+@dataclass(slots=True)
 class ColorbarOptions:
     """Options for configuring colorbars in GeoPlot.
 
     Attributes:
-        outer_pad (float): Padding between the colorbar and the plot edges (figure-relative).
-        inner_pad (float): Padding between the colorbar and the main plot area (figure-relative).
-        width (float): Width of the colorbar (figure-relative).
-        right_margin (float): Margin to the right of the colorbar (figure-relative).
         tick_fontsize (float): Font size for colorbar ticks.
         tick_pad (float): Padding for colorbar ticks.
         label_fontsize (float | None): Font size for colorbar label.
@@ -964,12 +1020,6 @@ class ColorbarOptions:
         force_ticklabels (list[str] | None): Explicit tick labels for the colorbar.
         max_n_ticks (int | None): Maximum number of ticks on the colorbar.
     """
-
-    # --- layout (figure-relative coords) ---
-    outer_pad: float = 0.03
-    inner_pad: float = 0.06
-    width: float = 0.02
-    right_margin: float = 0.02
 
     # --- tick appearance (axes.tick_params) ---
     tick_fontsize: float = 8.0
@@ -992,6 +1042,14 @@ class ColorbarOptions:
     force_ticks: list[float] | None = None
     force_ticklabels: list[str] | None = None
     max_n_ticks: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _ColorbarRequest:
+    layer: _ContinuousColorLayer
+    label: str | None = None  # override label shown on the bar
+    zorder: int = 0  # used only for ordering colorbars
+    options: ColorbarOptions | None = None  # optional per-bar overrides (optional feature)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1022,7 +1080,6 @@ class GeoPlot:
         dpi: int = 300,
         show_axis: bool = False,
         target_crs=None,
-        show_colorbars: bool = False,
         include_default_outline: bool = True,
     ) -> None:
         self.gdf = gdf
@@ -1034,12 +1091,11 @@ class GeoPlot:
         self.show_axis = show_axis
         self.target_crs = target_crs if target_crs is not None else getattr(gdf, "crs", None)
 
-        self.show_colorbars = show_colorbars
-
         self._xlim: tuple[float, float] | None = None
         self._ylim: tuple[float, float] | None = None
 
-        self._colorbar_options: ColorbarOptions = ColorbarOptions()
+        self._colorbar_layout_options: ColorbarLayoutOptions = ColorbarLayoutOptions()
+        self._colorbar_requests: list[_ColorbarRequest] = []
 
         self._choropleth_layers: list[_ContinuousColorLayer] = []
         self._districting_plan_layers: list[_CategoricalColorLayer] = []
@@ -1072,8 +1128,10 @@ class GeoPlot:
         edgewidth: float = 0.5,
         vmin: float | None = None,
         vmax: float | None = None,
-        norm: Normalize | None = None,
         bins: int | list[float] | None = None,
+        show_colorbar: bool = False,
+        colorbar_label: str | None = None,
+        colorbar_options: ColorbarOptions | None = None,
         zorder: int = 0,
     ) -> None:
         """Add a choropleth layer to the GeoPlot.
@@ -1088,9 +1146,15 @@ class GeoPlot:
             edgecolor (Color): Color for geometry edges. Default is "none".
             edgealpha (float | None): Alpha transparency for edge colors. Default is None.
             edgewidth (float): Width of geometry edges. Default is 0.5.
-            vmin (float | None): Minimum data value for color mapping. Default is None.
-            vmax (float | None): Maximum data value for color mapping. Default is None.
-            norm (Normalize | None): Custom normalization for color mapping. Default is None.
+            vmin (float | None): Lower bound for color mapping range. Default is None which then
+                uses the minimum value in the data.
+            vmax (float | None): Upper bound for color mapping range. Default is None which then
+                uses the maximum value in the data.
+            show_colorbar (bool): Whether to show a colorbar for this layer. Default is False.
+            colorbar_label (str | None): Label for the colorbar. Default is None which then
+                uses the datacolumn name.
+            colorbar_options (ColorbarOptions | None): Options for customizing the colorbar.
+                Default is None.
             bins (int | list[float] | None): Optional binning specification for discrete intervals.
                 Default is None.
             zorder (int): Z-order for rendering. Default is 0.
@@ -1108,32 +1172,20 @@ class GeoPlot:
             edgewidth=edgewidth,
             vmin=vmin,
             vmax=vmax,
-            norm=norm,
             bins=bins,
             zorder=zorder,
         )
         self._choropleth_layers.append(layer)
 
-    def __register_label_request(
-        self,
-        *,
-        gdf: GeoDataFrame,
-        label_column: str,
-        labelfont_options: LabelFontOptions | None,
-        labelbox_options: LabelBoxOptions | None,
-        label_format_fn: Callable[[Any], str] | None = None,
-        zorder: int = 100,
-    ) -> None:
-        self._label_requests.append(
-            _LabelRequest(
-                gdf=gdf,
-                label_column=label_column,
-                labelfont_options=labelfont_options,
-                labelbox_options=labelbox_options,
-                label_format_fn=label_format_fn,
-                zorder=zorder,
+        if show_colorbar:
+            self._colorbar_requests.append(
+                _ColorbarRequest(
+                    layer=layer,
+                    label=colorbar_label,
+                    zorder=zorder,
+                    options=colorbar_options,
+                )
             )
-        )
 
     def add_districting_plan_layer(
         self,
@@ -1214,13 +1266,15 @@ class GeoPlot:
                 dissolved_plan_gdf.query(f"`{plancolumn}` not in {new_exclude_labels}")
             )
 
-            self.__register_label_request(
-                gdf=dissolved_plan_gdf,
-                label_column=plancolumn,
-                labelfont_options=labelfont_options,
-                labelbox_options=labelbox_options,
-                label_format_fn=lambda x: str(int(x)),
-                zorder=zorder + 1,
+            self._label_requests.append(
+                _LabelRequest(
+                    gdf=dissolved_plan_gdf,
+                    label_column=plancolumn,
+                    labelfont_options=labelfont_options,
+                    labelbox_options=labelbox_options,
+                    label_format_fn=lambda x: str(int(x)),
+                    zorder=zorder + 1,
+                )
             )
 
     def add_outline_layer(
@@ -1247,6 +1301,9 @@ class GeoPlot:
                 Default is None.
             dissolve_column (str | None): Optional column to dissolve geometries by
                 before outlining. Default is None.
+            edgecolor (Color): Color for geometry edges. Default is "black".
+            edgealpha (float | None): Alpha transparency for edge colors. Default is None.
+            edgewidth (float): Width of geometry edges. Default is 0.5.
             show_labels (bool): Whether to show labels on the outlined geometries. Default is False.
             exclude_labels (list[Any] | None): List of labels to exclude from labeling.
                 If None, no labels are excluded. Does not do anything if show_labels is False.
@@ -1261,9 +1318,6 @@ class GeoPlot:
                 Default is None.
             labelbox_options (LabelBoxOptions | None): Box options for labels. If None the box
                 is disabled. Default is None.
-            edgecolor (Color): Color for geometry edges. Default is "black".
-            edgealpha (float | None): Alpha transparency for edge colors. Default is None.
-            edgewidth (float): Width of geometry edges. Default is 0.5.
             zorder (int): Z-order for rendering. Default is 3.
         """
         if geosource is None:
@@ -1317,12 +1371,14 @@ class GeoPlot:
                     outlinewidth=0.2,
                 )
 
-            self.__register_label_request(
-                gdf=labeled_gdf,
-                label_column=dissolve_column,
-                labelfont_options=labelfont_options,
-                labelbox_options=labelbox_options,
-                zorder=zorder + 1,
+            self._label_requests.append(
+                _LabelRequest(
+                    gdf=labeled_gdf,
+                    label_column=dissolve_column,
+                    labelfont_options=labelfont_options,
+                    labelbox_options=labelbox_options,
+                    zorder=zorder + 1,
+                )
             )
 
     def add_highlight_layer(
@@ -1330,7 +1386,7 @@ class GeoPlot:
         *,
         geosource: GeoDataFrame | GeoSeries | None = None,
         geometry_mask: pd.Series | None = None,
-        dissolve_column: str | None = None,
+        label_column: str | None = None,
         facecolor: Color = "gray",
         facealpha: float | None = 0.5,
         show_labels: bool = False,
@@ -1346,7 +1402,7 @@ class GeoPlot:
                 for the layer. If None, uses the base gdf of the GeoPlot. Default is None.
             geometry_mask (pd.Series | None): Optional boolean mask to filter geometries.
                 Default is None.
-            dissolve_column (str | None): Optional column to dissolve geometries by
+            label_column (str | None): Optional column to label geometries by
                 before highlighting. Default is None.
             facecolor (Color): Color for geometry faces. Default is "gray".
             facealpha (float | None): Alpha transparency for face colors. Default is 0.5.
@@ -1368,9 +1424,9 @@ class GeoPlot:
             zorder (int): Z-order for rendering. Default is 10.
         """
         if show_labels:
-            if dissolve_column is None:
+            if label_column is None:
                 raise ValueError(
-                    "add_highlight_layer(show_labels=True) requires dissolve_column=... to know "
+                    "add_highlight_layer(show_labels=True) requires label_column=... to know "
                     "what to label. Example: dissolve_column='COUNTYFP10'."
                 )
             if geosource is None:
@@ -1381,7 +1437,7 @@ class GeoPlot:
             if not isinstance(geosource, GeoDataFrame):
                 raise TypeError(
                     "add_highlight_layer(show_labels=True) requires geosource to be a GeoDataFrame "
-                    f"so it has the dissolve_column {dissolve_column!r}. "
+                    f"so it has the label_column {label_column!r}. "
                     f"You passed {type(geosource).__name__!r}. "
                     "Either pass a GeoDataFrame, or set show_labels=False."
                 )
@@ -1419,7 +1475,7 @@ class GeoPlot:
             if isinstance(label_gdf, GeoSeries):
                 raise TypeError(
                     "add_highlight_layer(show_labels=True) requires geosource to be a GeoDataFrame "
-                    f"so it has the dissolve_column {dissolve_column!r}. "
+                    f"so it has the label_column {label_column!r}. "
                     f"You passed a GeoSeries. Either pass a GeoDataFrame, or set show_labels=False."
                 )
 
@@ -1428,7 +1484,7 @@ class GeoPlot:
 
             new_exclude_labels = exclude_labels if exclude_labels is not None else []
             labeled_gdf = GeoDataFrame(
-                label_gdf.query(f"`{dissolve_column}` not in {new_exclude_labels}")
+                label_gdf.query(f"`{label_column}` not in {new_exclude_labels}")
             )
 
             if labelfont_options is None:
@@ -1440,18 +1496,20 @@ class GeoPlot:
                     outlinewidth=0.2,
                 )
 
-            if dissolve_column is None:
+            if label_column is None:
                 raise RuntimeError(
                     "An unexpected error occured in add_highlight_layer. "
                     "The dissolve_column was None when trying to add labels."
                 )
 
-            self.__register_label_request(
-                gdf=labeled_gdf,
-                label_column=dissolve_column,
-                labelfont_options=labelfont_options,
-                labelbox_options=labelbox_options,
-                zorder=zorder + 1,
+            self._label_requests.append(
+                _LabelRequest(
+                    gdf=labeled_gdf,
+                    label_column=label_column,
+                    labelfont_options=labelfont_options,
+                    labelbox_options=labelbox_options,
+                    zorder=zorder + 1,
+                )
             )
 
         return None
@@ -1462,7 +1520,7 @@ class GeoPlot:
         points_geoseries: gpd.GeoSeries | None = None,
         latitude_longitude_list: Sequence[tuple[float, float]] | None = None,
         input_crs=None,
-        marker_options: PointMarkerSettings | None = None,
+        marker_options: PointMarkerOptions | None = None,
         show_labels: bool = True,
         labels: Sequence[str] | None = None,
         labelfont_options: LabelFontOptions | None = None,
@@ -1479,7 +1537,7 @@ class GeoPlot:
                 must be provided. Default is None.
             input_crs: The CRS of the input points if using `latitude_longitude_list`.
                 If None, assumes EPSG:4326 (lat/lon). Default is None.
-            marker_options (PointMarkerSettings | None): Marker style settings.
+            marker_options (PointMarkerOptions | None): Marker style settings.
                 If None, uses the following defaults:
                     - markerfacecolor="white",
                     - markerfacealpha=1.0,
@@ -1498,7 +1556,7 @@ class GeoPlot:
             zorder (int) Z-order for rendering. Default is 2.
         """
         if marker_options is None:
-            marker_options = PointMarkerSettings(
+            marker_options = PointMarkerOptions(
                 markerfacecolor="white",
                 markerfacealpha=1.0,
                 marker="o",
@@ -1624,7 +1682,7 @@ class GeoPlot:
             points_geoseries=points_geoseries,
             latitude_longitude_list=latitude_longitude_list,
             input_crs=input_crs,
-            marker_options=PointMarkerSettings(
+            marker_options=PointMarkerOptions(
                 markerfacecolor="none",
                 markerfacealpha=0.0,
                 marker="o",
@@ -1640,29 +1698,15 @@ class GeoPlot:
             zorder=zorder,
         )
 
-    def set_colorbar_options(
+    def set_colorbar_layout(
         self,
         *,
         outer_pad: float | None = None,
         inner_pad: float | None = None,
         width: float | None = None,
         right_margin: float | None = None,
-        tick_fontsize: float | None = None,
-        tick_pad: float | None = None,
-        label_fontsize: float | None = None,
-        label_rotation: float | None = None,
-        label_pad: float | None = None,
-        orientation: Literal["vertical", "horizontal"] | None = None,
-        extend: Literal["neither", "both", "min", "max"] | None = None,
-        format: str | None = None,
-        fraction: float | None = None,
-        shrink: float | None = None,
-        aspect: float | None = None,
-        force_ticks: list[float] | None = None,
-        force_ticklabels: list[str] | None = None,
-        max_n_ticks: int | None = None,
     ) -> None:
-        """Set options for colorbars in the GeoPlot.
+        """Set the spacing between colorbars in GeoPlot.
 
         All arguments are optional; only those provided will be updated.
 
@@ -1674,26 +1718,8 @@ class GeoPlot:
             width (float | None): Width of the colorbar (figure-relative). Default is None.
             right_margin (float | None): Margin to the right of the colorbar (figure-relative).
                 Default is None.
-            tick_fontsize (float | None): Font size for colorbar ticks. Default is None.
-            tick_pad (float | None): Padding for colorbar ticks. Default is None.
-            label_fontsize (float | None): Font size for colorbar label. Default is None.
-            label_rotation (float | None): Rotation angle for colorbar label. Default is None.
-            label_pad (float | None): Padding for colorbar label. Default is None.
-            orientation (Literal["vertical", "horizontal"] | None): Orientation of the colorbar.
-                Default is None.
-            extend (Literal["neither", "both", "min", "max"] | None): Extension style for the
-                colorbar. Default is None.
-            format (str | None): Format string for colorbar tick labels. Default is None.
-            fraction (float | None): Fraction of original size for colorbar. Default is None.
-            shrink (float | None): Shrink factor for colorbar. Default is None.
-            aspect (float | None): Aspect ratio for colorbar. Default is None.
-            force_ticks (list[float] | None): Explicit tick locations for the colorbar.
-                Default is None.
-            force_ticklabels (list[str] | None): Explicit tick labels for the colorbar.
-                Default is None.
-            max_n_ticks (int | None): Maximum number of ticks on the colorbar. Default is None.
         """
-        cb_options = self._colorbar_options
+        cb_options = self._colorbar_layout_options
 
         if outer_pad is not None:
             cb_options.outer_pad = float(outer_pad)
@@ -1703,47 +1729,6 @@ class GeoPlot:
             cb_options.width = float(width)
         if right_margin is not None:
             cb_options.right_margin = float(right_margin)
-
-        if tick_fontsize is not None:
-            cb_options.tick_fontsize = float(tick_fontsize)
-        if tick_pad is not None:
-            cb_options.tick_pad = float(tick_pad)
-
-        if label_fontsize is not None:
-            cb_options.label_fontsize = float(label_fontsize)
-        if label_rotation is not None:
-            cb_options.label_rotation = float(label_rotation)
-        if label_pad is not None:
-            cb_options.label_pad = float(label_pad)
-
-        if orientation is not None:
-            cb_options.orientation = orientation
-        if extend is not None:
-            cb_options.extend = extend
-        if format is not None:
-            cb_options.format = format
-
-        if fraction is not None:
-            cb_options.fraction = float(fraction)
-        if shrink is not None:
-            cb_options.shrink = float(shrink)
-        if aspect is not None:
-            cb_options.aspect = float(aspect)
-
-        if force_ticks is not None:
-            cb_options.force_ticks = list(force_ticks)
-        if force_ticklabels is not None:
-            cb_options.force_ticklabels = list(force_ticklabels)
-        if max_n_ticks is not None:
-            cb_options.max_n_ticks = int(max_n_ticks)
-
-    def set_show_colorbars(self, show: bool = True) -> None:
-        """Set whether to show colorbars when the plot is built.
-
-        Args:
-            show (bool): Whether to show colorbars. Default is True.
-        """
-        self.show_colorbars = bool(show)
 
     def set_xlim(self, left: float, right: float) -> None:
         """Set the x-axis limits to apply when the plot is built.
@@ -1848,12 +1833,8 @@ class GeoPlot:
             + _sorted(self._highlight_layers)
         )
 
-    def _draw_colorbars(self) -> None:
-        """Draw colorbars for all choropleth layers in the plot."""
-        if not self._choropleth_layers:
-            return
-
-        # remove old colorbar axes in case they exist
+    def _clear_colorbars_and_reset_layout(self) -> None:
+        """Clear any existing colorbars and reset layout to default."""
         for cax in list(self._colorbar_axes):
             try:
                 cax.remove()
@@ -1861,16 +1842,30 @@ class GeoPlot:
                 pass
         self._colorbar_axes = []
 
-        layers = sorted(self._choropleth_layers, key=lambda L: int(L.zorder))
-        n_layers = len(layers)
+        # reset layout so we don't keep a shrunken main axes
+        self.fig.subplots_adjust(right=0.98)
+        try:
+            self.fig.canvas.draw_idle()
+        except Exception:
+            pass
 
-        cb_options = self._colorbar_options
-        outer_pad = float(cb_options.outer_pad)
-        inner_pad = float(cb_options.inner_pad)
-        width = float(cb_options.width)
-        right_margin = float(cb_options.right_margin)
+    def _draw_colorbars(self) -> None:
+        """Draw colorbars for all requested layers."""
+        self._clear_colorbars_and_reset_layout()
 
-        # Reserve space on the right for the number of colorbars we have
+        if not self._colorbar_requests:
+            return
+
+        # Sort requests by their requested zorder (usually layer.zorder)
+        sorted_cb_requests = sorted(self._colorbar_requests, key=lambda r: int(r.zorder))
+        n_layers = len(sorted_cb_requests)
+
+        cb_global_options = self._colorbar_layout_options
+        outer_pad = float(cb_global_options.outer_pad)
+        inner_pad = float(cb_global_options.inner_pad)
+        width = float(cb_global_options.width)
+        right_margin = float(cb_global_options.right_margin)
+
         total_width = n_layers * width + (n_layers - 1) * inner_pad + outer_pad + right_margin
         right = max(0.05, 1.0 - total_width)
 
@@ -1882,30 +1877,35 @@ class GeoPlot:
         y0 = float(main_pos.y0)
         h = float(main_pos.height)
 
-        for i, layer in enumerate(layers):
+        for i, cb_request in enumerate(sorted_cb_requests):
+            layer = cb_request.layer
+            cb_options = cb_request.options if cb_request.options is not None else ColorbarOptions()
+
             xi = x0 + i * (width + inner_pad)
             rect = (float(xi), float(y0), float(width), float(h))
-            cax = self.fig.add_axes(rect)
-            self._colorbar_axes.append(cax)
+            cb_ax = self.fig.add_axes(rect)
+            self._colorbar_axes.append(cb_ax)
 
             mappable, layer_defaults = layer._mappable()
 
-            cbar_kwargs: dict[str, Any] = dict(layer_defaults)
-            cbar_kwargs["orientation"] = cb_options.orientation
-            cbar_kwargs["extend"] = cb_options.extend
+            cb_kwargs: dict[str, Any] = dict(layer_defaults)
+            cb_kwargs["orientation"] = cb_options.orientation
+            cb_kwargs["extend"] = cb_options.extend
 
             if cb_options.format is not None:
-                cbar_kwargs["format"] = cb_options.format
+                cb_kwargs["format"] = cb_options.format
             if cb_options.fraction is not None:
-                cbar_kwargs["fraction"] = cb_options.fraction
+                cb_kwargs["fraction"] = cb_options.fraction
             if cb_options.shrink is not None:
-                cbar_kwargs["shrink"] = cb_options.shrink
+                cb_kwargs["shrink"] = cb_options.shrink
             if cb_options.aspect is not None:
-                cbar_kwargs["aspect"] = cb_options.aspect
+                cb_kwargs["aspect"] = cb_options.aspect
 
-            colorbar = self.fig.colorbar(mappable, cax=cax, **cbar_kwargs)
+            colorbar = self.fig.colorbar(mappable, cax=cb_ax, **cb_kwargs)
 
-            if layer.datacolumn is not None:
+            # label: request override > datacolumn > none
+            label_text = cb_request.label if cb_request.label is not None else layer.datacolumn
+            if label_text is not None:
                 label_kwargs: dict[str, Any] = {}
                 if cb_options.label_fontsize is not None:
                     label_kwargs["fontsize"] = cb_options.label_fontsize
@@ -1913,9 +1913,9 @@ class GeoPlot:
                     label_kwargs["rotation"] = cb_options.label_rotation
                 if cb_options.label_pad is not None:
                     label_kwargs["labelpad"] = cb_options.label_pad
-                colorbar.set_label(layer.datacolumn, **label_kwargs)
+                colorbar.set_label(str(label_text), **label_kwargs)
 
-            cax.tick_params(labelsize=cb_options.tick_fontsize, pad=cb_options.tick_pad)
+            cb_ax.tick_params(labelsize=cb_options.tick_fontsize, pad=cb_options.tick_pad)
 
             if cb_options.force_ticks is not None:
                 colorbar.set_ticks(cb_options.force_ticks)
@@ -1939,6 +1939,11 @@ class GeoPlot:
             self._ax.set_ylim(*self._ylim)
 
     def _draw_deferred_labels(self) -> dict[str, Point]:
+        """Draw all deferred labels and return their positions.
+
+        Returns:
+            dict[str, Point]: A dictionary mapping label text to Point objects.
+        """
         label_positions: dict[str, Point] = {}
         if not self._label_requests:
             return label_positions
@@ -1991,7 +1996,7 @@ class GeoPlot:
             )
 
             # Ephemeral label-only marker options (no visible marker)
-            label_marker_opts = PointMarkerSettings(
+            label_marker_opts = PointMarkerOptions(
                 markerfacecolor="none",
                 markerfacealpha=0.0,
                 marker="o",
@@ -2027,8 +2032,7 @@ class GeoPlot:
         for layer in self._iter_layers_in_draw_order():
             layer.render(self._ax, target_crs=self.target_crs)
 
-        if self.show_colorbars:
-            self._draw_colorbars()
+        self._draw_colorbars()
 
     def _build_and_apply_settings(self) -> dict[str, Point]:
         """Build the plot and apply stored settings like limits."""
@@ -2049,8 +2053,8 @@ class GeoPlot:
         if as_lat_long:
             label_points = label_points.to_crs("EPSG:4326")
         return (
-            label_points.crs.to_string() if label_points.crs is not None else "undefined",
-            {label: Point(pt.x, pt.y) for label, pt in label_points.items()},
+            str(label_points.crs.to_string() if label_points.crs is not None else "undefined"),
+            {str(label): Point(pt.x, pt.y) for label, pt in label_points.items()},
         )
 
     def show(
