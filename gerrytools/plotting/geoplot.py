@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from io import BytesIO
-from typing import Any, Callable, Literal, Union
+from typing import Any, Callable, Literal
 
 import geopandas as gpd
 import matplotlib.patheffects as patheffects
@@ -19,7 +19,15 @@ from numpy import linspace
 from shapely.geometry import Point, box
 
 from gerrytools.colors import districtr, resolve_color_and_alpha
-from gerrytools.plotting.gerryplot import PointMarkerOptions
+from gerrytools.plotting._geoplot_option_classes import (
+    ColorbarOptions,
+    _ColorbarLayoutOptions,
+)
+from gerrytools.plotting._gerryplot_option_classes import (
+    LabelBoxOptions,
+    LabelFontOptions,
+    PointMarkerOptions,
+)
 from gerrytools.typing import Color
 
 GeoSource = GeoDataFrame | GeoSeries
@@ -583,279 +591,6 @@ class _CategoricalColorLayer(_GeoLayer):
         return ax
 
 
-FontStyle = Literal["normal", "italic", "oblique"]
-"""How the glyphs are slanted.
-
-- "normal": Upright (no slant). This is the default for most fonts.
-- "italic": Uses the font's *italic face* if it exists (often a distinct, designed italic).
-  This typically changes letterforms (e.g., a, f) and the slant.
-- "oblique": Applies a *slant* to the regular face (or uses an oblique face if the font has one).
-  Oblique is usually a geometric slant rather than a redesigned italic.
-"""
-
-FontVariant = Literal["normal", "small-caps"]
-"""Glyph variant selection.
-
-- "normal": Standard lowercase/uppercase forms.
-- "small-caps": Lowercase letters are drawn as *small capital* forms (if the font supports it).
-  If the font does not provide true small-caps, Matplotlib/font rendering may fall back to
-  a synthetic approximation or ignore the request depending on backend/font.
-"""
-
-FontStretchName = Literal[
-    "ultra-condensed",
-    "extra-condensed",
-    "condensed",
-    "semi-condensed",
-    "normal",
-    "semi-expanded",
-    "expanded",
-    "extra-expanded",
-    "ultra-expanded",
-]
-FontStretch = Union[FontStretchName, int, float]
-"""Width of the font face (condensed/expanded).
-
-Named values (most common):
-- "ultra-condensed": Extremely narrow.
-- "extra-condensed": Very narrow.
-- "condensed": Narrow.
-- "semi-condensed": Slightly narrow.
-- "normal": Standard width.
-- "semi-expanded": Slightly wide.
-- "expanded": Wide.
-- "extra-expanded": Very wide.
-- "ultra-expanded": Extremely wide.
-
-Numeric values:
-- Matplotlib also accepts numeric stretch values in the range 0–1000.
-  (In practice, named values are more portable; numeric values depend on the font/backend.)
-"""
-
-FontWeightName = Literal[
-    "ultralight",
-    "light",
-    "normal",
-    "regular",
-    "book",
-    "medium",
-    "roman",
-    "semibold",
-    "demibold",
-    "demi",
-    "bold",
-    "heavy",
-    "extra bold",
-    "black",
-]
-FontWeight = Union[FontWeightName, int, float]
-"""Stroke thickness / darkness of glyphs.
-
-Named weights (portable, when a font provides them):
-- "ultralight": Very thin strokes.
-- "light": Thin strokes.
-- "normal": Default weight.
-- "regular": Synonym-ish for normal, depends on font naming.
-- "book": Slightly heavier than normal for some typefaces.
-- "medium": Between normal and bold.
-- "roman": Often synonymous with normal/regular in some families.
-- "semibold": Between medium and bold.
-- "demibold" / "demi": Another naming convention for semibold-ish weights.
-- "bold": Clearly heavier strokes, common emphasis.
-- "heavy": Heavier than bold.
-- "extra bold": Very heavy (note the space).
-- "black": Heaviest strokes in many families.
-
-Numeric weights:
-- Matplotlib also accepts numeric weights in the range 0–1000.
-  (Common convention: ~400 normal, ~700 bold, but exact mapping is font-dependent.)
-"""
-
-GenericFontFamily = Literal[
-    "serif",
-    "sans-serif",
-    "sans serif",
-    "sans",
-    "monospace",
-    "cursive",
-    "fantasy",
-]
-FontFamily = Union[GenericFontFamily, str, Sequence[str]]
-"""Font family selection.
-
-- Generic families:
-  - "serif": Fonts with serifs (e.g., DejaVu Serif, Times).
-  - "sans-serif" / "sans serif" / "sans": Sans fonts (e.g., DejaVu Sans, Arial).
-  - "monospace": Fixed-width fonts (e.g., DejaVu Sans Mono, Courier).
-  - "cursive": Script-like fonts.
-  - "fantasy": Decorative/display fonts.
-- Specific font name:
-  - Any installed font family name, e.g. "Nunito", "DejaVu Sans", "Arial".
-- Fallback list:
-  - A list/tuple of names like ["Nunito", "DejaVu Sans", "sans-serif"].
-  - Matplotlib will pick the first available font from the list.
-"""
-
-
-@dataclass(frozen=True, slots=True)
-class LabelFontOptions:
-    """Font options for labels on marker layers.
-
-    This is a thin, typed wrapper around Matplotlib’s text/font controls (used via
-    `Axes.text(..., **to_mpl_text_kwargs())`).
-
-    Face selection (what font Matplotlib will actually draw)
-    --------------------------------------------------------
-    Matplotlib chooses a *font face* by combining several independent knobs:
-
-    1) `fontfamily` (which family to use)
-       - You may pass a specific family name like `"Nunito"` or `"DejaVu Sans"`.
-       - You may pass a generic family like `"sans-serif"`, `"serif"`, `"monospace"`, etc.
-       - You may pass a *fallback list* like `["Nunito", "DejaVu Sans", "sans-serif"]`.
-         Matplotlib will pick the first available entry on the current machine.
-       - Important: specific font names only work if the font is installed or registered
-         with Matplotlib (e.g., via `matplotlib.font_manager.fontManager.addfont()`).
-
-    2) `fontweight` (how thick/dark the strokes are)
-       - Named weights like `"normal"`, `"medium"`, `"semibold"`, `"bold"`, `"black"`, etc.
-       - Or numeric weights `0–1000` (common convention: ~400 normal, ~700 bold),
-         but the exact mapping is font-dependent.
-
-    3) `fontstyle` (whether the glyphs are slanted)
-       - `"normal"`: upright.
-       - `"italic"`: uses the font’s designed italic face if present.
-       - `"oblique"`: slants the regular face (or uses an oblique face if the font provides one).
-
-    4) `fontvariant` (alternate glyph set)
-       - `"small-caps"` requests small-cap lowercase forms if the font supports them.
-         If not supported, Matplotlib/backends may approximate or ignore it.
-
-    5) `fontstretch` (condensed/expanded width)
-       - Requests narrower/wider variants like `"condensed"` or `"expanded"`, if present.
-       - Or numeric stretch `0–1000`. Support varies by font.
-
-    Notes & portability
-    -------------------
-    - The *same* settings can produce different results on different systems because the
-      available fonts differ. If you need consistency, bundle a font (e.g. Nunito .ttf)
-      and register it at runtime.
-    - If a requested face (e.g., italic + semibold + condensed) does not exist in the chosen
-      family, Matplotlib may fall back to the closest available face.
-
-    Outline / halo
-    --------------
-    `outlinecolor` and `outlinewidth` are applied via path effects around the glyphs to
-    improve legibility over busy map backgrounds.
-
-    Attributes:
-        fontcolor (Color): Fill color of the text.
-        fontalpha (float | None): Alpha transparency of the text fill.
-        fontsize (float): Font size (points).
-        fontfamily (FontFamily | None): Specific family name, generic family, or fallback list.
-        fontweight (FontWeight): Named or numeric weight (0–1000).
-        fontstyle (FontStyle): Upright/italic/oblique slant selection.
-        fontvariant (FontVariant): Normal vs small-caps glyph variant.
-        fontstretch (FontStretch | None): Condensed/expanded variant (named or numeric 0–1000).
-        outlinecolor (Color): Color of the glyph outline (halo).
-        outlinewidth (float): Width of the glyph outline (halo), in points.
-    """
-
-    fontcolor: Color = "white"
-    fontalpha: float | None = 1.0
-    fontsize: float = 6.0
-
-    # --- Style Options ---
-    fontweight: FontWeight = "bold"
-    fontstyle: FontStyle = "normal"
-    fontvariant: FontVariant = "normal"
-    fontstretch: FontStretch | None = None
-    fontfamily: FontFamily | None = None
-
-    outlinecolor: Color = "black"
-    outlinewidth: float = 0.75
-
-    def to_mpl_text_kwargs(self) -> dict:
-        """Return kwargs to pass into `ax.text(...)` for font styling.
-
-        This intentionally does NOT include color/alpha/zorder/ha/va/text/etc.
-        """
-        kw: dict = {
-            "color": to_hex(
-                resolve_color_and_alpha(self.fontcolor, self.fontalpha), keep_alpha=True
-            ),
-            "fontsize": float(self.fontsize),
-            "fontweight": self.fontweight,
-            "fontstyle": self.fontstyle,
-            "fontvariant": self.fontvariant,
-        }
-        if self.fontstretch is not None:
-            kw["fontstretch"] = self.fontstretch
-        if self.fontfamily is not None:
-            kw["fontfamily"] = self.fontfamily
-        return kw
-
-
-@dataclass(frozen=True, slots=True)
-class LabelBoxOptions:
-    """Background box options for text labels drawn via `Axes.text(..., bbox=...)`.
-
-    This controls the *box behind the text*. The box automatically sizes to the text.
-
-    Notes:
-      - `pad` lives inside the `boxstyle` string (e.g., "round,pad=0.25") and is in
-        *fraction of the font size* units (Matplotlib convention).
-      - Matplotlib's `bbox` patch effectively has a single alpha; if you set separate
-        face/edge alphas, the simplest thing is to apply one alpha to the whole patch.
-
-    Attributes:
-        enabled (bool): Whether to draw a background box behind the label text.
-        boxstyle (str): The style of the background box. Default is "round". Options are:
-              - "square"     : Plain rectangle
-              - "round"      : Rectangle with rounded corners
-              - "round4"     : Alternate rounded-rectangle style
-              - "circle"     : Circular box around the text's bounding rectangle
-              - "ellipse"    : Elliptical box around the text's bounding rectangle
-        pad (float): Padding between text and box, in fraction-of-fontsize units.
-        facecolor (Color): Fill color of the box (background).
-        facealpha (float | None): Alpha for the box fill. If None, uses the color's inherent
-            alpha (if any).
-        edgecolor (Color): Edge (stroke) color of the box.
-        edgealpha (float | None): Alpha for the box edge. If None, uses the color's inherent
-            alpha (if any).
-        linewidth (float): Line width of the box edge, in points.
-    """
-
-    enabled: bool = True
-    boxstyle: Literal["square", "round", "round4", "circle", "ellipse"] = "round4"
-    pad: float = 0.25
-    facecolor: Color = "black"
-    facealpha: float | None = 0.6
-    edgecolor: Color = "none"
-    edgealpha: float | None = 0.0
-    linewidth: float = 0.8
-
-    def to_mpl_bbox(self) -> dict | None:
-        """Return a dict suitable for passing as `bbox=` to `Axes.text`.
-
-        Returns:
-            dict | None: A Matplotlib bbox properties dict if enabled; otherwise None.
-        """
-        if not self.enabled:
-            return None
-
-        face_color = resolve_color_and_alpha(self.facecolor, alpha=self.facealpha)
-        edge_color = resolve_color_and_alpha(self.edgecolor, alpha=self.edgealpha)
-
-        bbox = {
-            "boxstyle": f"{self.boxstyle},pad={float(self.pad)}",
-            "fc": to_hex(face_color, keep_alpha=True),
-            "ec": to_hex(edge_color, keep_alpha=True),
-            "lw": float(self.linewidth),
-        }
-
-        return bbox
-
-
 @dataclass(frozen=True, slots=True)
 class _MarkerLayer:
     """A layer of point markers with optional labels.
@@ -984,66 +719,6 @@ class _MarkerLayer:
         return ax
 
 
-@dataclass(slots=True)
-class ColorbarLayoutOptions:
-    """Layout options for positioning colorbars in GeoPlot.
-    Attributes:
-        outer_pad (float): Padding between the colorbars and the plot edges (figure-relative).
-        inner_pad (float): Padding between the colorbars and the main plot area (figure-relative).
-        width (float): Width of the colorbars (figure-relative).
-        right_margin (float): Margin to the right of the colorbars (figure-relative).
-    """
-
-    outer_pad: float = 0.03
-    inner_pad: float = 0.06
-    width: float = 0.02
-    right_margin: float = 0.02
-
-
-@dataclass(slots=True)
-class ColorbarOptions:
-    """Options for configuring colorbars in GeoPlot.
-
-    Attributes:
-        tick_fontsize (float): Font size for colorbar ticks.
-        tick_pad (float): Padding for colorbar ticks.
-        label_fontsize (float | None): Font size for colorbar label.
-        label_rotation (float | None): Rotation angle for colorbar label.
-        label_pad (float | None): Padding for colorbar label.
-        orientation (Literal["vertical", "horizontal"]): Orientation of the colorbar.
-        extend (Literal["neither", "both", "min", "max"]): Extension style for the colorbar.
-        format (str | None): Format string for colorbar tick labels.
-        fraction (float | None): Fraction of original size for colorbar.
-        shrink (float | None): Shrink factor for colorbar.
-        aspect (float | None): Aspect ratio for colorbar.
-        force_ticks (list[float] | None): Explicit tick locations for the colorbar.
-        force_ticklabels (list[str] | None): Explicit tick labels for the colorbar.
-        max_n_ticks (int | None): Maximum number of ticks on the colorbar.
-    """
-
-    # --- tick appearance (axes.tick_params) ---
-    tick_fontsize: float = 8.0
-    tick_pad: float = 2.0
-
-    # --- label appearance (cb.set_label) ---
-    label_fontsize: float | None = None
-    label_rotation: float | None = None
-    label_pad: float | None = None
-
-    # --- fig.colorbar behavior ---
-    orientation: Literal["vertical", "horizontal"] = "vertical"
-    extend: Literal["neither", "both", "min", "max"] = "neither"
-    format: str | None = None  # e.g. ".2f"
-    fraction: float | None = None  # rarely needed when using cax
-    shrink: float | None = None  # rarely needed when using cax
-    aspect: float | None = None  # rarely needed when using cax
-
-    # --- explicit overrides (optional) ---
-    force_ticks: list[float] | None = None
-    force_ticklabels: list[str] | None = None
-    max_n_ticks: int | None = None
-
-
 @dataclass(frozen=True, slots=True)
 class _ColorbarRequest:
     layer: _ContinuousColorLayer
@@ -1094,7 +769,7 @@ class GeoPlot:
         self._xlim: tuple[float, float] | None = None
         self._ylim: tuple[float, float] | None = None
 
-        self._colorbar_layout_options: ColorbarLayoutOptions = ColorbarLayoutOptions()
+        self._colorbar_layout_options: _ColorbarLayoutOptions = _ColorbarLayoutOptions()
         self._colorbar_requests: list[_ColorbarRequest] = []
 
         self._choropleth_layers: list[_ContinuousColorLayer] = []
