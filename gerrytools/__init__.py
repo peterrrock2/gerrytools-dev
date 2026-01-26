@@ -4,6 +4,8 @@ making geographic data operations, map visualizations, plan
 evaluation, and data retrieval simple.
 """
 
-import geopandas
+import geopandas as gpd
+from packaging.version import Version
 
-geopandas.options.use_pygeos = False
+if Version(gpd.__version__) < Version("1.0"):
+    gpd.options.use_pygeos = False

@@ -13,7 +13,7 @@ from gerrytools.typing import Color, TickType
 logger = get_logger(__name__)
 
 
-@dataclass(frozen=True)
+@dataclass(slots=True)
 class PointMarkerOptions:
     """Settings for points on a matplotlib plot (or for functions that use similar artists).
 
@@ -104,6 +104,28 @@ class PointMarkerOptions:
             "markersize": self.markersize,
             "markeredgecolor": mcolors.to_rgba(self.markeredgecolor, alpha=self.markeredgealpha),
             "markeredgewidth": self.markeredgewidth,
+            "zorder": self.zorder,
+        }
+
+    def to_mpl_scatter_settings_dict(self):
+        """Convert the PointMarkerOptions to a dictionary for use with plt.scatter.
+
+        Note: Does not include 'markerfacecolor' since that is typically set via the 'c' parameter
+        in plt.scatter and is assigned per-point.
+
+        Note: In Matplotlib's scatter function, the size parameter 's' is specified as the area
+        of the marker in points squared. With the way that markersize is defined in
+        MatPlotlib's scatter, we need to square the markersize to get the correct area.
+
+        Returns:
+            dict[str, Any]: A dictionary representation of the PointMarkerOptions that
+                can be passed to Matplotlib's scatter function.
+        """
+        return {
+            "marker": self.marker,
+            "s": self.markersize**2,
+            "edgecolor": mcolors.to_rgba(self.markeredgecolor, alpha=self.markeredgealpha),
+            "linewidths": self.markeredgewidth,
             "zorder": self.zorder,
         }
 
@@ -615,7 +637,7 @@ class LabelBoxOptions:
         edgecolor (Color): Edge (stroke) color of the box.
         edgealpha (float | None): Alpha for the box edge. If None, uses the color's inherent
             alpha (if any).
-        linewidth (float): Line width of the box edge, in points.
+        edgewidth (float): Line width of the box edge, in points.
     """
 
     enabled: bool = True
@@ -625,7 +647,7 @@ class LabelBoxOptions:
     facealpha: float | None = 0.6
     edgecolor: Color = "none"
     edgealpha: float | None = 0.0
-    linewidth: float = 0.8
+    edgewidth: float = 0.8
 
     def to_mpl_bbox(self) -> dict | None:
         """Return a dict suitable for passing as `bbox=` to `Axes.text`.
@@ -643,7 +665,7 @@ class LabelBoxOptions:
             "boxstyle": f"{self.boxstyle},pad={float(self.pad)}",
             "fc": to_hex(face_color, keep_alpha=True),
             "ec": to_hex(edge_color, keep_alpha=True),
-            "lw": float(self.linewidth),
+            "lw": float(self.edgewidth),
         }
 
         return bbox

@@ -10,7 +10,7 @@ from gerrytools.colors.districtr import DISTRICTR_COLOR_DICT
 from gerrytools.colors.latex import get_color_from_latex_string
 from gerrytools.colors.latex_full import LATEX_COLOR_DICT
 from gerrytools.logging import get_logger
-from gerrytools.typing import Color
+from gerrytools.typing import Color, MplCompatibleColor
 
 gt_logger = get_logger(__name__)
 
@@ -97,7 +97,7 @@ def get_named_color(name: str) -> Color:
         if name in d:
             return d[name]  # type: ignore[index]
         if key in d:
-            return d[key]  # type: ignore[index]
+            return d[key]
 
     raise KeyError(f"Unknown color name: {name!r}")
 
@@ -132,28 +132,31 @@ def convert_color_to_hexa_or_none(color: Any) -> str:
         return "none"
 
     # ---- strings: named / latex / plain mpl / hex ----
+    log_string = ""
+    resolved_color: MplCompatibleColor | None = None
     if isinstance(color, str):
         try:
-            c = get_named_color(color)
-            return mcolors.to_hex(mcolors.to_rgba(c), keep_alpha=True)
+            resolved_color = get_named_color(color)
         except KeyError as e:
-            gt_logger.debug(f"Color {color!r} is not a known named color string: {e}")
+            log_string += f"Color {color!r} is not a known Matplotlib named color string: {e}"
 
         # LaTeX/xcolor string support
         try:
-            rgba = get_color_from_latex_string(color)
-            return mcolors.to_hex(rgba, keep_alpha=True)
+            resolved_color = get_color_from_latex_string(color)
         except Exception as e:
-            gt_logger.debug(f"Color {color!r} is not a LaTeX color string: {e}")
+            log_string += f" | Color {color!r} is not parsable as a LaTeX color string: {e}"
 
         # Generic matplotlib parsing (also covers '#RRGGBB' and '#RRGGBBAA')
         try:
-            return mcolors.to_hex(mcolors.to_rgba(color), keep_alpha=True)
+            resolved_color = mcolors.to_rgba(color)
         except Exception as e:
-            gt_logger.debug(f"Color {color!r} not parseable by Matplotlib: {e}")
+            log_string += f" | Color {color!r} not parseable by Matplotlib: {e}"
+
+        if resolved_color is None:
+            gt_logger.debug(log_string)
 
     # ---- (base, alpha) tuples ----
-    if (
+    elif (
         isinstance(color, tuple)
         and len(color) == 2
         and _is_mpl_rgb_color(color[0])
@@ -161,17 +164,16 @@ def convert_color_to_hexa_or_none(color: Any) -> str:
     ):
         base, a = color
         _validate_alpha(float(a), field="alpha in (base, alpha) color tuple")
-        rgba = mcolors.to_rgba(base, alpha=float(a))
-        return mcolors.to_hex(rgba, keep_alpha=True)
+        resolved_color = mcolors.to_rgba(base, alpha=float(a))
 
     # ---- numeric RGB(A) tuples (0–1 or 0–255) ----
-    if _is_rgb_tuple(color) or _is_rgba_tuple(color):
-        vals = [float(v) for v in color]
+    elif _is_rgb_tuple(color) or _is_rgba_tuple(color):
+        vals: list[float] = [float(v) for v in color]
         r, g, b = vals[:3]
 
         # after reading vals
         if len(vals) == 4:
-            a_raw = vals[3]
+            a_raw: int | float = vals[3]
             if a_raw < 0:
                 raise ValueError(f"Alpha must be non-negative: {color!r}")
 
@@ -202,9 +204,12 @@ def convert_color_to_hexa_or_none(color: Any) -> str:
         if not (0.0 <= a <= 1.0):
             raise ValueError(f"Alpha must be in [0,1]: {color!r}")
 
-        return mcolors.to_hex((r, g, b, a), keep_alpha=True)
+        resolved_color = (r, g, b, a)
 
-    raise ValueError(f"Unknown color value: {color!r}")
+    if resolved_color is None:
+        raise ValueError(f"Unknown color value: {color!r}")
+
+    return mcolors.to_hex(mcolors.to_rgba(resolved_color), keep_alpha=True)
 
 
 def _validate_alpha(alpha: float, *, field: str = "alpha") -> float:

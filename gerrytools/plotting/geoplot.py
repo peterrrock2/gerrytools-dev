@@ -1466,7 +1466,11 @@ class GeoPlot:
             pass
 
         if geoseries.empty:
-            raise ValueError("focus_on(): no geometries after applying mask / dropping empties.")
+            raise ValueError(
+                "focus_on(): no geometries after applying mask / dropping empties. "
+                "Double check your geometry_mask to make sure that it is a valid filter "
+                "for the provided geosource.",
+            )
 
         gs_crs = getattr(geoseries, "crs", None)
         if gs_crs is not None and self.target_crs is not None and gs_crs != self.target_crs:
