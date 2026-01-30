@@ -1,5 +1,6 @@
 from typing import Any, Callable, Literal, Sequence, TypeAlias, Union
 
+from geopandas import GeoDataFrame, GeoSeries
 from numpy.typing import NDArray
 
 Color: TypeAlias = Union[str, tuple[int | float, int | float, int | float]]
@@ -21,3 +22,5 @@ TickType = Literal["major", "minor", "both"]
 # Type alias for histogram
 BinsType = int | Sequence[float] | str | NDArray
 HistType = Literal["overlay", "stack", "weave", "outline"]
+
+GeoSource = GeoDataFrame | GeoSeries

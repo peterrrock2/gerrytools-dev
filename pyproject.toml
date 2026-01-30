@@ -27,6 +27,7 @@ dependencies = [
   "pandas>=2.3.2",
   "scipy>=1.16.1",
   "numpy>=2.3.2",
+  "pyarrow>=22.0.0",
   # Geospatial libraries
   "geopandas>=1.1.1",
   "Shapely>=2.0.0",
@@ -38,14 +39,13 @@ dependencies = [
   # Misc
   "sortedcontainers",
   "pydantic>=2.11.7",
+  "joblib>=1.5.3",
+  "joblib-progress>=1.0.6",
   # Computer Vision?
   "opencv-python-headless>=4.11.0.86",
   "imageio>=2.37.0",
   # REMOVE!!
   "gurobipy>=12.0.3",
-  "pyarrow>=22.0.0",
-  "joblib>=1.5.3",
-  "joblib-progress>=1.0.6",
 ]
 
 [dependency-groups]

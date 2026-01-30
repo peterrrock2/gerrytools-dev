@@ -20,21 +20,15 @@ from gerrytools.plotting._gerryplot_option_classes import (
     TitleStyle,
 )
 from gerrytools.plotting.boxplot import BoxPlot, BoxPlotSetData
-from gerrytools.plotting.geoplot import (
-    GeoPlot,
-    GeoSource,
-)
-from gerrytools.plotting.gerryplot import (
-    BandData,
-    LineData,
-    PointSetData,
-)
+from gerrytools.plotting.coloredgeoplot import ColoredGeoPlot
+from gerrytools.plotting.dotdensity import DotDensityPlot
+from gerrytools.plotting.geoplot import GeoPlot
+from gerrytools.plotting.gerryplot import BandData, LineData, PointSetData
 from gerrytools.plotting.histogram import Histogram, HistogramData, HistPointList
 from gerrytools.plotting.sealevel import SeaLevel
 from gerrytools.plotting.subway import SubwaySignOptions, subway_signs
 from gerrytools.plotting.violin import ViolinPlot, ViolinPlotSetData
 
-from .annotation import arrow
 from .scatterplot import scatterplot
 
 __all__ = [
@@ -58,8 +52,9 @@ __all__ = [
     "TitleStyle",
     "BoxPlot",
     "BoxPlotSetData",
+    "ColoredGeoPlot",
+    "DotDensityPlot",
     "GeoPlot",
-    "GeoSource",
     "BandData",
     "LineData",
     "PointSetData",
@@ -71,6 +66,5 @@ __all__ = [
     "subway_signs",
     "ViolinPlot",
     "ViolinPlotSetData",
-    "arrow",
     "scatterplot",
 ]
