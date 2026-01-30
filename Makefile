@@ -40,8 +40,8 @@ setup: check_prereqs
 	@echo
 	uv python install $(PYTHON_VERSION)
 	@echo "Creating virtual environment and installing dev dependencies..."
-	uv sync --python $(PYTHON_VERSION)
-	uv sync --all-groups
+	uv sync --python $(PYTHON_VERSION) --locked
+	uv sync --all-groups --locked
 	uv pip install -e ".[mgrp]"
 	uv run pre-commit install
 	@echo ""
@@ -49,12 +49,12 @@ setup: check_prereqs
 
 install: check_prereqs
 	@echo "Installing GerryTools package..."
-	uv sync --python $(PYTHON_VERSION)
+	uv sync --python $(PYTHON_VERSION) --locked
 	uv pip install -e .
 
 install-docs: check_prereqs
 	@echo "Installing GerryTools package with all just the documentation dependencies..."
-	uv sync --group docs --python $(PYTHON_VERSION)
+	uv sync --group docs --python $(PYTHON_VERSION) --locked
 	uv pip install -e ".[mgrp]"
 
 

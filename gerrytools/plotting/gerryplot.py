@@ -1138,7 +1138,9 @@ class GerryPlotBase(ABC):
             vals = ln.values
             if isinstance(vals, Real) and not isinstance(vals, bool):
                 vals = [float(vals)]
+            assert isinstance(vals, Iterable)
             for value in vals:
+                assert isinstance(value, (int, float))
                 self._ax.axvline(
                     value,
                     color=mcolors.to_rgba(ln.linecolor, alpha=ln.linealpha),
@@ -1169,7 +1171,9 @@ class GerryPlotBase(ABC):
             vals = ln.values
             if isinstance(vals, Real) and not isinstance(vals, bool):
                 vals = [float(vals)]
+            assert isinstance(vals, Iterable)
             for value in vals:
+                assert isinstance(value, (int, float))
                 self._ax.axhline(
                     value,
                     color=mcolors.to_rgba(ln.linecolor, alpha=ln.linealpha),
