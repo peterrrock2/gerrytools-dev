@@ -247,8 +247,6 @@ def resolve_color_and_alpha(
     Args:
         color (Any): The color input to convert.
         alpha (float | None): An optional explicit alpha value between 0.0 and 1.0.
-
-    Kwargs:
         allow_none (bool): Whether "none" is an acceptable color. Defaults to True.
         field (str): The name of the field being processed, for error messages.
         owner (str | None): An optional owner name for logging context.

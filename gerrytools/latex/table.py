@@ -617,7 +617,7 @@ class TexTable:
     def add_toprule(self, *, cmd: Optional[str] = None) -> None:
         """Add a rule to the top of the LaTeX table.
 
-        Kwargs:
+        Args:
             cmd (Optional[str], optional): LaTeX command for the top rule. If None, uses the
                 current hrule_cmd in options. Defaults to None.
         """
@@ -632,7 +632,7 @@ class TexTable:
     def add_bottomrule(self, *, cmd: Optional[str] = None) -> None:
         """Add a rule to the bottom of the LaTeX table.
 
-        Kwargs:
+        Args:
             cmd (Optional[str], optional): LaTeX command for the bottom rule. If None, uses the
                 current hrule_cmd in options. Defaults to None.
         """

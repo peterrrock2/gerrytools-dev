@@ -201,8 +201,6 @@ class GerryPlotBase(ABC):
             figure_size (tuple[float, float], optional): The size of the figure in inches.
                 Defaults to (10, 6).
             dpi (int, optional): The dots per inch (DPI) of the figure. Defaults to 300.
-
-        Kwargs:
             include_legend (bool, optional): Whether to include a legend in the plot.
                 Defaults to True.
             xlabel (str | None, optional): The label for the x-axis. Defaults to None.
@@ -262,8 +260,6 @@ class GerryPlotBase(ABC):
         Args:
             x_values (float | Iterable[float]): The x-value(s) where the vertical line(s) should be
                 drawn.
-
-        Kwargs:
             linecolor (Color, optional): The color of the vertical line. Defaults to "#cccccc".
             linealpha (float | None, optional): The alpha transparency of the vertical line.
                 Defaults to None in which case the alpha from linecolor is used if specified.
@@ -315,8 +311,6 @@ class GerryPlotBase(ABC):
         Args:
             x_low (float): The lower x-value of the vertical band.
             x_high (float): The upper x-value of the vertical band.
-
-        Kwargs:
             bandcolor (Color, optional): The fill color of the band. Defaults to "#cccccc".
             bandalpha (float | None, optional): The alpha transparency of the band. Defaults to None.
             linecolor (Color | None, optional): The color of the bounding lines of the band.
@@ -366,8 +360,6 @@ class GerryPlotBase(ABC):
         Args:
             y_values (float | Iterable[float]): The y-value(s) where the horizontal line(s) should
                 be drawn.
-
-        Kwargs:
             linecolor (Color, optional): The color of the horizontal line. Defaults to "#cccccc".
             linealpha (float | None, optional): The alpha transparency of the horizontal line.
                 Defaults to None in which case the alpha from linecolor is used if specified.
@@ -421,8 +413,6 @@ class GerryPlotBase(ABC):
         Args:
             y_low (float): The lower y-value of the horizontal band.
             y_high (float): The upper y-value of the horizontal band.
-
-        Kwargs:
             bandcolor (Color | None, optional): The fill color of the band. Defaults to "#cccccc".
             bandalpha (float | None, optional): The alpha transparency of the band. Defaults to None
             linecolor (Color | None, optional): The color of the bounding lines of the band.
@@ -546,7 +536,7 @@ class GerryPlotBase(ABC):
 
         Overrides existing values if provided.
 
-        Kwargs:
+        Args:
             locations (list[float] | None, optional): New x-tick locations. Defaults
                 to None.
             labels (list[str] | None, optional): New x-tick labels. Defaults to
@@ -620,7 +610,7 @@ class GerryPlotBase(ABC):
 
         Overrides existing values if provided.
 
-        Kwargs:
+        Args:
             locations (list[float] | None, optional): New y-tick locations. Defaults
                 to None.
             labels (list[str] | None, optional): New y-tick labels. Defaults to
@@ -698,8 +688,6 @@ class GerryPlotBase(ABC):
 
         Args:
             labels: List of tick label objects.
-
-        Kwargs:
             fontweight (str | None, optional): Font weight to apply. Defaults to None.
             fontstyle (str | None, optional): Font style to apply. Defaults to None.
             fontfamily (str | None, optional): Font family to apply. Defaults to None.
@@ -816,7 +804,7 @@ class GerryPlotBase(ABC):
     ) -> None:
         """Sets the styling for the x-axis label.
 
-        Kwargs:
+        Args:
             fontsize (float | int | None, optional): Font size for the x-axis label.
                 Defaults to None.
             fontweight (str | None, optional): Font weight (e.g., "normal", "bold").
@@ -857,7 +845,7 @@ class GerryPlotBase(ABC):
     ) -> None:
         """Sets the styling for the y-axis label.
 
-        Kwargs:
+        Args:
             fontsize (float | int | None, optional): Font size for the y-axis label.
                 Defaults to None.
             fontweight (str | None, optional): Font weight (e.g., "normal", "bold").
@@ -899,7 +887,7 @@ class GerryPlotBase(ABC):
     ) -> None:
         """Sets the styling for the axes title.
 
-        Kwargs:
+        Args:
             fontsize (float | int | None, optional): Font size for the title. Defaults to None.
             fontweight (str | None, optional): Font weight (e.g., "normal", "bold").
                 Defaults to None.
@@ -963,7 +951,7 @@ class GerryPlotBase(ABC):
     ) -> None:
         """Set x-axis tick style.
 
-        Kwargs:
+        Args:
             size (float, optional): Font size of tick labels. Defaults to 10.
             rotation (float | int, optional): Rotation angle of tick labels in degrees.
                 Defaults to 0.
@@ -1014,7 +1002,7 @@ class GerryPlotBase(ABC):
     ) -> None:
         """Set y-axis tick style.
 
-        Kwargs:
+        Args:
             size (float, optional): Font size of tick labels. Defaults to 10.
             rotation (float | int, optional): Rotation angle of tick labels in degrees.
                 Defaults to 0.
@@ -1272,7 +1260,7 @@ class GerryPlotBase(ABC):
             - Spacing parameters such as ``labelspacing`` and ``columnspacing`` are interpreted
               by Matplotlib in *font-size units*, not pixels.
 
-        Kwargs:
+        Args:
             loc (str | int, optional): The legend location. May be a Matplotlib string location
                 (e.g., ``"best"``, ``"upper right"``) or an integer code. Defaults to
                 ``"center_left"``.
@@ -1348,8 +1336,6 @@ class GerryPlotBase(ABC):
 
         Args:
             filepath (str): The file path to save the legend to.
-
-        Kwargs:
             outer_padding (float, optional): The outer padding around the legend.
                 Defaults to 0.07.
 
@@ -1438,8 +1424,6 @@ class GerryPlotBase(ABC):
 
         Args:
             filepath (str): The file path to save the figure to.
-
-        Kwargs:
             Additional keyword arguments to pass to ``fig.savefig()``.
 
         Returns:

@@ -478,8 +478,6 @@ class GeoPlot(ABC):
 
         Args:
             gdf (GeoDataFrame): The base GeoDataFrame for the plot.
-
-        Kwargs:
             dpi (int): The DPI for the Matplotlib Figure. Default is 300.
             show_axis (bool): Whether to show axis ticks and labels. Default is False.
             target_crs: The target CRS for reprojecting geometries. If None, uses the CRS of

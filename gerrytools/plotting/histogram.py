@@ -29,8 +29,6 @@ def _coerce_to_1d_float_array(
 
     Args:
         values: Input values; can be an iterable, numpy array, pandas Series, or pandas
-
-    Kwargs:
         column: If ``values`` is a DataFrame, the column name to extract.
         field: Name of the field for error messages.
 
@@ -109,8 +107,6 @@ def _coerce_to_1d_finite_float_array(
 
     Args:
         values: Input values; can be an iterable, numpy array, pandas Series, or pandas
-
-    Kwargs:
         column: If ``values`` is a DataFrame, the column name to extract.
         field: Name of the field for error messages.
 
@@ -255,8 +251,6 @@ class Histogram(GerryPlotBase):
         Args:
             figure_size (tuple[float, float], optional): The size of the figure in inches.
             dpi (int, optional): The dots per inch (DPI) of the figure. Defaults to 300.
-
-        Kwargs:
             include_legend (bool, optional): Whether to include a legend in the plot.
                 Defaults to True.
             xlabel (str | None, optional): The label for the x-axis. Defaults to None.
@@ -396,8 +390,6 @@ class Histogram(GerryPlotBase):
         Args:
             values: Iterable of float values, numpy array, pandas Series, or pandas DataFrame
                 containing the data to be turned into a histogram.
-
-        Kwargs:
             weights (Iterable[float] | NDArray | None, optional): Optional weights for
                 the histogram values. Defaults to None.
             column (str | None, optional): The column name to use if values is a DataFrame.
@@ -487,8 +479,6 @@ class Histogram(GerryPlotBase):
             values (dict[str, float] | list[float] | pd.Series | pd.DataFrame):
                 The pointset values. Can be a dictionary mapping labels to values,
                 a list of values, a Series, or a DataFrame.
-
-        Kwargs:
             column (str | None, optional): The column name to use if values is a DataFrame.
             name (str | None, optional): The name of the point set. Defaults to None.
             facecolor (Color, optional): The face color of the points. Defaults to "black".

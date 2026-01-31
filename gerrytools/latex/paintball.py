@@ -338,8 +338,6 @@ class PaintBall:
             linecolor (str, optional): The color of the lines. Defaults to "black".
             linewidth (float, optional): The width of the lines. Defaults to 1.0
             linestyle (TikzLineStyle, optional): The style of the lines. Defaults to "solid".
-
-        Kwargs:
             name (str | None, optional): An optional name for the line. If provided,
                 the line can be referenced later by this name. Defaults to None.
         """
@@ -623,7 +621,7 @@ class PaintBall:
     def _generate_latex(self, *, hull=False) -> str:
         """Generate the complete LaTeX table string.
 
-        Kwargs:
+        Args:
             hull (bool): Whether to draw the horizontal hull of the paintball points rather
                 than the individual points. Defaults to False.
         """

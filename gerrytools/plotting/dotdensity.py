@@ -207,8 +207,6 @@ class DotDensityPlot(GeoPlot):
 
         Args:
             gdf (GeoDataFrame): The base GeoDataFrame for the plot.
-
-        Kwargs:
             outline_column (str): The column in the GeoDataFrame to use for outlining
                 districts or areas.
             people_per_dot (int, optional): Number of people represented by each dot.
@@ -578,7 +576,7 @@ class DotDensityPlot(GeoPlot):
             - Spacing parameters such as ``labelspacing`` and ``columnspacing`` are interpreted
               by Matplotlib in *font-size units*, not pixels.
 
-        Kwargs:
+        Args:
             loc (str | int, optional): The legend location. May be a Matplotlib string location
                 (e.g., ``"best"``, ``"upper right"``) or an integer code. Defaults to
                 ``"center_left"``.
@@ -655,8 +653,6 @@ class DotDensityPlot(GeoPlot):
 
         Args:
             filepath (str): The file path to save the legend to.
-
-        Kwargs:
             column_to_display_name (dict[str, str] | None, optional): A mapping from original
                 column names to new display names for the legend. If None, original column names
                 are used. Defaults to None.

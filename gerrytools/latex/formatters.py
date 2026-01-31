@@ -95,8 +95,6 @@ def highlight_gt(
         thresh (float): The threshold value.
         color (Color): The LaTeX color name string or RGB tuple or hex string to use for
             highlighting. Default is "yellow".
-
-    Kwargs:
         round_to (int | None): If provided, numerical values will be rounded to this
             number of decimal places before comparison.
 
@@ -159,8 +157,6 @@ def highlight_ge(
         thresh (float): The threshold value.
         color (Color): The LaTeX color name string or RGB tuple or hex string to use for
             highlighting. Default is "yellow".
-
-    Kwargs:
         round_to (int | None): If provided, numerical values will be rounded to this
             number of decimal places before comparison.
 
@@ -221,8 +217,6 @@ def highlight_lt(
     Args:
         thresh (float): The threshold value.
         color (str): The LaTeX color name string to use for highlighting. Default is "yellow".
-
-    Kwargs
         round_to (int | None): If provided, numerical values will be rounded to this
             number of decimal places before comparison.
 
@@ -283,8 +277,6 @@ def highlight_le(
     Args:
         thresh (float): The threshold value.
         color (str): The LaTeX color name string to use for highlighting. Default is "yellow".
-
-    Kwargs:
         round_to (int | None): If provided, numerical values will be rounded to this
             number of decimal places before comparison.
 
@@ -351,8 +343,6 @@ def highlight_between(
         lower_bound (int | float): The lower bound.
         upper_bound (int | float): The upper bound.
         color (str): The LaTeX color name string to use for highlighting. Default is "yellow".
-
-    Kwargs:
         round_to (int | None): If provided, numerical values will be rounded to this
             number of decimal places before comparison.
         include_bounds (bool): If True, values equal to the bounds are included. Default is True.

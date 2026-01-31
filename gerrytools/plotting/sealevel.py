@@ -73,8 +73,6 @@ class SeaLevel(GerryPlotBase):
             figure_size (tuple[float, float], optional): The size of the figure in inches.
                 Defaults to (10, 6).
             dpi (int, optional): The dots per inch (DPI) of the figure. Defaults to 300.
-
-        Kwargs:
             include_legend (bool, optional): Whether to include a legend in the plot.
                 Defaults to True.
         """
@@ -122,7 +120,7 @@ class SeaLevel(GerryPlotBase):
 
         Any category not specified in the dictionary will have no jitter applied.
 
-        Kwargs:
+        Args:
             jitter_per_category (dict[str, float]): A dictionary mapping category labels
                 to maximum jitter values.
 
@@ -159,7 +157,7 @@ class SeaLevel(GerryPlotBase):
 
         Any category not specified in the dictionary will have no jitter applied.
 
-        Kwargs:
+        Args:
             jitter_per_category (dict[str, float]): A dictionary mapping category labels
                 to maximum jitter values.
 
@@ -187,7 +185,7 @@ class SeaLevel(GerryPlotBase):
 
         Any category not specified in the dictionary will have no jitter applied.
 
-        Kwargs:
+        Args:
             jitter_per_category (dict[str, float]): A dictionary mapping category labels
                 to maximum jitter values.
 
@@ -224,7 +222,7 @@ class SeaLevel(GerryPlotBase):
 
         Any category not specified in the dictionary will have no jitter applied.
 
-        Kwargs:
+        Args:
             jitter_per_category (dict[str, float]): A dictionary mapping category labels
                 to maximum jitter values.
 
@@ -318,8 +316,6 @@ class SeaLevel(GerryPlotBase):
             scores (dict[str, float] | list[float] | pd.Series | pd.DataFrame):
                 The pointset values. Can be a dictionary mapping labels to values,
                 a list of values, a Series, or a DataFrame.
-
-        Kwargs:
             scores_labels (list[str] | None, optional): The labels corresponding to the
                 scores list, if scores is provided as a list. Ignored if scores is a dict,
                 Series, or DataFrame. Defaults to None.
@@ -499,8 +495,6 @@ class SeaLevel(GerryPlotBase):
 
         Args:
             denominator (int): The denominator to use for the fractions.
-
-        Kwargs:
             minimum_numerator (int, optional): The minimum numerator to display. Defaults to 0.
             maximum_numerator (int | None, optional): The maximum numerator to display.
                 Defaults to None, which uses the denominator as the maximum numerator.

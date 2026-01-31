@@ -153,8 +153,6 @@ class BoxPlot(GerryPlotBase):
             figure_size (tuple[float, float], optional): The size of the figure in inches.
                 Defaults to (10, 6).
             dpi (int, optional): The dots per inch (DPI) of the figure. Defaults to 300.
-
-        Kwargs:
             include_legend (bool, optional): Whether to include a legend in the plot.
                 Defaults to True.
             xlabel (str | None, optional): The label for the x-axis. Defaults to None.
@@ -284,8 +282,6 @@ class BoxPlot(GerryPlotBase):
             scores (dict[str, list[float]] | list[float] | list[list[float]] | pd.DataFrame):
                 The scores for the boxplots. Can be a dictionary mapping labels to score lists,
                 a list of score lists, or a DataFrame where each column represents a label.
-
-        Kwargs:
             scores_labels (list[str] | None, optional): The labels for the scores if
                 scores is a list or list of lists. Defaults to None.
             name (str | None, optional): The name of the boxplot set. Defaults to None.
@@ -364,8 +360,6 @@ class BoxPlot(GerryPlotBase):
 
             labels (list[str] | None, optional): The labels for the pointset values
                 if values is a list. Defaults to None.
-
-        Kwargs:
             column (str | None, optional): The column name to use if values is a DataFrame.
 
         Returns:
@@ -435,8 +429,6 @@ class BoxPlot(GerryPlotBase):
             values (dict[str, float] | list[float] | pd.Series | pd.DataFrame):
                 The pointset values. Can be a dictionary mapping labels to values,
                 a list of values, a Series, or a DataFrame.
-
-        Kwargs:
             labels (list[str] | None, optional): The labels for the point values
                 if values is a list. Defaults to None.
             column (str | None, optional): The column name to use if values is a DataFrame.
@@ -514,7 +506,7 @@ class BoxPlot(GerryPlotBase):
     ) -> None:
         """Update the settings for vertical lines at the center of boxplot groups.
 
-        Kwargs:
+        Args:
             linecolor (Color, optional): The color of the vertical lines. Defaults to "#cccccc".
             linealpha (float, optional): The alpha transparency of the vertical lines.
                 Defaults to 1.0.
@@ -584,8 +576,6 @@ class BoxPlot(GerryPlotBase):
 
         Args:
             centers (np.ndarray): The x-axis centers for each boxplot category.
-
-        Kwargs:
             span (float | None, optional): The total span for auto-offsetting pointsets.
                 Defaults to None, which uses 80% of boxplot_group_width or 0.8, whichever is
                 smaller.

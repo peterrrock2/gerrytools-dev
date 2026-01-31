@@ -173,7 +173,7 @@ def _determine_grid_position(
     """Given a linear index, determine the (row, column) position in the grid,
     accounting for ragged edges if necessary.
 
-    KwArgs:
+    Args:
         linear_index (int): The linear index of the sign.
         orientation (Literal["vertical", "horizontal"]): The layout orientation.
         item_count (int): Total number of signs.
@@ -243,7 +243,7 @@ def _ragged_edge_offset(
 ) -> tuple[float, float]:
     """Determine the offset for the incomplete outer edge by shifting along primary layout axis.
 
-    KwArgs:
+    Args:
         row_index (int): The row index of the sign.
         col_index (int): The column index of the sign.
         sign_options (SubwaySignOptions): Options for sign appearance.
@@ -299,7 +299,7 @@ def _normalize_colors_and_adjust_item_order(
 ):
     """Normalize colors to hex format and adjust item order for ragged edges and reverse display.
 
-    KwArgs:
+    Args:
         colors (list[Color]): List of colors for each sign.
         labels (list[str]): List of labels for each sign.
         orientation (Literal["vertical", "horizontal"]): The layout orientation.
@@ -366,7 +366,7 @@ def _draw_sign(
 ):
     """Draw a single subway sign on the given axes.
 
-    KwArgs:
+    Args:
         axes (plt.Axes): The axes to draw on.
         index (int): The linear index of the sign.
         face_color (Color): The face color of the sign.
@@ -448,8 +448,6 @@ def subway_signs(
     Args:
         colors (list[Color]): List of colors for each sign.
         labels (list[str]): List of labels for each sign.
-
-    KwArgs:
         orientation (Literal["vertical", "horizontal"], optional): Orientation of the layout.
             Defaults to "horizontal".
         n_bands (int | None, optional): Number of bands (rows or columns) in the layout.
