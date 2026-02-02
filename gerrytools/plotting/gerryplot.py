@@ -3,11 +3,13 @@ import math
 import weakref
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from io import BytesIO
 from numbers import Real
 from typing import Any, Iterable, Literal
 
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
+from matplotlib import get_backend, rcsetup
 from matplotlib.axes import Axes
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
@@ -208,6 +210,17 @@ class GerryPlotBase(ABC):
             title (str | None, optional): The title of the plot. Defaults to None.
         """
         self.fig, self._ax = plt.subplots(figsize=figure_size, dpi=dpi)
+
+        # IMPORTANT: prevent implicit display in notebooks
+        # Only close in Jupyter so init doesn't display
+        try:
+            from IPython import get_ipython
+
+            ip = get_ipython()
+            if ip is not None and getattr(ip, "kernel", None) is not None:
+                plt.close(self.fig)
+        except Exception:
+            pass
 
         self.include_legend = include_legend
         self._legend_options = LegendOptions(loc="center left", bbox_to_anchor=(1.01, 0.5))
@@ -1417,7 +1430,34 @@ class GerryPlotBase(ABC):
     def show(self) -> None:
         """Display the figure."""
         self._build_and_apply_settings()
-        plt.show()
+
+        # Notebook: display PNG inline
+        try:
+            from IPython import get_ipython
+
+            ip = get_ipython()
+            if ip is not None and getattr(ip, "kernel", None) is not None:
+                from IPython.display import Image, display
+
+                buf = BytesIO()
+                self.fig.savefig(buf, format="png", bbox_inches="tight", dpi=self.fig.dpi)
+                buf.seek(0)
+                display(Image(data=buf.getvalue()))
+                return
+        except Exception:
+            pass
+
+        # Script/terminal: must be on an interactive backend
+        backend = get_backend()
+        if backend not in rcsetup.interactive_bk:
+            out = "geoplot.png"
+            self.fig.savefig(out, bbox_inches="tight", dpi=self.fig.dpi)
+            print(f"[GeoPlot] Non-GUI backend ({backend}); saved to {out}")
+            return
+
+        # Ensure this figure becomes the active one and show it
+        plt.figure(self.fig.number)
+        plt.show(block=True)
 
     def save(self, filepath: str, **kwargs) -> None:
         """Save the figure to a file.
@@ -1449,4 +1489,4 @@ class GerryPlotBase(ABC):
         Returns:
             list[Any]: A list of legend handles.
         """
-        pass
+        return []

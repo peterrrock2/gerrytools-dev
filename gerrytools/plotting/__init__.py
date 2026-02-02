@@ -25,11 +25,10 @@ from gerrytools.plotting.dotdensity import DotDensityPlot
 from gerrytools.plotting.geoplot import GeoPlot
 from gerrytools.plotting.gerryplot import BandData, LineData, PointSetData
 from gerrytools.plotting.histogram import Histogram, HistogramData, HistPointList
+from gerrytools.plotting.scatterplot import ScatterPlot
 from gerrytools.plotting.sealevel import SeaLevel
 from gerrytools.plotting.subway import SubwaySignOptions, subway_signs
 from gerrytools.plotting.violin import ViolinPlot, ViolinPlotSetData
-
-from .scatterplot import scatterplot
 
 __all__ = [
     "districtr",
@@ -61,10 +60,10 @@ __all__ = [
     "Histogram",
     "HistogramData",
     "HistPointList",
+    "ScatterPlot",
     "SeaLevel",
     "SubwaySignOptions",
     "subway_signs",
     "ViolinPlot",
     "ViolinPlotSetData",
-    "scatterplot",
 ]

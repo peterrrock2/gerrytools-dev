@@ -1,137 +1,235 @@
+from dataclasses import dataclass
+from typing import Any, Sequence
+
 import numpy as np
-from matplotlib.axes import Axes
+from matplotlib.lines import Line2D
 
-from gerrytools.colors import districtr
+from gerrytools.logging import get_logger
+from gerrytools.plotting.gerryplot import (
+    GerryPlotBase,
+    PointMarkerOptions,
+)
+from gerrytools.typing import Color
+
+logger = get_logger(__name__)
 
 
-def scatterplot(
-    ax,
-    x,
-    y,
-    labels=None,
-    limits=set(),
-    bins=None,
-    axis_range=None,
-    show_legend=True,
-) -> Axes:
-    r"""
-    Plot a scatterplot comparing two scores, with the proposed plans'
-    scores as points.
+@dataclass(slots=True, frozen=True)
+class ScatterData:
+    """Data for a scatterplot."""
 
-    Args:
-        ax (Axes): `Axes` object on which the histogram is plotted.
-        x (list): Score on the x-axis. This will be a list of lists, where each
-           sub-list corresponds to the scores for an individual plan.
-        y (list): Score on the y-axis. This will be a list of lsits where each
-           sub-list corresponds to the scores for an individual plan.
-        labels (list, optional): Strings for x- and y-axis labels.
-        limits (tuple, optional): Axis limits (specify to force plot to extend to
-            these limits).
-        colors (list, optional): A list of colors where the ith color corresponds
-          to the ith score sub-list.
-        show_legend (bool, optional): If `True`, show the legend. Generally helpful
-            when trying to distinguish relationships between blocs within congressional
-            districts, but can be cumbersome when there are many districts (e.g., 20+).
-            Defaults to `True`.
-    Returns:
-        Axes object on which the scatterplot is plotted.
-    """
-    for x_score, y_score in zip(x, y):
-        for i in range(len(x_score)):
-            x_val = x_score[i]
-            y_val = y_score[i]
-            ax.scatter(
-                x_val + 0.5,
-                y_val + 0.5,
-                color=f"{districtr(i+1).pop()}",
-                s=150,
-                edgecolor="black",
-                label=f"{i+1}",
+    x: np.ndarray
+    y: np.ndarray
+    label: str | None
+    marker_options: PointMarkerOptions
+
+    def __post_init__(self) -> None:
+        if self.x.shape != self.y.shape:
+            raise ValueError("x and y must have the same shape.")
+        if self.x.ndim != 1:
+            raise ValueError("x and y must be 1-dimensional arrays.")
+        if self.x.size == 0:
+            raise ValueError("x and y must not be empty.")
+
+
+class ScatterPlot(GerryPlotBase):
+    """A class for creating standard scatterplots."""
+
+    def __init__(
+        self,
+        figure_size: tuple[float, float] = (10, 6),
+        dpi: int = 300,
+        *,
+        include_legend: bool = True,
+        xlabel: str | None = None,
+        ylabel: str | None = None,
+        title: str | None = None,
+    ) -> None:
+        """Initialize a BoxPlot instance.
+
+        Args:
+            figure_size (tuple[float, float], optional): The size of the figure in inches.
+                Defaults to (10, 6).
+            dpi (int, optional): The dots per inch (DPI) of the figure. Defaults to 300.
+            include_legend (bool, optional): Whether to include a legend in the plot.
+                Defaults to True.
+            xlabel (str | None, optional): The label for the x-axis. Defaults to None.
+            ylabel (str | None, optional): The label for the y-axis. Defaults to None.
+            title (str | None, optional): The title of the plot. Defaults to None.
+        """
+        super().__init__(
+            figure_size=figure_size,
+            dpi=dpi,
+            include_legend=include_legend,
+            xlabel=xlabel,
+            ylabel=ylabel,
+            title=title,
+        )
+
+        self._scatter_data_list: list[ScatterData] = []
+        self._labels: list[str] | None = None
+
+    def add_scatter(
+        self,
+        x: Sequence[float] | None = None,
+        y: Sequence[float] | None = None,
+        xy_pairs: list[tuple[float, float]] | None = None,
+        *,
+        label: str | None = None,
+        markerfacecolor: Color = "#b0b0b0",
+        markerfacealpha: float | None = None,
+        marker: str = "o",
+        markersize: float = 6.0,
+        markeredgecolor: Color | None = None,
+        markeredgealpha: float | None = None,
+        markeredgewidth: float = 0.0,
+        zorder: int = 1,
+    ) -> None:
+        """Add a set of points to the scatterplot.
+
+        Args:
+            x (Sequence[float] | None): The x-coordinates of the points. Defaults to None.
+            y (Sequence[float] | None): The y-coordinates of the points. Defaults to None.
+            xy_pairs (list[tuple[float, float]] | None): A list of (x, y) coordinate pairs.
+                If provided, x and y should be None. Defaults to None.
+            label (str | None, optional): The label for the point set. Defaults to None.
+            markerfacecolor (Color, optional): The face color of the markers. Defaults to "#b0b0b0"
+                which is a medium gray.
+            markerfacealpha (float | None, optional): The alpha value for the marker face color.
+                Defaults to None.
+            marker (str, optional): The marker style. Defaults to "o".
+            markersize (float, optional): The size of the markers. Defaults to 6.0.
+            markeredgecolor (Color | None, optional): The edge color of the markers. Defaults to None.
+            markeredgealpha (float | None, optional): The alpha value for the marker edge color.
+                Defaults to None.
+            markeredgewidth (float, optional): The width of the marker edges. Defaults to 0.0.
+            zorder (int, optional): The z-order of the markers. Defaults to 1.
+
+        Raises:
+            ValueError: If both xy_pairs and x/y are provided, or if neither is provided.
+        """
+        if xy_pairs is not None:
+            if x is not None or y is not None:
+                raise ValueError("Specify either xy_pairs or x and y, not both.")
+            x, y = zip(*xy_pairs)
+
+        if x is None or y is None:
+            raise ValueError("Both x and y must be provided.")
+
+        pointset_data = ScatterData(
+            x=np.array(x),
+            y=np.array(y),
+            label=label,
+            marker_options=PointMarkerOptions(
+                marker=marker,
+                markersize=markersize,
+                markerfacecolor=markerfacecolor,
+                markerfacealpha=markerfacealpha,
+                markeredgecolor=markeredgecolor if markeredgecolor is not None else "none",
+                markeredgealpha=markeredgealpha,
+                markeredgewidth=markeredgewidth,
+                zorder=zorder,
+            ),
+        )
+        self._scatter_data_list.append(pointset_data)
+
+    def add_point(
+        self,
+        x: float,
+        y: float,
+        *,
+        label: str,
+        markerfacecolor: Color = "denim",
+        markerfacealpha: float | None = None,
+        marker: str = "o",
+        markersize: float = 6.0,
+        markeredgecolor: Color | None = None,
+        markeredgealpha: float | None = None,
+        markeredgewidth: float = 0.0,
+        zorder: int = 1,
+    ) -> None:
+        """Add a single point to the scatterplot.
+
+        Args:
+            x (float): The x-coordinate of the point.
+            y (float): The y-coordinate of the point.
+            label (str): The label for the point.
+            markerfacecolor (Color, optional): The face color of the marker. Defaults to "denim".
+            markerfacealpha (float | None, optional): The alpha value for the marker face color.
+                Defaults to None.
+            marker (str, optional): The marker style. Defaults to "o".
+            markersize (float, optional): The size of the marker. Defaults to 6.0.
+            markeredgecolor (Color | None, optional): The edge color of the marker. Defaults to None.
+            markeredgealpha (float | None, optional): The alpha value for the marker edge color.
+                Defaults to None.
+            markeredgewidth (float, optional): The width of the marker edge. Defaults to 0.0.
+            zorder (int, optional): The z-order of the marker. Defaults to 1.
+        """
+        self.add_scatter(
+            x=[x],
+            y=[y],
+            label=label,
+            markerfacecolor=markerfacecolor,
+            markerfacealpha=markerfacealpha,
+            marker=marker,
+            markersize=markersize,
+            markeredgecolor=markeredgecolor,
+            markeredgealpha=markeredgealpha,
+            markeredgewidth=markeredgewidth,
+            zorder=zorder,
+        )
+
+    def _draw_points(self) -> None:
+        """Draw scatterpolts on the plot axes.
+
+        Returns:
+            None
+        """
+        if len(self._scatter_data_list) == 0:
+            return
+
+        for i, sdata in enumerate(self._scatter_data_list):
+            self._ax.plot(
+                sdata.y,
+                sdata.x,
+                linestyle="none",
+                clip_on=True,
+                rasterized=True,
+                **sdata.marker_options.to_mpl_settings_dict(),
             )
-    if show_legend:
-        ax.legend()
 
-    if labels:
-        ax.set_xlabel(labels[0], fontsize=24)
-        ax.set_ylabel(labels[1], fontsize=24)
-    if limits:
-        ax.set_xlim(limits[0])
-        ax.set_ylim(limits[1])
+    def _build_plot(self) -> None:
+        """Build the scatterplot by drawing point sets."""
+        print("Building scatterplot.")
+        self._draw_points()
 
-    # Shift bins over by 0.5 to center labels in the middle of the bin.
-    x_min = min([min(x_point) for x_point in x])
-    x_max = max([max(x_point) for x_point in x])
-    y_min = min([min(y_point) for y_point in y])
-    y_max = max([max(y_point) for y_point in y])
-    xedges = np.arange(x_min, x_max + 1, 1)
-    yedges = np.arange(y_min, y_max + 1, 1)
-    # TODO: This only works for bins of width 1 — need to fix for general bid width.
-    ax.set_xticks([x + 0.5 for x in xedges])
-    ax.set_xticklabels(xedges)
-    ax.set_yticks([y + 0.5 for y in yedges])
-    ax.set_yticklabels(yedges)
+    def _get_scatter_legend_handles(self) -> list[Any]:
+        """Generate legend handles for point sets.
 
-    return ax
+        Returns:
+            list[Any]: A list of legend handles for the point sets.
+        """
+        handles: list[Any] = []
 
+        for sdata in self._scatter_data_list:
+            if sdata.label is None:
+                continue
+            handles.append(
+                Line2D(
+                    [0],
+                    [0],
+                    linestyle="none",
+                    label=sdata.label,
+                    **sdata.marker_options.to_mpl_settings_dict(),
+                )
+            )
 
-# def scatterplot(
-#     ax,
-# 	x_lst,
-# 	y_lst,
-# 	labels=None,
-# 	limits=set(),
-# 	bins=None,
-# 	axis_range=None
-# ) -> Axes:
-#     r"""
-#     Plot a scatterplot comparing two scores, with the proposed plans'
-#     scores as points.
+        return handles
 
-#     Args:
-#         ax (Axes): `Axes` object on which the histogram is plotted.
-#         x (list): Score on the x-axis. This will be a list of lists, where each
-#            sub-list corresponds to the scores for an individual plan.
-#         y (list): Score on the y-axis. This will be a list of lsits where each
-#            sub-list corresponds to the scores for an individual plan.
-#         labels (list, optional): Strings for x- and y-axis labels.
-#         limits (tuple, optional): Axis limits (specify to force plot to extend to
-#             these limits).
-#         colors (list, optional): A list of colors where the ith color corresponds
-#           to the ith score sub-list.
-#     Returns:
-#         Axes object on which the scatterplot is plotted.
-#     """
-#     print(x_lst)
-#     print(y_lst)
+    @property
+    def _legend_handles(self) -> list[Any]:
+        """Generated legend handles for boxplot and point sets."""
+        handles: list[Any] = []
 
-#     for i, (x_score, y_score) in enumerate(zip(x_lst, y_lst)):
-#         ax.scatter(
-#             x_score + 0.5,
-#             y_score + 0.5,
-#             color=f"{districtr(i+1).pop()}",
-#             s=150,
-#             edgecolor="black",
-#         )
-#     ax.legend()
-
-#     if labels:
-#         ax.set_xlabel(labels[0], fontsize=24)
-#         ax.set_ylabel(labels[1], fontsize=24)
-#     if limits:
-#         ax.set_xlim(limits[0])
-#         ax.set_ylim(limits[1])
-
-#     # Shift bins over by 0.5 to center labels in the middle of the bin.
-#     x_min = min([min(x_point) for x_point in x_lst])
-#     x_max = max([max(x_point) for x_point in x_lst])
-#     y_min = min([min(y_point) for y_point in y_lst])
-#     y_max = max([max(y_point) for y_point in y_lst])
-#     xedges = np.arange(x_min, x_max + 1, 1)
-#     yedges = np.arange(y_min, y_max + 1, 1)
-#     # TODO: This only works for bins of width 1 — need to fix for general bid width.
-#     ax.set_xticks([x + 0.5 for x in xedges])
-#     ax.set_xticklabels(xedges)
-#     ax.set_yticks([y + 0.5 for y in yedges])
-#     ax.set_yticklabels(yedges)
-
-#     return ax
+        handles.extend(self._get_scatter_legend_handles())
+        return handles
