@@ -46,6 +46,25 @@ A dictionary mapping ensemble abbreviations to their corresponding standard colo
 These were the colors used in the final version of the RRC paper.
 """
 
+COLOR_CORECTED_BASESET = {
+    "cc:applegreen": "#73b900",
+    "cc:denim": "#0064bd",
+    "cc:cherryblossompink": "#ffb0c5",
+    "cc:darktangerine": "#ff9f0f",
+    "cc:cadmiumgreen": "#006f3c",
+    "cc:purpleheart": "#872f9c",
+    "cc:alizarin": "#d91b00",
+    "cc:greenishcyan": "#009983",
+    "cc:lightblue": "#92dbe6",
+    "cc:amber": "#ffb900",
+    "cc:muddy": "#9b3200",
+    "cc:lostinspace": "#003e64",
+    "cc:teagreen": "#d0f0c0",
+}
+"""
+A small set of colors from that are color-corrected for better visibility by color-blind users.
+"""
+
 
 GERRYTOOLS_EXTRA_COLORS_DICT = (
     {
