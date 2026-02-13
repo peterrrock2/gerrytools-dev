@@ -2,10 +2,21 @@ from __future__ import annotations
 
 import math
 import re
+from numbers import Real
 from typing import Any
 
 from gerrytools.latex.commands import _validate_command_name
 from gerrytools.typing import CellWrapper, Color
+
+
+def boxed_center(width: int, height: int | None = None, unit: str = "mm") -> CellWrapper:
+    if height is None:
+        height = width
+
+    def _inner_boxed_center(v, s):
+        return v, rf"\parbox[c][{height}{unit}][c]{{{width}}}{{\centering\strut {s}}}"
+
+    return _inner_boxed_center
 
 
 def wrap_with_tex_command(cmd_str: str) -> CellWrapper:
@@ -57,7 +68,7 @@ def round_decimals(decimal_places: int) -> CellWrapper:
     """
 
     def _inner_round_decimals(v: Any, s: str) -> tuple[Any, str]:
-        if isinstance(v, int | float):
+        if isinstance(v, Real):
             return v, f"{v:.{decimal_places}f}"
         return v, s
 
@@ -74,7 +85,7 @@ def _safe_round(v: Any, round_to: int | None) -> Any:  # pragma: no cover
     Returns:
         str: The rounded value as a string, or special strings for NaN and infinity.
     """
-    if isinstance(v, int | float) and round_to is not None:
+    if isinstance(v, Real) and round_to is not None:
         assert isinstance(round_to, int), "value of `round_to` must be an integer"
         if v != v:  # NaN check
             return v
@@ -108,14 +119,14 @@ def highlight_gt(
             color_hex = color.lower().lstrip("#")
 
             def _inner_highlight_gt(v: int | float, s: str) -> tuple[int | float, str]:
-                if isinstance(v, int | float) and _safe_round(v, round_to) > thresh:
+                if isinstance(v, Real) and _safe_round(v, round_to) > thresh:
                     return v, rf"\cellcolor[HTML]{{{color_hex}}}{s}"
                 return v, s
 
             return _inner_highlight_gt
 
         def _inner_highlight_gt(v: int | float, s: str) -> tuple[int | float, str]:
-            if isinstance(v, int | float) and _safe_round(v, round_to) > thresh:
+            if isinstance(v, Real) and _safe_round(v, round_to) > thresh:
                 return v, rf"\cellcolor{{{color}}}{s}"
             return v, s
 
@@ -125,7 +136,7 @@ def highlight_gt(
         if all(0.0 <= c <= 1.0 for c in color):  # type: ignore
 
             def _inner_highlight_gt(v: int | float, s: str) -> tuple[int | float, str]:
-                if isinstance(v, int | float) and _safe_round(v, round_to) > thresh:
+                if isinstance(v, Real) and _safe_round(v, round_to) > thresh:
                     return (
                         v,
                         rf"\cellcolor[rgb]{{{color[0]:0.2f},{color[1]:0.2f},{color[2]:0.2f}}}{s}",
@@ -136,7 +147,7 @@ def highlight_gt(
         elif all(0 <= c <= 255 for c in color):  # type: ignore
 
             def _inner_highlight_gt(v: int | float, s: str) -> tuple[int | float, str]:
-                if isinstance(v, int | float) and _safe_round(v, round_to) > thresh:
+                if isinstance(v, Real) and _safe_round(v, round_to) > thresh:
                     return (
                         v,
                         rf"\cellcolor[RGB]{{{int(color[0])},{int(color[1])},{int(color[2])}}}{s}",
@@ -169,14 +180,14 @@ def highlight_ge(
             color_hex = color.lower().lstrip("#")
 
             def _inner_highlight_ge(v: int | float, s: str) -> tuple[int | float, str]:
-                if isinstance(v, int | float) and _safe_round(v, round_to) >= thresh:
+                if isinstance(v, Real) and _safe_round(v, round_to) >= thresh:
                     return v, rf"\cellcolor[HTML]{{{color_hex}}}{s}"
                 return v, s
 
             return _inner_highlight_ge
 
         def _inner_highlight_ge(v: int | float, s: str) -> tuple[int | float, str]:
-            if isinstance(v, int | float) and _safe_round(v, round_to) >= thresh:
+            if isinstance(v, Real) and _safe_round(v, round_to) >= thresh:
                 return v, rf"\cellcolor{{{color}}}{s}"
             return v, s
 
@@ -186,7 +197,7 @@ def highlight_ge(
         if all(0.0 <= c <= 1.0 for c in color):  # type: ignore
 
             def _inner_highlight_ge(v: int | float, s: str) -> tuple[int | float, str]:
-                if isinstance(v, int | float) and _safe_round(v, round_to) >= thresh:
+                if isinstance(v, Real) and _safe_round(v, round_to) >= thresh:
                     return (
                         v,
                         rf"\cellcolor[rgb]{{{color[0]:0.2f},{color[1]:0.2f},{color[2]:0.2f}}}{s}",
@@ -197,7 +208,7 @@ def highlight_ge(
         elif all(0 <= c <= 255 for c in color):  # type: ignore
 
             def _inner_highlight_ge(v: int | float, s: str) -> tuple[int | float, str]:
-                if isinstance(v, int | float) and _safe_round(v, round_to) >= thresh:
+                if isinstance(v, Real) and _safe_round(v, round_to) >= thresh:
                     return (
                         v,
                         rf"\cellcolor[RGB]{{{int(color[0])},{int(color[1])},{int(color[2])}}}{s}",
@@ -229,14 +240,14 @@ def highlight_lt(
             color_hex = color.lower().lstrip("#")
 
             def _inner_highlight_lt(v: int | float, s: str) -> tuple[int | float, str]:
-                if isinstance(v, int | float) and _safe_round(v, round_to) < thresh:
+                if isinstance(v, Real) and _safe_round(v, round_to) < thresh:
                     return v, rf"\cellcolor[HTML]{{{color_hex}}}{s}"
                 return v, s
 
             return _inner_highlight_lt
 
         def _inner_highlight_lt(v: int | float, s: str) -> tuple[int | float, str]:
-            if isinstance(v, int | float) and _safe_round(v, round_to) < thresh:
+            if isinstance(v, Real) and _safe_round(v, round_to) < thresh:
                 return v, rf"\cellcolor{{{color}}}{s}"
             return v, s
 
@@ -246,7 +257,7 @@ def highlight_lt(
         if all(0.0 <= c <= 1.0 for c in color):  # type: ignore
 
             def _inner_highlight_lt(v: int | float, s: str) -> tuple[int | float, str]:
-                if isinstance(v, int | float) and _safe_round(v, round_to) < thresh:
+                if isinstance(v, Real) and _safe_round(v, round_to) < thresh:
                     return (
                         v,
                         rf"\cellcolor[rgb]{{{color[0]:0.2f},{color[1]:0.2f},{color[2]:0.2f}}}{s}",
@@ -257,7 +268,7 @@ def highlight_lt(
         elif all(0 <= c <= 255 for c in color):  # type: ignore
 
             def _inner_highlight_lt(v: int | float, s: str) -> tuple[int | float, str]:
-                if isinstance(v, int | float) and _safe_round(v, round_to) < thresh:
+                if isinstance(v, Real) and _safe_round(v, round_to) < thresh:
                     return (
                         v,
                         rf"\cellcolor[RGB]{{{int(color[0])},{int(color[1])},{int(color[2])}}}{s}",
@@ -289,14 +300,14 @@ def highlight_le(
             color_hex = color.lower().lstrip("#")
 
             def _inner_highlight_le(v: int | float, s: str) -> tuple[int | float, str]:
-                if isinstance(v, int | float) and _safe_round(v, round_to) <= thresh:
+                if isinstance(v, Real) and _safe_round(v, round_to) <= thresh:
                     return v, rf"\cellcolor[HTML]{{{color_hex}}}{s}"
                 return v, s
 
             return _inner_highlight_le
 
         def _inner_highlight_le(v: int | float, s: str) -> tuple[int | float, str]:
-            if isinstance(v, int | float) and _safe_round(v, round_to) <= thresh:
+            if isinstance(v, Real) and _safe_round(v, round_to) <= thresh:
                 return v, rf"\cellcolor{{{color}}}{s}"
             return v, s
 
@@ -306,7 +317,7 @@ def highlight_le(
         if all(0.0 <= c <= 1.0 for c in color):  # type: ignore
 
             def _inner_highlight_le(v: int | float, s: str) -> tuple[int | float, str]:
-                if isinstance(v, int | float) and _safe_round(v, round_to) <= thresh:
+                if isinstance(v, Real) and _safe_round(v, round_to) <= thresh:
                     return (
                         v,
                         rf"\cellcolor[rgb]{{{color[0]:0.2f},{color[1]:0.2f},{color[2]:0.2f}}}{s}",
@@ -317,7 +328,7 @@ def highlight_le(
         elif all(0 <= c <= 255 for c in color):  # type: ignore
 
             def _inner_highlight_le(v: int | float, s: str) -> tuple[int | float, str]:
-                if isinstance(v, int | float) and _safe_round(v, round_to) <= thresh:
+                if isinstance(v, Real) and _safe_round(v, round_to) <= thresh:
                     return (
                         v,
                         rf"\cellcolor[RGB]{{{int(color[0])},{int(color[1])},{int(color[2])}}}{s}",
@@ -335,7 +346,8 @@ def highlight_between(
     color: Color = "yellow",
     *,
     round_to: int | None = None,
-    include_bounds: bool = True,
+    include_lower: bool = True,
+    include_upper: bool = True,
 ) -> CellWrapper:
     """Generates a formatter that highlights numerical values between two bounds.
 
@@ -350,10 +362,11 @@ def highlight_between(
     Returns:
         CellWrapper: A function that highlights numerical values between the bounds.
     """
-    if not include_bounds:
+    if not include_lower:
         lower_bound = math.nextafter(
             float(lower_bound), math.inf
         )  # smallest float > original lower_bound
+    if not include_upper:
         upper_bound = math.nextafter(
             float(upper_bound), -math.inf
         )  # largest float < original upper_bound
@@ -364,20 +377,14 @@ def highlight_between(
             color_hex = color.lower().lstrip("#")
 
             def _inner_highlight_btwn(v: int | float, s: str) -> tuple[int | float, str]:
-                if (
-                    isinstance(v, int | float)
-                    and lower_bound <= _safe_round(v, round_to) <= upper_bound
-                ):
+                if isinstance(v, Real) and lower_bound <= _safe_round(v, round_to) <= upper_bound:
                     return v, rf"\cellcolor[HTML]{{{color_hex}}}{s}"
                 return v, s
 
             return _inner_highlight_btwn
 
         def _inner_highlight_btwn(v: int | float, s: str) -> tuple[int | float, str]:
-            if (
-                isinstance(v, int | float)
-                and lower_bound <= _safe_round(v, round_to) <= upper_bound
-            ):
+            if isinstance(v, Real) and lower_bound <= _safe_round(v, round_to) <= upper_bound:
                 return v, rf"\cellcolor{{{color}}}{s}"
             return v, s
 
@@ -387,10 +394,7 @@ def highlight_between(
         if all(0.0 <= c <= 1.0 for c in color):  # type: ignore
 
             def _inner_highlight_btwn(v: int | float, s: str) -> tuple[int | float, str]:
-                if (
-                    isinstance(v, int | float)
-                    and lower_bound <= _safe_round(v, round_to) <= upper_bound
-                ):
+                if isinstance(v, Real) and lower_bound <= _safe_round(v, round_to) <= upper_bound:
                     return (
                         v,
                         rf"\cellcolor[rgb]{{{color[0]:0.2f},{color[1]:0.2f},{color[2]:0.2f}}}{s}",
@@ -401,10 +405,7 @@ def highlight_between(
         elif all(0 <= c <= 255 for c in color):  # type: ignore
 
             def _inner_highlight_btwn(v: int | float, s: str) -> tuple[int | float, str]:
-                if (
-                    isinstance(v, int | float)
-                    and lower_bound <= _safe_round(v, round_to) <= upper_bound
-                ):
+                if isinstance(v, Real) and lower_bound <= _safe_round(v, round_to) <= upper_bound:
                     return (
                         v,
                         rf"\cellcolor[RGB]{{{int(color[0])},{int(color[1])},{int(color[2])}}}{s}",

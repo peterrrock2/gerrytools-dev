@@ -119,6 +119,9 @@ class TableOptions:
     bottomrule_cmd: str | None = None
     hrule_cmd: str = r"\hline"
 
+    include_column_headers: bool = True
+    include_group_headers: bool = True
+
     include_index: bool = False
     index_name: Optional[str] = None  # if None and include_index True, uses df.index.name or ""
     index_alignment: Optional[str] = None
@@ -143,6 +146,7 @@ class TableOptions:
     str_fmt_fn: Optional[CellWrapper] = _latex_escape_wrapper
     col_formatters: dict[str, CellWrapper] = field(default_factory=dict)
     row_formatters: dict[int, CellWrapper] = field(default_factory=dict)
+    index_fmt_fn: Optional[CellWrapper] = None
 
     groups_to_cols: dict[str, list[str]] = field(default_factory=dict)
 
@@ -244,7 +248,7 @@ class TableOptions:
                     continue
 
                 align = gcols[cell_i]
-                name = latex_escape(group)
+                name = latex_escape(str(group))
                 if self.bold_group_headers and name:
                     name = rf"\textbf{{{name}}}"
                 if self.italic_group_headers and name:
@@ -285,7 +289,7 @@ class TableOptions:
             # inferred alignment for this group cell
             align = _infer_group_cell_align_from_data(dcols, left_b, right_b)
 
-            name = latex_escape(group)
+            name = latex_escape(str(group))
             if self.bold_group_headers and name:
                 name = rf"\textbf{{{name}}}"
             if self.italic_group_headers and name:
@@ -526,7 +530,7 @@ class TexTable:
         """
 
         self.__options.index_alignment = alignment
-        self.__options.index_name = latex_escape(name) if name is not None else ""
+        self.__options.index_name = latex_escape(str(name)) if name is not None else ""
 
         n_data_cols = self.df.shape[1]
 
@@ -787,6 +791,32 @@ class TexTable:
         for ridx in row_indices:
             self.__options.row_highlight_colors[ridx] = color_tup
 
+    def remove_column_headers(self) -> None:
+        """Remove the column headers from the LaTeX table."""
+        self.__options.include_column_headers = False
+
+    def remove_group_headers(self) -> None:
+        """Remove the group headers from the LaTeX table."""
+        self.__options.include_group_headers = False
+
+    def remove_all_headers(self) -> None:
+        """Remove all headers (both column and group) from the LaTeX table."""
+        self.remove_column_headers()
+        self.remove_group_headers()
+
+    def include_column_headers(self) -> None:
+        """Include the column headers in the LaTeX table."""
+        self.__options.include_column_headers = True
+
+    def include_group_headers(self) -> None:
+        """Include the group headers in the LaTeX table."""
+        self.__options.include_group_headers = True
+
+    def include_all_headers(self) -> None:
+        """Include all headers (both column and group) in the LaTeX table."""
+        self.include_column_headers()
+        self.include_group_headers()
+
     # ==================
     #   OPTION SETTERS
     # ==================
@@ -961,6 +991,18 @@ class TexTable:
         self.__options.group_vrule_counts = None
         self.__options.group_boundary_extras = None
 
+    def set_index_formatter(self, fmt_fn: CellWrapper | Callable[[Any], str]) -> None:
+        """Set a formatter function for the index column (if included)."""
+        if len(inspect.signature(fmt_fn).parameters) == 1:
+            one_arg = cast(Callable[[Any], str], fmt_fn)
+
+            def _wrapped(v: Any, s: str) -> tuple[Any, str]:
+                return v, one_arg(v)
+
+            self.__options.index_fmt_fn = _wrapped
+        else:
+            self.__options.index_fmt_fn = cast(CellWrapper, fmt_fn)
+
     def set_number_formatter(self, fmt_fn: CellWrapper | Callable[[float], str]) -> None:
         """Set the number formatter function for the LaTeX table.
 
@@ -1121,7 +1163,10 @@ class TexTable:
             header_string += "\n" + self.__options.toprule_cmd + "\n"
 
         column_titles = []
-        if set(self.__options.groups_to_cols.keys()) != set({""}):
+        if (
+            set(self.__options.groups_to_cols.keys()) != set({""})
+            and self.__options.include_group_headers
+        ):
             header_string += f"\n{self.__options.multicolumn_format}"
 
         if self.__options.include_index:
@@ -1139,7 +1184,7 @@ class TexTable:
 
         for _, col_list in self.__options.groups_to_cols.items():
             for col in col_list:
-                col_title = latex_escape(col)
+                col_title = latex_escape(str(col))
                 if self.__options.bold_column_headers:
                     col_title = rf"\textbf{{{col_title}}}"
                 if self.__options.italic_column_headers:
@@ -1147,7 +1192,8 @@ class TexTable:
 
                 column_titles.append(col_title)
 
-        header_string += "\n" + " & ".join(column_titles) + r" \\"
+        if self.__options.include_column_headers:
+            header_string += "\n" + " & ".join(column_titles) + r" \\"
 
         header_string = rf"\begin{{tabular}}{header_string}" + "\n"
         logger.log(
@@ -1219,7 +1265,12 @@ class TexTable:
 
             row_items = []
             if self.__options.include_index:
-                row_items.append(latex_escape(str(df_row_idx)))
+                raw = str(df_row_idx)
+                esc = latex_escape(raw)
+                if self.__options.index_fmt_fn is not None:
+                    row_items.append(self.__options.index_fmt_fn(df_row_idx, esc)[1])
+                else:
+                    row_items.append(esc)
 
             for col in column_ordering:
                 cell_value = row[col]
