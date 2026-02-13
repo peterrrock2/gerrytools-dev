@@ -17,7 +17,7 @@ from gerrytools.plotting._geoplot_option_classes import (
     ColorbarOptions,
     _ColorbarLayoutOptions,
 )
-from gerrytools.plotting._gerryplot_option_classes import (
+from gerrytools.plotting._gerryplot_to_mpl_option_dataclasses import (
     LabelBoxOptions,
     LabelFontOptions,
 )

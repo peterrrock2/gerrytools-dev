@@ -16,7 +16,8 @@ from numpy.typing import NDArray
 
 from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
-from gerrytools.plotting.gerryplot import GerryPlotBase, PointMarkerOptions
+from gerrytools.plotting._gerryplot_to_mpl_option_dataclasses import PointMarkerOptions
+from gerrytools.plotting.gerryplot import GerryPlotBase
 from gerrytools.typing import BinsType, Color, HistType
 
 logger = get_logger(__name__)
@@ -53,7 +54,7 @@ def _coerce_to_1d_float_array(
     elif isinstance(values, pd.Series):
         arr = values.to_numpy(dtype=float)
     elif np.isscalar(values):
-        arr = np.array([float(values)], dtype=float)
+        arr = np.array([values], dtype=float)
     elif isinstance(values, np.ndarray):
         arr = np.asarray(values, dtype=float)
     elif isinstance(values, (list, tuple)):

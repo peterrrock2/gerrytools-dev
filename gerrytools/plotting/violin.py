@@ -14,12 +14,9 @@ from matplotlib.patches import Patch
 
 from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
-from gerrytools.plotting.gerryplot import (
-    GerryPlotBase,
-    LineData,
-    PointMarkerOptions,
-    PointSetData,
-)
+from gerrytools.plotting._gerryplot_dataclasses import LineData, PointSetData
+from gerrytools.plotting._gerryplot_to_mpl_option_dataclasses import PointMarkerOptions
+from gerrytools.plotting.gerryplot import GerryPlotBase
 from gerrytools.typing import Color
 
 logger = get_logger(__name__)

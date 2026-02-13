@@ -17,7 +17,7 @@ from matplotlib.pyplot import get_cmap
 from shapely.geometry import Point, box
 
 from gerrytools.colors import districtr, resolve_color_and_alpha
-from gerrytools.plotting._gerryplot_option_classes import (
+from gerrytools.plotting._gerryplot_to_mpl_option_dataclasses import (
     LabelBoxOptions,
     LabelFontOptions,
     PointMarkerOptions,

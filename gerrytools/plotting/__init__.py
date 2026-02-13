@@ -5,7 +5,8 @@ and violin plots 🎻.
 
 from gerrytools.colors import districtr, flare, latex, purples, redbluecmap
 from gerrytools.plotting._geoplot_option_classes import ColorbarOptions
-from gerrytools.plotting._gerryplot_option_classes import (
+from gerrytools.plotting._gerryplot_dataclasses import BandData, LineData, PointSetData
+from gerrytools.plotting._gerryplot_to_mpl_option_dataclasses import (
     AxisLabelStyle,
     FontFamily,
     FontStretch,
@@ -23,7 +24,6 @@ from gerrytools.plotting.boxplot import BoxPlot, BoxPlotSetData
 from gerrytools.plotting.coloredgeoplot import ColoredGeoPlot
 from gerrytools.plotting.dotdensity import DotDensityPlot
 from gerrytools.plotting.geoplot import GeoPlot
-from gerrytools.plotting.gerryplot import BandData, LineData, PointSetData
 from gerrytools.plotting.histogram import Histogram, HistogramData, HistPointList
 from gerrytools.plotting.scatterplot import ScatterPlot
 from gerrytools.plotting.sealevel import SeaLevel

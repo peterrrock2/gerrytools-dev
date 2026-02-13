@@ -17,7 +17,7 @@ from shapely.geometry import Point
 
 from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
-from gerrytools.plotting._gerryplot_option_classes import (
+from gerrytools.plotting._gerryplot_to_mpl_option_dataclasses import (
     LabelBoxOptions,
     LabelFontOptions,
     LegendOptions,
