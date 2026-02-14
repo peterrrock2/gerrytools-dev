@@ -4,7 +4,7 @@ and violin plots 🎻.
 """
 
 from gerrytools.colors import districtr, flare, latex, purples, redbluecmap
-from gerrytools.plotting._geoplot_option_classes import ColorbarOptions
+from gerrytools.plotting._geoplot_to_mpl_option_dataclasses import ColorbarOptions
 from gerrytools.plotting._gerryplot_dataclasses import BandData, LineData, PointSetData
 from gerrytools.plotting._gerryplot_to_mpl_option_dataclasses import (
     AxisLabelStyle,

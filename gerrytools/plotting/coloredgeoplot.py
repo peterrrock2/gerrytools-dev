@@ -13,7 +13,7 @@ from numpy import linspace
 from shapely.geometry import Point
 
 from gerrytools.colors import resolve_color_and_alpha
-from gerrytools.plotting._geoplot_option_classes import (
+from gerrytools.plotting._geoplot_to_mpl_option_dataclasses import (
     ColorbarOptions,
     _ColorbarLayoutOptions,
 )
