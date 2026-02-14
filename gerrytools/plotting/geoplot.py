@@ -948,23 +948,41 @@ class GeoPlot(ABC):
             zorder=zorder,
         )
 
-    def set_xlim(self, left: float, right: float) -> None:
+    def set_xlimits(self, lower: float, upper: float) -> None:
         """Set the x-axis limits to apply when the plot is built.
+
+        Args:
+            lower (float): The lower x-axis limit.
+            upper (float): The upper x-axis limit.
+        """
+        self._xlim = (float(lower), float(upper))
+
+    def set_ylimits(self, lower: float, upper: float) -> None:
+        """Set the y-axis limits to apply when the plot is built.
+
+        Args:
+            lower (float): The lower y-axis limit.
+            upper (float): The upper y-axis limit.
+        """
+        self._ylim = (float(lower), float(upper))
+
+    def set_xlim(self, left: float, right: float) -> None:
+        """Alias for ``set_xlimits``.
 
         Args:
             left (float): The left x-axis limit.
             right (float): The right x-axis limit.
         """
-        self._xlim = (float(left), float(right))
+        self.set_xlimits(lower=left, upper=right)
 
     def set_ylim(self, bottom: float, top: float) -> None:
-        """Set the y-axis limits to apply when the plot is built.
+        """Alias for ``set_ylimits``.
 
         Args:
             bottom (float): The bottom y-axis limit.
             top (float): The top y-axis limit.
         """
-        self._ylim = (float(bottom), float(top))
+        self.set_ylimits(lower=bottom, upper=top)
 
     def clear_limits(self) -> None:
         """Clear any stored x/y limits so autoscaling can occur."""

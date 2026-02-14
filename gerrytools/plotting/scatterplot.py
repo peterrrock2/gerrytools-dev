@@ -186,10 +186,10 @@ class ScatterPlot(GerryPlotBase):
         if len(self._scatter_data_list) == 0:
             return
 
-        for i, sdata in enumerate(self._scatter_data_list):
+        for sdata in self._scatter_data_list:
             self._ax.plot(
-                sdata.y,
                 sdata.x,
+                sdata.y,
                 linestyle="none",
                 clip_on=True,
                 rasterized=True,
@@ -198,7 +198,6 @@ class ScatterPlot(GerryPlotBase):
 
     def _build_plot(self) -> None:
         """Build the scatterplot by drawing point sets."""
-        print("Building scatterplot.")
         self._draw_points()
 
     def _get_scatter_legend_handles(self) -> list[Any]:

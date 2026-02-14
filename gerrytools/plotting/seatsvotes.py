@@ -145,6 +145,7 @@ class SeatsVotes(GerryPlotBase):
         self,
         pov_party_vote_counts: Sequence[float],
         total_vote_counts: Sequence[float],
+        *,
         election_name: str | None = None,
         linecolor: str | tuple[float, float, float] | None = None,
         markercolor: str | tuple[float, float, float] | None = None,
@@ -192,6 +193,7 @@ class SeatsVotes(GerryPlotBase):
     # ========================
     def update_crosshair_settings(
         self,
+        *,
         x_width: float = 0.02,
         y_width: float = 0.02,
         color: str | tuple[float, float, float] = "lightgrey",
@@ -247,6 +249,7 @@ class SeatsVotes(GerryPlotBase):
 
     def add_proportionality_line(
         self,
+        *,
         color: str | tuple[float, float, float] = "grey",
         linestyle: str = "--",
         linewidth: float = 2.0,
@@ -271,6 +274,7 @@ class SeatsVotes(GerryPlotBase):
 
     def add_efficiency_gap_line(
         self,
+        *,
         color: str | tuple[float, float, float] = "grey",
         linestyle: str = "-",
         linewidth: float = 2.0,
@@ -296,6 +300,7 @@ class SeatsVotes(GerryPlotBase):
     def add_custom_line(
         self,
         slope: float,
+        *,
         linecolor: str | tuple[float, float, float],
         linestyle: str,
         linewidth: float,

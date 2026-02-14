@@ -497,8 +497,8 @@ class BoxPlot(GerryPlotBase):
         *,
         linecolor: Color = "#cccccc",
         linealpha: float = 1.0,
-        linewidth: float = 0.8,
         linestyle: str = "-",
+        linewidth: float = 0.8,
         zorder: int = -3,
     ) -> None:
         """Update the settings for vertical lines at the center of boxplot groups.
@@ -507,8 +507,8 @@ class BoxPlot(GerryPlotBase):
             linecolor (Color, optional): The color of the vertical lines. Defaults to "#cccccc".
             linealpha (float, optional): The alpha transparency of the vertical lines.
                 Defaults to 1.0.
-            linewidth (float, optional): The width of the vertical lines. Defaults to 0.8.
             linestyle (str, optional): The linestyle of the vertical lines. Defaults to "-".
+            linewidth (float, optional): The width of the vertical lines. Defaults to 0.8.
             zorder (int, optional): The z-order of the vertical lines. Defaults to -3.
 
         Returns:
