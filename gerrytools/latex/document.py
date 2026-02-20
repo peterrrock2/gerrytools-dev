@@ -8,8 +8,6 @@ import weakref
 from pathlib import Path
 from typing import Iterable, Optional
 
-from PyQt6 import QtCore, QtGui, QtWidgets
-
 from gerrytools.logging import get_logger
 from gerrytools.typing import Color
 
@@ -380,6 +378,13 @@ class TexDocument:
         self, *, title: str = "LaTeX Preview", max_size=(1200, 800)
     ) -> None:  # pragma: no cover
         """Displays the rendered PNG in a Qt window."""
+        try:
+            from PyQt6 import QtCore, QtGui, QtWidgets
+        except ImportError as exc:
+            raise RuntimeError(
+                "PyQt6 is required for non-Jupyter preview. Install PyQt6 or use save_png/save_pdf."
+            ) from exc
+
         app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
 
         pix = QtGui.QPixmap(str(self._png_path))

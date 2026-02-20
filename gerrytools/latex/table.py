@@ -976,13 +976,10 @@ class TexTable:
         # preserve DF column order: any unlisted columns go into the "" group (at the end)
         missing_cols = [c for c in df_cols if c not in set(all_listed)]
 
-        if "" in retyped_group_to_cols:
-            retyped_group_to_cols[""].extend(missing_cols)
-            groups_to_cols = {k: v for k, v in retyped_group_to_cols.items()}
-        else:
-            groups_to_cols = retyped_group_to_cols
-
-        if len(missing_cols) > 0:
+        groups_to_cols = {k: v for k, v in retyped_group_to_cols.items()}
+        if "" in groups_to_cols:
+            groups_to_cols[""].extend(missing_cols)
+        elif len(missing_cols) > 0:
             groups_to_cols[""] = missing_cols
 
         self.__options.groups_to_cols = groups_to_cols

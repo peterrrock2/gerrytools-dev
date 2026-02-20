@@ -258,7 +258,7 @@ class PaintBall:
 
     def clear_options(self) -> None:
         """Resets all table options to their default values."""
-        self.__options = PaintBallOptions()
+        self.options = PaintBallOptions()
 
     def preview(self, hull=False) -> None:  # pragma: no cover
         """Previews the LaTeX document associated with this table."""
@@ -618,12 +618,32 @@ class PaintBall:
 
         sorted_y_vals = sorted(y_val_to_min_and_max_x.keys())
 
-        # Use marker color as default hull color if none specified
-        fillcolor = self.options.hullcolor or self.options.markercolor
-        fillalpha = self.options.hullalpha or self.options.markeralpha
-        linecolor = self.options.hulledgecolor or self.options.markeredgecolor
-        linewidth = self.options.hulledgewidth or self.options.markeredgewidth
-        linealpha = self.options.hulledgealpha or self.options.markeredgealpha
+        # Use marker settings as defaults only when hull options are unset.
+        fillcolor = (
+            self.options.hullcolor
+            if self.options.hullcolor is not None
+            else self.options.markercolor
+        )
+        fillalpha = (
+            self.options.hullalpha
+            if self.options.hullalpha is not None
+            else self.options.markeralpha
+        )
+        linecolor = (
+            self.options.hulledgecolor
+            if self.options.hulledgecolor is not None
+            else self.options.markeredgecolor
+        )
+        linewidth = (
+            self.options.hulledgewidth
+            if self.options.hulledgewidth is not None
+            else self.options.markeredgewidth
+        )
+        linealpha = (
+            self.options.hulledgealpha
+            if self.options.hulledgealpha is not None
+            else self.options.markeredgealpha
+        )
 
         draw_string = (
             f"\\draw [fill={fillcolor}, fill opacity={fillalpha}, line width={linewidth}, "
