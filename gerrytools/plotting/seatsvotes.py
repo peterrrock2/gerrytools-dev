@@ -22,16 +22,16 @@ class SeatsVotesData:
             same shape as pov_party_vote_counts.
         election_name (str): The name of the election/series, used for labeling the seats-votes
             curve in the legend.
-        linecolor (str | tuple[float, float, float]): The color of the seats-votes curve.
-        markercolor (str | tuple[float, float, float]): The color of the overall marker point.
+        linecolor (Color): The color of the seats-votes curve.
+        markercolor (Color): The color of the overall marker point.
         markerlabel (str): The label for the marker in the legend.
     """
 
     pov_party_vote_counts: np.ndarray
     total_vote_counts: np.ndarray
     election_name: str
-    linecolor: str | tuple[float, float, float]
-    markercolor: str | tuple[float, float, float]
+    linecolor: Color
+    markercolor: Color
     markerlabel: str
 
     def seats_votes_curve_values(
@@ -124,8 +124,8 @@ class SeatsVotes(GerryPlotBase):
         self.update_crosshair_settings()
 
         self._display_election_markers = True
-        self.standard_marker_color = "#daa520"
-        self.standard_election_color = "#006400"
+        self.standard_marker_color: Color = "#daa520"
+        self.standard_election_color: Color = "#006400"
 
         self.linewidth = 2.5
         self.markersize = 8.0
@@ -147,8 +147,8 @@ class SeatsVotes(GerryPlotBase):
         total_vote_shares: Sequence[int | float] | None = None,
         *,
         election_name: str | None = None,
-        linecolor: str | tuple[float, float, float] | None = None,
-        markercolor: str | tuple[float, float, float] | None = None,
+        linecolor: Color | None = None,
+        markercolor: Color | None = None,
         markerlabel: str | None = None,
     ) -> None:
         """Add a seats-votes curve to the plot.
@@ -156,21 +156,20 @@ class SeatsVotes(GerryPlotBase):
         Args:
             pov_party_vote_shares (Sequence[int | float]): A sequence of vote counts or vote shares
                 for the party of interest in each district. Vote shares should be values between
-                0 and 1, and, if provided, `total_vote_counts` cannot be provided.
+                0 and 1, and, if provided, `total_vote_shares` cannot be provided.
             total_vote_shares (Sequence[int | float], optional): A sequence of total vote counts
-                or shares in each district. If None, then `pov_party_vote_counts` is assumed to
+                or shares in each district. If None, then `pov_party_vote_shares` is assumed to
                 be vote shares (values between 0 and 1) and total vote share is assumed to be 1.0
-                for all districts. If provided, must be the same shape as `pov_party_vote_counts`.
+                for all districts. If provided, must be the same shape as `pov_party_vote_shares`.
                 Defaults to None.
             election_name (str | None, optional): The name of the election/series, used for labeling
                 the seats-votes curve in the legend. Defaults to None.
-            linecolor (str | tuple[float, float, float] | None, optional): The color of the
-                seats-votes curve. Defaults to None, which uses
-                ``self.standard_election_color``.
-            markercolor (str | tuple[float, float, float] | None, optional): The color of the
-                overall marker point. Defaults to None, which uses
-                ``self.standard_marker_color``. Markers are shown/hidden by
-                ``show_election_markers()`` / ``hide_election_markers()``.
+            linecolor (Color | None, optional): The color of the seats-votes curve. Defaults to
+                None, which uses ``self.standard_election_color``.
+            markercolor (Color | None, optional): The color of the
+                overall marker point. Defaults to None, which uses ``self.standard_marker_color``.
+                Markers are shown/hidden by ``show_election_markers()`` /
+                ``hide_election_markers()``.
             markerlabel (str | None, optional): The label for the election-result marker in the
                 legend. If not
                 provided, then all will be assigned the default marker label "Election Result"
@@ -179,13 +178,10 @@ class SeatsVotes(GerryPlotBase):
         if total_vote_shares is None:
             if any(v < 0 or v > 1 for v in pov_party_vote_shares):
                 raise ValueError(
-                    "If total_vote_counts is not provided, then pov_party_vote_counts must be "
+                    "If total_vote_shares is not provided, then pov_party_vote_shares must be "
                     "vote shares (values between 0 and 1)."
                 )
             total_vote_shares = [1.0] * len(pov_party_vote_shares)
-
-        if markercolor is None:
-            self.markercolor = self.standard_marker_color
 
         self._sv_data_list.append(
             SeatsVotesData(
@@ -208,7 +204,7 @@ class SeatsVotes(GerryPlotBase):
         *,
         x_width: float = 0.02,
         y_width: float = 0.02,
-        color: str | tuple[float, float, float] = "lightgrey",
+        color: Color = "lightgrey",
         alpha: float = 1.0,
     ) -> None:
         """Add crosshairs centered at (0.5, 0.5) to the plot.
@@ -216,7 +212,7 @@ class SeatsVotes(GerryPlotBase):
         Args:
             x_width (float, optional): The width of the vertical crosshair line. Defaults to 0.02.
             y_width (float, optional): The width of the horizontal crosshair line. Defaults to 0.02.
-            color (str | tuple[float, float, float], optional): The color of the crosshair lines.
+            color (Color, optional): The color of the crosshair lines.
                 Defaults to "lightgrey".
             alpha (float, optional): The alpha transparency of the crosshair lines. Defaults to 1.0.
         """
@@ -226,15 +222,13 @@ class SeatsVotes(GerryPlotBase):
             x=dict(
                 xmin=0.5 - dx,
                 xmax=0.5 + dx,
-                color=color,
-                alpha=alpha,
+                color=self._resolved_rgba(color=color, field="crosshair_color", alpha=alpha),
                 zorder=-2,
             ),
             y=dict(
                 ymin=0.5 - dy,
                 ymax=0.5 + dy,
-                color=color,
-                alpha=alpha,
+                color=self._resolved_rgba(color=color, field="crosshair_color", alpha=alpha),
                 zorder=-2,
             ),
         )
@@ -262,15 +256,14 @@ class SeatsVotes(GerryPlotBase):
     def add_proportionality_line(
         self,
         *,
-        color: str | tuple[float, float, float] = "grey",
+        color: Color = "grey",
         linestyle: str = "--",
         linewidth: float = 2.0,
     ) -> None:
         """Add a proportionality line (y=x) to the plot.
 
         Args:
-            color (str | tuple[float, float, float], optional): The color of the line. Defaults
-                to "grey".
+            color (Color, optional): The color of the line. Defaults to "grey".
             linestyle (str, optional): The style of the line. Defaults to "--".
             linewidth (float, optional): The width of the line. Defaults to 2.0.
         """
@@ -287,15 +280,14 @@ class SeatsVotes(GerryPlotBase):
     def add_efficiency_gap_line(
         self,
         *,
-        color: str | tuple[float, float, float] = "grey",
+        color: Color = "grey",
         linestyle: str = "-",
         linewidth: float = 2.0,
     ) -> None:
         """Add an Efficiency Gap line (y=2x-0.5) to the plot.
 
         Args:
-            color (str | tuple[float, float, float], optional): The color of the line. Defaults
-                to "grey".
+            color (Color, optional): The color of the line. Defaults to "grey".
             linestyle (str, optional): The style of the line. Defaults to "-".
             linewidth (float, optional): The width of the line. Defaults to 2.0.
         """
@@ -313,7 +305,7 @@ class SeatsVotes(GerryPlotBase):
         self,
         slope: float,
         *,
-        linecolor: str | tuple[float, float, float],
+        linecolor: Color,
         linestyle: str,
         linewidth: float,
         label: str | None = None,
@@ -325,7 +317,7 @@ class SeatsVotes(GerryPlotBase):
 
         Args:
             slope (float): The slope of the line.
-            linecolor (str | tuple[float, float, float], optional): The color of the line.
+            linecolor (Color, optional): The color of the line.
             linestyle (str, optional): The style of the line.
             linewidth (float, optional): The width of the line.
             label (str | None, optional): The label for the line in the legend. Defaults to None.
@@ -471,7 +463,10 @@ class SeatsVotes(GerryPlotBase):
             self._ax.plot(
                 x_vals,
                 y_vals,
-                color=line.linecolor,
+                color=self._resolved_rgba(
+                    line.linecolor,
+                    field="linecolor",
+                ),
                 linestyle=line.linestyle,
                 linewidth=line.linewidth,
                 zorder=-1,
@@ -486,7 +481,10 @@ class SeatsVotes(GerryPlotBase):
                 vote_shares,
                 seat_shares,
                 where="pre",
-                color=sv_series.linecolor,
+                color=self._resolved_rgba(
+                    sv_series.linecolor,
+                    field="linecolor",
+                ),
                 linewidth=self.linewidth,
             )
 
@@ -505,7 +503,10 @@ class SeatsVotes(GerryPlotBase):
                     total_seat_share,
                     marker="o",
                     linestyle="",
-                    color=sv_series.markercolor,
+                    color=self._resolved_rgba(
+                        sv_series.markercolor,
+                        field="markercolor",
+                    ),
                     markersize=self.markersize,
                 )
 
@@ -541,7 +542,10 @@ class SeatsVotes(GerryPlotBase):
                     linestyle="-",
                     marker="",
                     label=election_name,
-                    color=linecolor,
+                    color=self._resolved_rgba(
+                        linecolor,
+                        field="linecolor",
+                    ),
                 )
             )
 
@@ -566,7 +570,10 @@ class SeatsVotes(GerryPlotBase):
                     linestyle="none",
                     label=markerlabel,
                     marker="o",
-                    color=markercolor,
+                    color=self._resolved_rgba(
+                        markercolor,
+                        field="markercolor",
+                    ),
                     markersize=self.markersize,
                 )
             )
@@ -590,7 +597,10 @@ class SeatsVotes(GerryPlotBase):
                         linestyle=line.linestyle,
                         marker="",
                         label=line.label,
-                        color=line.linecolor,
+                        color=self._resolved_rgba(
+                            line.linecolor,
+                            field="linecolor",
+                        ),
                     )
                 )
 

@@ -11,6 +11,7 @@ from matplotlib.axes import Axes
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 
+from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
 from gerrytools.plotting._gerryplot_dataclasses import BandData, LineData
 from gerrytools.plotting._gerryplot_to_mpl_option_dataclasses import (
@@ -558,6 +559,25 @@ class GerryPlotBase(ABC):
             if fontfamily is not None:
                 text.set_fontfamily(fontfamily)
 
+    def _resolved_rgba(
+        self,
+        color: Color,
+        alpha: float | None = None,
+        *,
+        field: str = "color",
+    ) -> tuple[float, float, float, float]:
+        """Resolve GerryTools/Matplotlib color inputs to an RGBA tuple."""
+        resolved_color, resolved_alpha = resolve_color_and_alpha(
+            color,
+            alpha=alpha,
+            allow_none=True,
+            field=field,
+            owner=self.__class__.__name__,
+            logger=logger,
+        )
+        rgba = mcolors.to_rgba(resolved_color, alpha=resolved_alpha)
+        return (float(rgba[0]), float(rgba[1]), float(rgba[2]), float(rgba[3]))
+
     def _apply_tick_style(self, axis: Literal["x", "y", "both"], style: TickStyle) -> None:
         """Apply tick style to the specified axis.
 
@@ -569,8 +589,16 @@ class GerryPlotBase(ABC):
             None
         """
         # Tick marks + tick label basics
-        label_color_resolved = mcolors.to_rgba(style.fontcolor, alpha=style.fontalpha)
-        tick_color_resolved = mcolors.to_rgba(style.tickcolor, alpha=style.tickalpha)
+        label_color_resolved = self._resolved_rgba(
+            style.fontcolor,
+            style.fontalpha,
+            field="fontcolor",
+        )
+        tick_color_resolved = self._resolved_rgba(
+            style.tickcolor,
+            style.tickalpha,
+            field="tickcolor",
+        )
         self._ax.tick_params(
             axis=axis,
             which=style.ticktype,
@@ -961,15 +989,22 @@ class GerryPlotBase(ABC):
     def _draw_verticals(self) -> None:
         """Draw vertical lines and bands on the plot."""
         for band in self._vertical_bands:
-            edgecolor = (
-                "none"
-                if band.linecolor is None or band.linewidth == 0.0
-                else mcolors.to_rgba(band.linecolor, alpha=band.linealpha)
-            )
+            if band.linecolor is None or band.linewidth == 0.0:
+                edgecolor = "none"
+            else:
+                edgecolor = self._resolved_rgba(
+                    band.linecolor,
+                    band.linealpha,
+                    field="linecolor",
+                )
             self._ax.axvspan(
                 band.lower_bound,
                 band.upper_bound,
-                facecolor=mcolors.to_rgba(band.bandcolor, alpha=band.bandalpha),
+                facecolor=self._resolved_rgba(
+                    band.bandcolor,
+                    band.bandalpha,
+                    field="bandcolor",
+                ),
                 edgecolor=edgecolor,
                 linestyle=band.linestyle,
                 linewidth=band.linewidth,
@@ -985,7 +1020,11 @@ class GerryPlotBase(ABC):
                 assert isinstance(value, (int, float))
                 self._ax.axvline(
                     value,
-                    color=mcolors.to_rgba(ln.linecolor, alpha=ln.linealpha),
+                    color=self._resolved_rgba(
+                        ln.linecolor,
+                        ln.linealpha,
+                        field="linecolor",
+                    ),
                     linestyle=ln.linestyle,
                     linewidth=ln.linewidth,
                     zorder=ln.zorder,
@@ -994,15 +1033,22 @@ class GerryPlotBase(ABC):
     def _draw_horizontals(self) -> None:
         """Draw horizontal lines and bands on the plot."""
         for band in self._horizontal_bands:
-            edgecolor = (
-                "none"
-                if band.linecolor is None or band.linewidth == 0.0
-                else mcolors.to_rgba(band.linecolor, alpha=band.linealpha)
-            )
+            if band.linecolor is None or band.linewidth == 0.0:
+                edgecolor = "none"
+            else:
+                edgecolor = self._resolved_rgba(
+                    band.linecolor,
+                    band.linealpha,
+                    field="linecolor",
+                )
             self._ax.axhspan(
                 band.lower_bound,
                 band.upper_bound,
-                facecolor=mcolors.to_rgba(band.bandcolor, alpha=band.bandalpha),
+                facecolor=self._resolved_rgba(
+                    band.bandcolor,
+                    band.bandalpha,
+                    field="bandcolor",
+                ),
                 edgecolor=edgecolor,
                 linestyle=band.linestyle,
                 linewidth=band.linewidth,
@@ -1018,7 +1064,11 @@ class GerryPlotBase(ABC):
                 assert isinstance(value, (int, float))
                 self._ax.axhline(
                     value,
-                    color=mcolors.to_rgba(ln.linecolor, alpha=ln.linealpha),
+                    color=self._resolved_rgba(
+                        ln.linecolor,
+                        ln.linealpha,
+                        field="linecolor",
+                    ),
                     linestyle=ln.linestyle,
                     linewidth=ln.linewidth,
                     zorder=ln.zorder,
@@ -1036,7 +1086,11 @@ class GerryPlotBase(ABC):
                 handle = Line2D(
                     [0],
                     [0],
-                    color=mcolors.to_rgba(line.linecolor, alpha=line.linealpha),
+                    color=self._resolved_rgba(
+                        line.linecolor,
+                        line.linealpha,
+                        field="linecolor",
+                    ),
                     linestyle=line.linestyle,
                     linewidth=line.linewidth,
                     label=line.name,
@@ -1056,13 +1110,20 @@ class GerryPlotBase(ABC):
             if band.name is None:
                 continue
 
-            edgecolor = (
-                "none"
-                if band.linecolor is None or band.linewidth == 0.0
-                else mcolors.to_rgba(band.linecolor, alpha=band.linealpha)
-            )
+            if band.linecolor is None or band.linewidth == 0.0:
+                edgecolor = "none"
+            else:
+                edgecolor = self._resolved_rgba(
+                    band.linecolor,
+                    band.linealpha,
+                    field="linecolor",
+                )
             handle = Patch(
-                facecolor=mcolors.to_rgba(band.bandcolor, alpha=band.bandalpha),
+                facecolor=self._resolved_rgba(
+                    band.bandcolor,
+                    band.bandalpha,
+                    field="bandcolor",
+                ),
                 edgecolor=edgecolor,
                 linestyle=band.linestyle,
                 linewidth=band.linewidth,

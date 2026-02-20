@@ -4,9 +4,8 @@ import logging
 import math
 from dataclasses import dataclass
 from numbers import Real
-from typing import Any
+from typing import Any, cast
 
-import matplotlib.colors as mcolors
 import numpy as np
 import pandas as pd
 from matplotlib.lines import Line2D
@@ -522,9 +521,10 @@ class ViolinPlot(GerryPlotBase):
         for x in self._violinplot_centers:
             self._ax.axvline(
                 x,
-                color=mcolors.to_rgba(
+                color=self._resolved_rgba(
                     self._violinplot_group_vline_settings.linecolor,
-                    alpha=self._violinplot_group_vline_settings.linealpha,
+                    self._violinplot_group_vline_settings.linealpha,
+                    field="linecolor",
                 ),
                 linestyle=self._violinplot_group_vline_settings.linestyle,
                 linewidth=self._violinplot_group_vline_settings.linewidth,
@@ -621,14 +621,23 @@ class ViolinPlot(GerryPlotBase):
                 showextrema=False,
             )
 
-            for patch in vp["bodies"]:
+            bodies = cast(list[Any], vp.get("bodies", []))
+            for patch in bodies:
                 patch.set_alpha(None)
                 patch.set_facecolor(
-                    mcolors.to_rgba(violinplot_data.facecolor, alpha=violinplot_data.facealpha)
+                    self._resolved_rgba(
+                        violinplot_data.facecolor,
+                        violinplot_data.facealpha,
+                        field="facecolor",
+                    )
                 )
                 patch.set_linewidth(violinplot_data.edgewidth)
                 patch.set_edgecolor(
-                    mcolors.to_rgba(violinplot_data.edgecolor, alpha=violinplot_data.edgealpha)
+                    self._resolved_rgba(
+                        violinplot_data.edgecolor,
+                        violinplot_data.edgealpha,
+                        field="edgecolor",
+                    )
                 )
                 patch.set_zorder(violinplot_data.zorder)
 
@@ -656,11 +665,15 @@ class ViolinPlot(GerryPlotBase):
         for violinplot_data in self._violinplot_data_list:
             handles.append(
                 Patch(
-                    facecolor=mcolors.to_rgba(
-                        violinplot_data.facecolor, alpha=violinplot_data.facealpha
+                    facecolor=self._resolved_rgba(
+                        violinplot_data.facecolor,
+                        violinplot_data.facealpha,
+                        field="facecolor",
                     ),
-                    edgecolor=mcolors.to_rgba(
-                        violinplot_data.edgecolor, alpha=violinplot_data.edgealpha
+                    edgecolor=self._resolved_rgba(
+                        violinplot_data.edgecolor,
+                        violinplot_data.edgealpha,
+                        field="edgecolor",
                     ),
                     label=violinplot_data.name,
                 )

@@ -6,7 +6,6 @@ from dataclasses import dataclass, field
 from numbers import Real
 from typing import Any
 
-import matplotlib.colors as mcolors
 import numpy as np
 import pandas as pd
 from matplotlib.lines import Line2D
@@ -549,9 +548,10 @@ class BoxPlot(GerryPlotBase):
         for x in self._boxplot_centers:
             self._ax.axvline(
                 x,
-                color=mcolors.to_rgba(
+                color=self._resolved_rgba(
                     self._boxplot_group_vline_settings.linecolor,
-                    alpha=self._boxplot_group_vline_settings.linealpha,
+                    self._boxplot_group_vline_settings.linealpha,
+                    field="linecolor",
                 ),
                 linestyle=self._boxplot_group_vline_settings.linestyle,
                 linewidth=self._boxplot_group_vline_settings.linewidth,
@@ -649,10 +649,18 @@ class BoxPlot(GerryPlotBase):
                 flierprops=boxplot_data.flier_options.to_mpl_settings_dict(),
             )
 
-            edgecolor = mcolors.to_rgba(boxplot_data.edgecolor, alpha=boxplot_data.edgealpha)
+            edgecolor = self._resolved_rgba(
+                boxplot_data.edgecolor,
+                boxplot_data.edgealpha,
+                field="edgecolor",
+            )
             for patch in bp["boxes"]:
                 patch.set_facecolor(
-                    mcolors.to_rgba(boxplot_data.facecolor, alpha=boxplot_data.facealpha)
+                    self._resolved_rgba(
+                        boxplot_data.facecolor,
+                        boxplot_data.facealpha,
+                        field="facecolor",
+                    )
                 )
                 patch.set_linewidth(boxplot_data.edgewidth)
                 patch.set_edgecolor(edgecolor)
@@ -692,8 +700,16 @@ class BoxPlot(GerryPlotBase):
         for boxplot_data in self._boxplot_data_list:
             handles.append(
                 Patch(
-                    facecolor=mcolors.to_rgba(boxplot_data.facecolor, alpha=boxplot_data.facealpha),
-                    edgecolor=mcolors.to_rgba(boxplot_data.edgecolor, alpha=boxplot_data.edgealpha),
+                    facecolor=self._resolved_rgba(
+                        boxplot_data.facecolor,
+                        boxplot_data.facealpha,
+                        field="facecolor",
+                    ),
+                    edgecolor=self._resolved_rgba(
+                        boxplot_data.edgecolor,
+                        boxplot_data.edgealpha,
+                        field="edgecolor",
+                    ),
                     label=boxplot_data.name,
                 )
             )

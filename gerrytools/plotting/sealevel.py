@@ -5,7 +5,6 @@ from dataclasses import dataclass, field
 from numbers import Real
 from typing import Any
 
-import matplotlib.colors as mcolors
 import numpy as np
 import pandas as pd
 from matplotlib.lines import Line2D
@@ -443,7 +442,11 @@ class SeaLevel(GerryPlotBase):
                 x_positions,
                 y_positions,
                 linestyle=sealevel_set.linestyle,
-                color=mcolors.to_rgba(sealevel_set.linecolor, sealevel_set.linealpha),
+                color=self._resolved_rgba(
+                    sealevel_set.linecolor,
+                    sealevel_set.linealpha,
+                    field="linecolor",
+                ),
                 linewidth=sealevel_set.linewidth,
                 zorder=sealevel_set.zorder,
                 label=sealevel_set.name,
@@ -476,7 +479,11 @@ class SeaLevel(GerryPlotBase):
                     [0],
                     [0],
                     linestyle=sealevel_data.linestyle,
-                    color=mcolors.to_rgba(sealevel_data.linecolor, sealevel_data.linealpha),
+                    color=self._resolved_rgba(
+                        sealevel_data.linecolor,
+                        sealevel_data.linealpha,
+                        field="linecolor",
+                    ),
                     linewidth=sealevel_data.linewidth,
                     label=sealevel_data.name,
                     zorder=sealevel_data.zorder,

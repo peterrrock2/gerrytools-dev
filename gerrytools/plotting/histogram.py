@@ -6,7 +6,6 @@ from itertools import chain
 from typing import Any, Iterable
 from warnings import warn
 
-import matplotlib.colors as mcolors
 import numpy as np
 import pandas as pd
 from matplotlib.lines import Line2D
@@ -590,7 +589,11 @@ class Histogram(GerryPlotBase):
                         edgecolor=(
                             "none"
                             if hdata.edgecolor == "none" or hdata.edgewidth == 0.0
-                            else mcolors.to_rgba(hdata.edgecolor, alpha=hdata.edgealpha)
+                            else self._resolved_rgba(
+                                hdata.edgecolor,
+                                hdata.edgealpha,
+                                field="edgecolor",
+                            )
                         ),
                         zorder=hdata.zorder,
                         label=hdata.name,
@@ -607,11 +610,19 @@ class Histogram(GerryPlotBase):
                     width=bin_widths / n_bins_per_bar,
                     bottom=hist_bottoms,
                     align=self._bin_alignment,
-                    facecolor=mcolors.to_rgba(hdata.facecolor, alpha=hdata.facealpha),
+                    facecolor=self._resolved_rgba(
+                        hdata.facecolor,
+                        hdata.facealpha,
+                        field="facecolor",
+                    ),
                     edgecolor=(
                         "none"
                         if hdata.edgecolor == "none" or hdata.edgewidth == 0.0
-                        else mcolors.to_rgba(hdata.edgecolor, alpha=hdata.edgealpha)
+                        else self._resolved_rgba(
+                            hdata.edgecolor,
+                            hdata.edgealpha,
+                            field="edgecolor",
+                        )
                     ),
                     linewidth=hdata.edgewidth,
                     zorder=hdata.zorder,
@@ -713,13 +724,15 @@ class Histogram(GerryPlotBase):
                 linestyle="",
                 marker=pointlist.point_data.marker,
                 markersize=pointlist.point_data.markersize,
-                markerfacecolor=mcolors.to_rgba(
+                markerfacecolor=self._resolved_rgba(
                     pointlist.point_data.markerfacecolor,
-                    alpha=pointlist.point_data.markerfacealpha,
+                    pointlist.point_data.markerfacealpha,
+                    field="markerfacecolor",
                 ),
-                markeredgecolor=mcolors.to_rgba(
+                markeredgecolor=self._resolved_rgba(
                     pointlist.point_data.markeredgecolor,
-                    alpha=pointlist.point_data.markeredgealpha,
+                    pointlist.point_data.markeredgealpha,
+                    field="markeredgecolor",
                 ),
                 markeredgewidth=pointlist.point_data.markeredgewidth,
                 zorder=pointlist.point_data.zorder,
@@ -740,11 +753,19 @@ class Histogram(GerryPlotBase):
         for hdata in chain(*self._hist_data_dict.values()):
             handles.append(
                 Patch(
-                    facecolor=mcolors.to_rgba(hdata.facecolor, alpha=hdata.facealpha),
+                    facecolor=self._resolved_rgba(
+                        hdata.facecolor,
+                        hdata.facealpha,
+                        field="facecolor",
+                    ),
                     edgecolor=(
                         "none"
                         if hdata.edgecolor == "none" or hdata.edgewidth == 0.0
-                        else mcolors.to_rgba(hdata.edgecolor, alpha=hdata.edgealpha)
+                        else self._resolved_rgba(
+                            hdata.edgecolor,
+                            hdata.edgealpha,
+                            field="edgecolor",
+                        )
                     ),
                     linewidth=hdata.edgewidth,
                     label=hdata.name,
