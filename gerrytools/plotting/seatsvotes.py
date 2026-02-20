@@ -143,8 +143,8 @@ class SeatsVotes(GerryPlotBase):
 
     def add_seat_votes_data(
         self,
-        pov_party_vote_counts: Sequence[float],
-        total_vote_counts: Sequence[float],
+        pov_party_vote_shares: Sequence[int | float],
+        total_vote_shares: Sequence[int | float] | None = None,
         *,
         election_name: str | None = None,
         linecolor: str | tuple[float, float, float] | None = None,
@@ -154,10 +154,14 @@ class SeatsVotes(GerryPlotBase):
         """Add a seats-votes curve to the plot.
 
         Args:
-            pov_party_vote_counts (Sequence[float]): A sequence of vote counts for the party of
-                interest in each district.
-            total_vote_counts (Sequence[float]): A sequence of total vote counts in each district.
-                Must be the same length as pov_party_vote_counts.
+            pov_party_vote_shares (Sequence[int | float]): A sequence of vote counts or vote shares
+                for the party of interest in each district. Vote shares should be values between
+                0 and 1, and, if provided, `total_vote_counts` cannot be provided.
+            total_vote_shares (Sequence[int | float], optional): A sequence of total vote counts
+                or shares in each district. If None, then `pov_party_vote_counts` is assumed to
+                be vote shares (values between 0 and 1) and total vote share is assumed to be 1.0
+                for all districts. If provided, must be the same shape as `pov_party_vote_counts`.
+                Defaults to None.
             election_name (str | None, optional): The name of the election/series, used for labeling
                 the seats-votes curve in the legend. Defaults to None.
             linecolor (str | tuple[float, float, float] | None, optional): The color of the
@@ -172,13 +176,21 @@ class SeatsVotes(GerryPlotBase):
                 provided, then all will be assigned the default marker label "Election Result"
         """
 
+        if total_vote_shares is None:
+            if any(v < 0 or v > 1 for v in pov_party_vote_shares):
+                raise ValueError(
+                    "If total_vote_counts is not provided, then pov_party_vote_counts must be "
+                    "vote shares (values between 0 and 1)."
+                )
+            total_vote_shares = [1.0] * len(pov_party_vote_shares)
+
         if markercolor is None:
             self.markercolor = self.standard_marker_color
 
         self._sv_data_list.append(
             SeatsVotesData(
-                pov_party_vote_counts=np.array(pov_party_vote_counts),
-                total_vote_counts=np.array(total_vote_counts),
+                pov_party_vote_counts=np.array(pov_party_vote_shares),
+                total_vote_counts=np.array(total_vote_shares),
                 election_name=(
                     election_name if election_name is not None else "Election Seats-Votes Curve"
                 ),
@@ -338,16 +350,16 @@ class SeatsVotes(GerryPlotBase):
         """Apply fontsize while preserving any existing tick-style settings."""
         if axis == "x":
             style = self._x_tick_style
-            setter = self.set_xaxis_tick_style
+            style_setter = self.set_xaxis_tick_style
         else:
             style = self._y_tick_style
-            setter = self.set_yaxis_tick_style
+            style_setter = self.set_yaxis_tick_style
 
         if style is None:
-            setter(size=fontsize)
+            style_setter(size=fontsize)
             return
 
-        setter(
+        style_setter(
             size=fontsize,
             rotation=style.rotation,
             fontcolor=style.fontcolor,
