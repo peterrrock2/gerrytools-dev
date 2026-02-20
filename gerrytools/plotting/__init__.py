@@ -25,6 +25,7 @@ from gerrytools.plotting.coloredgeoplot import ColoredGeoPlot
 from gerrytools.plotting.dotdensity import DotDensityPlot
 from gerrytools.plotting.geoplot import GeoPlot
 from gerrytools.plotting.histogram import Histogram, HistogramData, HistPointList
+from gerrytools.plotting.paintball import PaintBall, PaintBallLine
 from gerrytools.plotting.scatterplot import ScatterPlot
 from gerrytools.plotting.sealevel import SeaLevel
 from gerrytools.plotting.seatsvotes import SeatsVotes, SeatsVotesData, SVPlotLine
@@ -61,6 +62,8 @@ __all__ = [
     "Histogram",
     "HistogramData",
     "HistPointList",
+    "PaintBall",
+    "PaintBallLine",
     "ScatterPlot",
     "SeaLevel",
     "SeatsVotes",

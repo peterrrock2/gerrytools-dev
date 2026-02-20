@@ -163,15 +163,11 @@ class PaintBallOptions:
 
 
 class PaintBall:
-    """Class for generating paintball plots.
+    """Class for generating paintball plots in TikZ/LaTeX.
 
-    Args:
-        df (pd.DataFrame): The DataFrame to be converted to a LaTeX table
-        use_defaults (bool, optional): Whether to initialize with default table options
-            (bold headers, 4 decimal places, etc.). Defaults to True.
-
-    Attributes:
-        df (pd.DataFrame): The DataFrame to be converted to a LaTeX table
+    The paintball plot is defined in vote-share / seat-share coordinates in the unit square.
+    Vote shares are expected in [0, 1]. Seat data is either interpreted as shares in [0, 1]
+    or normalized from seat counts using ``maximum_seats``.
     """
 
     def __init__(
@@ -184,6 +180,24 @@ class PaintBall:
         include_efficiency_gap_line: bool = True,
         include_proportionality_line: bool = True,
     ) -> None:
+        """Initialize a LaTeX paintball plot.
+
+        Args:
+            voteshare_data (Iterable[float]): Vote-share values for each plan outcome.
+                Every value must be in [0, 1].
+            seats_data (Iterable[float]): Seat-share values or seat counts for each plan outcome.
+                If ``maximum_seats`` is None, values are interpreted as seat shares and must be
+                in [0, 1]. If ``maximum_seats`` is provided, values are interpreted as seat counts
+                and normalized by dividing by ``maximum_seats``.
+            maximum_seats (int | None, optional): Maximum seat count used to normalize
+                ``seats_data`` when seat counts are provided. Defaults to None.
+            round_data_to (int, optional): Decimal precision used when storing plot data for
+                LaTeX output. Defaults to 4.
+            include_efficiency_gap_line (bool, optional): Whether to include the default
+                efficiency-gap guide line. Defaults to True.
+            include_proportionality_line (bool, optional): Whether to include the default
+                proportionality guide line. Defaults to True.
+        """
         self._document = TexDocument()
         self._document.add_packages("tikz")
         self.options = PaintBallOptions()
@@ -265,7 +279,14 @@ class PaintBall:
         *,
         round_data_to: int = 4,
     ) -> tuple[list[float], list[float]]:
-        """Adds the seats-votes data points to the paintball plot."""
+        """Validate and normalize incoming vote-share and seat-share data.
+
+        ``voteshare_data`` values must lie in [0, 1].
+        ``seats_data`` values are either interpreted directly as seat shares in [0, 1]
+        (when ``maximum_seats`` is None), or as seat counts normalized by
+        ``maximum_seats`` (when provided). Returned values are rounded to ``round_data_to``
+        decimal places for stable LaTeX output.
+        """
 
         if len(voteshare_data) != len(seats_data):
             raise ValueError("voteshare_data and seats_data must have the same length")
@@ -296,20 +317,24 @@ class PaintBall:
         self,
         voteshare_data: Iterable[float],
         seats_data: Iterable[float],
-        maximum_seats: int | None,
+        maximum_seats: int | None = None,
         *,
         round_data_to: int = 4,
     ) -> None:
-        """Adds the seats-votes data points to the paintball plot.
+        """Add vote-share / seat-share data points to the paintball plot.
 
         Args:
-            voteshare_data (Iterable[float]): The vote share data points
-            seats_data (Iterable[float]): The seat share data points
+            voteshare_data (Iterable[float]): Vote-share values to add. Every value must be
+                in [0, 1].
+            seats_data (Iterable[float]): Seat-share values or seat counts to add.
+                If ``maximum_seats`` is None, values are interpreted as seat shares and must be
+                in [0, 1]. If ``maximum_seats`` is provided, values are interpreted as seat counts
+                and normalized by dividing by ``maximum_seats``.
             maximum_seats (int | None, optional): The maximum number of seats. If provided,
                 seats_data will be scaled by this value to obtain seat shares. If None,
                 seats_data is assumed to already be in seat share format (i.e., in [0, 1]).
-            round_data_to (int, optional): The number of decimal places to round the data
-                points to. Defaults to 4.
+            round_data_to (int, optional): Decimal precision used when storing plot data for
+                LaTeX output. Defaults to 4.
         """
 
         new_voteshare_data, new_seatshare_data = self._validate_voteshare_seatshare_and_max_seats(
