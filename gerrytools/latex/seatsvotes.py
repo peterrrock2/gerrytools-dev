@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import math
-import re
 from dataclasses import dataclass
 from typing import Literal, Sequence, TypedDict
 
 import numpy as np
 
+from gerrytools.latex._geometry import line_segment_through_unit_square
+from gerrytools.latex._text import latex_escape
 from gerrytools.latex.document import TexDocument
 from gerrytools.logging import get_logger
 from gerrytools.typing import Color
@@ -14,25 +15,15 @@ from gerrytools.typing import Color
 logger = get_logger(__name__)
 
 
-def _escape_latex_text(text: str) -> str:
-    """Escape special LaTeX characters in plain text."""
-    repl = {
-        "\\": r"\textbackslash{}",
-        "&": r"\&",
-        "%": r"\%",
-        "$": r"\$",
-        "#": r"\#",
-        "_": r"\_",
-        "{": r"\{",
-        "}": r"\}",
-        "~": r"\textasciitilde{}",
-        "^": r"\textasciicircum{}",
-    }
-    return "".join(repl.get(ch, ch) for ch in text)
-
-
 def _to_tikz_linestyle(linestyle: str) -> str:
-    """Map Matplotlib-like line styles to TikZ equivalents."""
+    """Map Matplotlib-style line strings to TikZ line styles.
+
+    Args:
+        linestyle (str): Matplotlib-style or TikZ-style line token.
+
+    Returns:
+        str: Equivalent TikZ line style token.
+    """
     style_map = {
         "-": "solid",
         "--": "dashed",
@@ -49,7 +40,16 @@ def _to_tikz_linestyle(linestyle: str) -> str:
 
 @dataclass(slots=True, frozen=True)
 class SeatsVotesData:
-    """One seats-votes curve and optional overall marker."""
+    """Container for one seats-votes series and its marker metadata.
+
+    Attributes:
+        pov_party_vote_counts (np.ndarray): Per-district party-of-interest vote totals.
+        total_vote_counts (np.ndarray): Per-district total vote totals.
+        name (str): Legend label for the seats-votes curve.
+        linecolor (Color): Color for the step curve.
+        markercolor (Color): Color for the election-result marker.
+        markerlabel (str): Legend label for the marker.
+    """
 
     pov_party_vote_counts: np.ndarray
     total_vote_counts: np.ndarray
@@ -61,7 +61,14 @@ class SeatsVotesData:
     def seats_votes_curve_values(
         self,
     ) -> tuple[list[float], list[float]]:
-        """Compute standard uniform-swing seats-votes step-curve positions."""
+        """Compute standard uniform-swing seats-votes step-curve positions.
+
+        Returns:
+            tuple[list[float], list[float]]: Vote-share breakpoints and seat-share breakpoints.
+
+        Raises:
+            ValueError: If vote arrays do not align or contain nonpositive totals.
+        """
         if self.pov_party_vote_counts.shape != self.total_vote_counts.shape:
             raise ValueError("pov_party_vote_counts and total_vote_counts must have same shape.")
         if np.any(self.total_vote_counts <= 0):
@@ -82,7 +89,15 @@ class SeatsVotesData:
 
 @dataclass(frozen=True)
 class SVPlotLine:
-    """Dataclass for storing seats-votes guide line properties."""
+    """Dataclass for seats-votes guide-line styling.
+
+    Attributes:
+        slope (float): Line slope through ``(0.5, 0.5)``.
+        linecolor (Color): Line color.
+        linewidth (float): Line width in points.
+        linestyle (str): Line style token.
+        label (str | None): Legend label.
+    """
 
     slope: float
     linecolor: Color
@@ -123,25 +138,24 @@ class _CrosshairSettings(TypedDict):
     y: _CrosshairYSettings
 
 
+@dataclass(slots=True)
 class SeatsVotesOptions:
-    """Class for storing LaTeX seats-votes options."""
+    """Configuration for LaTeX seats-votes rendering."""
 
     crosshair_x_width: float = 0.02
     crosshair_y_width: float = 0.02
     crosshair_color: Color = "lightgrey"
     crosshair_alpha: float = 1.0
-
     xlim: tuple[float, float] = (0.0, 1.0)
     ylim: tuple[float, float] = (0.0, 1.0)
     xscale: float = 10.0
     yscale: float = 10.0
-
     linewidth: float = 2.5
     markersize: float = 8.0
     fontsize: float = 16.0
     legend_fontsize: float = 16.0
 
-    def __setattr__(self, key, value):
+    def __setattr__(self, key: str, value) -> None:
         match key:
             case "crosshair_x_width" | "crosshair_y_width":
                 value = float(value)
@@ -182,7 +196,7 @@ class SeatsVotesOptions:
 
 
 class SeatsVotes:
-    """Class for generating seats-votes LaTeX/TikZ plots."""
+    """Generate seats-votes plots as TikZ/LaTeX."""
 
     def __init__(
         self,
@@ -194,6 +208,17 @@ class SeatsVotes:
         ylabel: str | None = None,
         title: str | None = None,
     ) -> None:
+        """Initialize a LaTeX seats-votes plot.
+
+        Args:
+            figure_size (tuple[float, float], optional): Target plot size interpreted as
+                ``(xscale, yscale)`` in TikZ units. Defaults to ``(10, 10)``.
+            dpi (int, optional): Stored dpi metadata for previews. Defaults to ``300``.
+            include_legend (bool, optional): Whether to include a legend. Defaults to True.
+            xlabel (str | None, optional): X-axis label text. Defaults to None.
+            ylabel (str | None, optional): Y-axis label text. Defaults to None.
+            title (str | None, optional): Plot title text. Defaults to None.
+        """
         self._document = TexDocument()
         self._document.add_packages("tikz")
 
@@ -218,9 +243,6 @@ class SeatsVotes:
         self.standard_election_color: Color = "#006400"
         self._display_line_legend = True
 
-        self._generated_color_map: dict[str, str] = {}
-        self._generated_color_count = 0
-
     def __repr__(self) -> str:  # pragma: no cover
         return self._generate_latex()
 
@@ -229,7 +251,11 @@ class SeatsVotes:
 
     @property
     def document(self) -> TexDocument:
-        """TexDocument associated with this seats-votes plot."""
+        """Return the LaTeX document associated with this seats-votes plot.
+
+        Returns:
+            TexDocument: Document object containing generated TikZ source.
+        """
         self._document.body_string = self._generate_latex()
         return self._document
 
@@ -242,7 +268,11 @@ class SeatsVotes:
         self.document.preview()
 
     def clear_options(self) -> None:
-        """Reset seats-votes options to defaults."""
+        """Reset seats-votes options to defaults.
+
+        Returns:
+            None
+        """
         self.options = SeatsVotesOptions()
         self.set_scale(xscale=self.figure_size[0], yscale=self.figure_size[1])
         self.update_crosshair_settings()
@@ -309,7 +339,20 @@ class SeatsVotes:
         color: Color = "lightgrey",
         alpha: float = 1.0,
     ) -> None:
-        """Add crosshairs centered at (0.5, 0.5) to the plot."""
+        """Configure centered crosshair bands.
+
+        Args:
+            x_width (float, optional): Horizontal band width around ``x=0.5``.
+                Defaults to ``0.02``.
+            y_width (float, optional): Vertical band width around ``y=0.5``.
+                Defaults to ``0.02``.
+            color (Color, optional): Crosshair fill color. Defaults to ``"lightgrey"``.
+            alpha (float, optional): Crosshair fill opacity in ``[0, 1]``.
+                Defaults to ``1.0``.
+
+        Returns:
+            None
+        """
         self.options.crosshair_x_width = x_width
         self.options.crosshair_y_width = y_width
         self.options.crosshair_color = color
@@ -439,44 +482,114 @@ class SeatsVotes:
         )
 
     def set_tick_fontsize(self, fontsize: float) -> None:
-        """Set font size used for axis labels and tick labels."""
+        """Set font size used for axis labels and tick labels.
+
+        Args:
+            fontsize (float): Font size in points.
+
+        Returns:
+            None
+        """
         self.options.fontsize = fontsize
 
     def set_fontsize(self, fontsize: float) -> None:
-        """Set font size for axis labels/ticks and legend text."""
+        """Set a unified font size for axis labels/ticks and legend text.
+
+        Args:
+            fontsize (float): Font size in points.
+
+        Returns:
+            None
+        """
         self.options.fontsize = fontsize
         self.options.legend_fontsize = fontsize
 
     def set_markersize(self, markersize: float) -> None:
-        """Set election-result marker size."""
+        """Set election-result marker size.
+
+        Args:
+            markersize (float): Marker size in points.
+
+        Returns:
+            None
+        """
         self.options.markersize = markersize
 
     def set_linewidth(self, linewidth: float) -> None:
-        """Set seats-votes curve line width."""
+        """Set seats-votes curve line width.
+
+        Args:
+            linewidth (float): Line width in points.
+
+        Returns:
+            None
+        """
         self.options.linewidth = linewidth
 
     def set_xlim(self, xmin: float, xmax: float, rescale: bool = False) -> None:
-        """Set x-axis limits."""
+        """Set x-axis limits.
+
+        Args:
+            xmin (float): Lower x-axis limit.
+            xmax (float): Upper x-axis limit.
+            rescale (bool, optional): If True, adjust xscale to preserve visual span.
+                Defaults to False.
+
+        Returns:
+            None
+        """
         self.options.xlim = (xmin, xmax)
         if rescale:
             self.set_xscale(self.options.xscale * (1.0 / (float(xmax) - float(xmin))))
 
     def set_ylim(self, ymin: float, ymax: float, rescale: bool = False) -> None:
-        """Set y-axis limits."""
+        """Set y-axis limits.
+
+        Args:
+            ymin (float): Lower y-axis limit.
+            ymax (float): Upper y-axis limit.
+            rescale (bool, optional): If True, adjust yscale to preserve visual span.
+                Defaults to False.
+
+        Returns:
+            None
+        """
         self.options.ylim = (ymin, ymax)
         if rescale:
             self.set_yscale(self.options.yscale * (1.0 / (float(ymax) - float(ymin))))
 
     def set_xscale(self, xscale: float) -> None:
-        """Set TikZ xscale factor."""
+        """Set TikZ xscale factor.
+
+        Args:
+            xscale (float): X-axis TikZ scale factor.
+
+        Returns:
+            None
+        """
         self.options.xscale = xscale
 
     def set_yscale(self, yscale: float) -> None:
-        """Set TikZ yscale factor."""
+        """Set TikZ yscale factor.
+
+        Args:
+            yscale (float): Y-axis TikZ scale factor.
+
+        Returns:
+            None
+        """
         self.options.yscale = yscale
 
     def set_scale(self, xscale: float | None = None, yscale: float | None = None) -> None:
-        """Set TikZ xscale/yscale factors."""
+        """Set TikZ xscale/yscale factors.
+
+        Args:
+            xscale (float | None, optional): X-axis scale factor. Defaults to None.
+            yscale (float | None, optional): Y-axis scale factor. Defaults to None.
+
+        Returns:
+            None
+        """
         if xscale is not None:
             self.set_xscale(xscale)
         if yscale is not None:
@@ -485,42 +598,16 @@ class SeatsVotes:
     # =====================
     #   STRING GENERATORS
     # =====================
-    def _next_generated_color_name(self, prefix: str) -> str:
-        self._generated_color_count += 1
-        return f"{prefix}{self._generated_color_count}"
-
-    def _to_latex_color(self, color: Color, *, prefix: str) -> str:
-        """Resolve a color to a LaTeX-safe color string."""
-        if isinstance(color, str):
-            stripped = color.strip()
-            if re.fullmatch(r"#?[0-9A-Fa-f]{6}", stripped):
-                key = f"hex:{stripped.lower().lstrip('#')}"
-                if key in self._generated_color_map:
-                    return self._generated_color_map[key]
-
-                color_name = self._next_generated_color_name(prefix)
-                self._document.add_color(color_name, stripped)
-                self._generated_color_map[key] = color_name
-                return color_name
-            return stripped
-
-        if isinstance(color, Sequence):
-            if len(color) != 3:
-                raise ValueError("Color tuples must have length 3.")
-            rgb_tuple = (float(color[0]), float(color[1]), float(color[2]))
-            key = f"rgb:{rgb_tuple[0]:0.6f},{rgb_tuple[1]:0.6f},{rgb_tuple[2]:0.6f}"
-            if key in self._generated_color_map:
-                return self._generated_color_map[key]
-
-            color_name = self._next_generated_color_name(prefix)
-            self._document.add_color(color_name, rgb_tuple)
-            self._generated_color_map[key] = color_name
-            return color_name
-
-        raise ValueError(f"Unsupported color value: {color!r}")
-
     @staticmethod
     def _fontsize_command(fontsize: float) -> str:
+        """Build a LaTeX fontsize command.
+
+        Args:
+            fontsize (float): Font size in points.
+
+        Returns:
+            str: LaTeX command string that sets font size and baseline skip.
+        """
         baseline_skip = fontsize + 2.0
         return rf"\fontsize{{{fontsize:0.2f}}}{{{baseline_skip:0.2f}}}\selectfont "
 
@@ -529,42 +616,22 @@ class SeatsVotes:
         slope: float,
     ) -> tuple[float, float, float, float]:
         """Compute line endpoints inside the unit square for a slope through (0.5, 0.5)."""
-        if slope == 0:
-            starting_x = 0.0
-            ending_x = 1.0
-            starting_y = 0.5
-            ending_y = 0.5
-        elif slope == float("inf") or slope == float("-inf"):
-            starting_x = 0.5
-            ending_x = 0.5
-            starting_y = 0.0
-            ending_y = 1.0
-        elif slope >= 1:
-            starting_x = 0.5 - (0.5 / slope)
-            starting_y = 0.0
-            ending_x = 0.5 + (0.5 / slope)
-            ending_y = 1.0
-        elif -1 < slope < 1:
-            starting_x = 0.0
-            starting_y = 0.5 - (0.5 * slope)
-            ending_x = 1.0
-            ending_y = 0.5 + (0.5 * slope)
-        else:
-            starting_x = 0.5 - (0.5 / slope)
-            starting_y = 0.0
-            ending_x = 0.5 + (0.5 / slope)
-            ending_y = 1.0
-
-        return (
-            round(starting_x, 4),
-            round(starting_y, 4),
-            round(ending_x, 4),
-            round(ending_y, 4),
-        )
+        return line_segment_through_unit_square(slope, round_to=4)
 
     @staticmethod
     def _step_path(vote_shares: list[float], seat_shares: list[float]) -> str:
-        """Convert seats-votes step data into a TikZ path string."""
+        """Convert step-curve vectors into a TikZ path string.
+
+        Args:
+            vote_shares (list[float]): Vote-share breakpoints.
+            seat_shares (list[float]): Seat-share breakpoints.
+
+        Returns:
+            str: TikZ path expression.
+
+        Raises:
+            ValueError: If vectors are empty or lengths differ.
+        """
         if len(vote_shares) != len(seat_shares):
             raise ValueError("vote_shares and seat_shares must have same length.")
         if len(vote_shares) == 0:
@@ -611,17 +678,17 @@ class SeatsVotes:
         if self.title is not None:
             lines.append(
                 rf"\node [anchor=south] at ({xmid:0.4f}, {self.options.ylim[1] + 0.03 * height:0.4f}) "
-                rf"{{{font_cmd}{_escape_latex_text(self.title)}}};"
+                rf"{{{font_cmd}{latex_escape(self.title)}}};"
             )
         if self.xlabel is not None:
             lines.append(
                 rf"\node [anchor=north] at ({xmid:0.4f}, {self.options.ylim[0] - 0.03 * height:0.4f}) "
-                rf"{{{font_cmd}{_escape_latex_text(self.xlabel)}}};"
+                rf"{{{font_cmd}{latex_escape(self.xlabel)}}};"
             )
         if self.ylabel is not None:
             lines.append(
                 rf"\node [anchor=south, rotate=90] at ({self.options.xlim[0] - 0.03 * width:0.4f}, {ymid:0.4f}) "
-                rf"{{{font_cmd}{_escape_latex_text(self.ylabel)}}};"
+                rf"{{{font_cmd}{latex_escape(self.ylabel)}}};"
             )
         lines.append(r"\end{scope}")
 
@@ -659,7 +726,7 @@ class SeatsVotes:
         )
         for idx, (row_type, color, linestyle, label) in enumerate(legend_rows):
             y_pos = y_start - idx * y_step
-            color_str = self._to_latex_color(color, prefix="svleg")
+            color_str = self._document.resolve_color(color, prefix="svleg")
 
             if row_type == "line":
                 tikz_style = _to_tikz_linestyle(linestyle)
@@ -676,13 +743,17 @@ class SeatsVotes:
 
             lines.append(
                 rf"\node [anchor=west] at ({x_start + label_offset:0.4f}, {y_pos:0.4f}) "
-                rf"{{{legend_font_cmd}{_escape_latex_text(label)}}};"
+                rf"{{{legend_font_cmd}{latex_escape(label)}}};"
             )
 
         lines.append(r"\end{scope}")
 
     def _generate_latex(self) -> str:
-        """Generate complete LaTeX/TikZ seats-votes plot content."""
+        """Generate complete LaTeX/TikZ seats-votes plot content.
+
+        Returns:
+            str: Complete TikZ picture source for the configured plot.
+        """
         lines = [r"\begin{tikzpicture}"]
         lines.append(
             f"\\begin{{scope}}[xscale={self.options.xscale}, yscale={self.options.yscale}]"
@@ -697,8 +768,8 @@ class SeatsVotes:
             x_settings = self._crosshair_settings["x"]
             y_settings = self._crosshair_settings["y"]
 
-            x_color = self._to_latex_color(x_settings["color"], prefix="svcross")
-            y_color = self._to_latex_color(y_settings["color"], prefix="svcross")
+            x_color = self._document.resolve_color(x_settings["color"], prefix="svcross")
+            y_color = self._document.resolve_color(y_settings["color"], prefix="svcross")
 
             lines.append(
                 rf"\fill [color={x_color}, fill opacity={float(x_settings['alpha']):0.4f}] "
@@ -714,7 +785,7 @@ class SeatsVotes:
 
         for sv_series in self._sv_data_list:
             vote_shares, seat_shares = sv_series.seats_votes_curve_values()
-            curve_color = self._to_latex_color(sv_series.linecolor, prefix="svcurve")
+            curve_color = self._document.resolve_color(sv_series.linecolor, prefix="svcurve")
             curve_path = self._step_path(vote_shares, seat_shares)
             lines.append(
                 rf"\draw [color={curve_color}, line width={self.options.linewidth:0.2f}pt] "
@@ -728,7 +799,7 @@ class SeatsVotes:
             x_start, y_start, x_end, y_end = (
                 self._compute_starting_ending_points_for_line_with_slope(line.slope)
             )
-            line_color = self._to_latex_color(line.linecolor, prefix="svline")
+            line_color = self._document.resolve_color(line.linecolor, prefix="svline")
             tikz_style = _to_tikz_linestyle(line.linestyle)
             lines.append(
                 rf"\draw [color={line_color}, line width={line.linewidth:0.2f}pt, {tikz_style}] "
@@ -740,7 +811,9 @@ class SeatsVotes:
 
         if self._display_election_markers:
             for sv_series in self._sv_data_list:
-                marker_color = self._to_latex_color(sv_series.markercolor, prefix="svmarker")
+                marker_color = self._document.resolve_color(
+                    sv_series.markercolor, prefix="svmarker"
+                )
                 total_vote_share = float(
                     sv_series.pov_party_vote_counts.sum() / sv_series.total_vote_counts.sum()
                 )

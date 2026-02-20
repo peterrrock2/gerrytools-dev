@@ -7,29 +7,18 @@ from typing import Any, Callable, Iterable, Optional, cast
 
 import pandas as pd
 
+from gerrytools.latex._colors import to_latex_color_spec
+from gerrytools.latex._table_preamble import (
+    _infer_group_cell_align_from_data,
+    _parse_tabular_preamble,
+)
+from gerrytools.latex._text import latex_escape
 from gerrytools.latex.document import TexDocument
 from gerrytools.latex.formatters import round_decimals
 from gerrytools.logging import get_logger
 from gerrytools.typing import CellWrapper, Color
 
 logger = get_logger(__name__)
-
-
-def latex_escape(s: str) -> str:
-    """Escapes special LaTeX characters in a string."""
-    repl = {
-        "\\": r"\textbackslash{}",
-        "&": r"\&",
-        "%": r"\%",
-        "$": r"\$",
-        "#": r"\#",
-        "_": r"\_",
-        "{": r"\{",
-        "}": r"\}",
-        "~": r"\textasciitilde{}",
-        "^": r"\textasciicircum{}",
-    }
-    return "".join(repl.get(ch, ch) for ch in s)
 
 
 def _latex_escape_wrapper(s: str, prev: str) -> tuple[str, str]:
@@ -44,29 +33,6 @@ def _latex_escape_wrapper(s: str, prev: str) -> tuple[str, str]:
             rendered string.
     """
     return s, latex_escape(prev)
-
-
-def _infer_group_cell_align_from_data(colspecs: list[str], start: int, end: int) -> str:
-    """
-    Infer group header align from the underlying spanned *data* colspecs.
-    Heuristic:
-      - if all are 'l' -> 'l'
-      - if all are 'r' -> 'r'
-      - if all are 'c' -> 'c'
-      - else -> 'c'
-    Treat complex specs as 'c' by default unless you want to get fancier.
-    """
-
-    def base_align(spec: str) -> str:
-        spec = spec.strip()
-        if spec in ("l", "c", "r"):
-            return spec
-        # you can choose to map S/D columns to 'r' if you like:
-        # if spec.startswith(("S", "D")): return "r"
-        return "c"
-
-    aligns = {base_align(s) for s in colspecs[start:end]}
-    return aligns.pop() if len(aligns) == 1 else "c"
 
 
 @dataclass
@@ -301,151 +267,6 @@ class TableOptions:
             first_cell = False
 
         return " & ".join(parts) + r" \\"
-
-
-def _consume_balanced(s: str, i: int, open_ch: str, close_ch: str) -> tuple[str, int]:
-    """Consumes a balanced group from a string starting at index `i`.
-
-    Args:
-        s (str): The input string.
-        i (int): The starting index to consume from.
-        open_ch (str): The opening character of the group (e.g., '{' or '[').
-        close_ch (str): The closing character of the group (e.g., '}' or ']').
-
-    Returns:
-        tuple[str, int]: A tuple containing the consumed group (without the
-        opening and closing characters) and the index of the character after the
-        closing character.
-    """
-    if i >= len(s) or s[i] != open_ch:
-        raise ValueError(f"Expected '{open_ch}' at position {i}")
-    depth = 1
-    i += 1
-    start = i
-
-    while i < len(s) and depth:
-        if s[i] == open_ch:
-            depth += 1
-        elif s[i] == close_ch:
-            depth -= 1
-        i += 1
-
-    # Failed to find a matching closing character
-    if depth != 0:
-        raise ValueError(f"Unbalanced {open_ch}{close_ch} in format string")
-
-    return s[start : i - 1], i
-
-
-def _parse_tabular_preamble(fmt: str) -> tuple[list[str], list[int], list[str]]:
-    """Parses a LaTeX tabular preamble string into column specifications.
-
-    Args:
-        fmt (str): The LaTeX tabular preamble string.
-
-    Returns:
-        tuple[list[str], list[int], list[str]]: A tuple containing:
-            - A list of column specifications (e.g., 'l', 'c', 'r')
-            - A list of vertical rule counts between columns
-            - A list of extra formatting strings for each column.
-    """
-    i, n = 0, len(fmt)
-    colspecs: list[str] = []
-    vrules: list[int] = [0]
-    extras: list[str] = [""]
-
-    def skip_ws(i: int) -> int:
-        while i < n and fmt[i].isspace():
-            i += 1
-        return i
-
-    SIMPLE_COLS = set("lcr")
-
-    while True:
-        i = skip_ws(i)
-        if i >= n:
-            break
-
-        start_i = i
-        ch = fmt[i]
-
-        # reject stray grouping tokens early (prevents hangs and weird acceptance)
-        if ch in "{}[]":
-            raise ValueError(f"Stray {ch!r} at pos {i} in preamble: {fmt!r}")
-
-        # vertical rules
-        if ch == "|":
-            vrules[-1] += 1
-            i += 1
-            continue
-
-        # boundary extras: @{}  !{}  >{}  <{}
-        if ch in ("@", "!", ">", "<"):
-            if i + 1 >= n or fmt[i + 1] != "{":
-                raise ValueError(f"Expected '{{' after {ch} at pos {i} in preamble: {fmt!r}")
-            grp, i = _consume_balanced(fmt, i + 1, "{", "}")
-            extras[-1] += f"{ch}{{{grp}}}"
-            continue
-
-        # p{..}, m{..}, b{..}
-        if ch in ("p", "m", "b"):
-            if i + 1 >= n or fmt[i + 1] != "{":
-                raise ValueError(f"Expected '{{' after {ch} at pos {i} in preamble: {fmt!r}")
-            tok, i = _consume_balanced(fmt, i + 1, "{", "}")
-            colspecs.append(f"{ch}{{{tok}}}")
-            vrules.append(0)
-            extras.append("")
-            continue
-
-        # S or S[...]
-        if ch == "S":
-            i += 1
-            tok = "S"
-            i = skip_ws(i)
-            if i < n and fmt[i] == "[":
-                grp, i = _consume_balanced(fmt, i, "[", "]")
-                tok += f"[{grp}]"
-            colspecs.append(tok)
-            vrules.append(0)
-            extras.append("")
-            continue
-
-        # D{in}{out}{places}
-        if ch == "D":
-            i += 1
-            i = skip_ws(i)
-            if i >= n or fmt[i] != "{":
-                raise ValueError(f"Expected '{{' after D at pos {i} in preamble: {fmt!r}")
-            g1, i = _consume_balanced(fmt, i, "{", "}")
-            i = skip_ws(i)
-            g2, i = _consume_balanced(fmt, i, "{", "}")
-            i = skip_ws(i)
-            g3, i = _consume_balanced(fmt, i, "{", "}")
-            colspecs.append(f"D{{{g1}}}{{{g2}}}{{{g3}}}")
-            vrules.append(0)
-            extras.append("")
-            continue
-
-        # runs of simple one-letter columns, e.g. "ccr"
-        if ch in SIMPLE_COLS or ch == "c":
-            while True:
-                i = skip_ws(i)
-                if i >= n:
-                    break
-                if fmt[i] == "c" or fmt[i] in SIMPLE_COLS:
-                    colspecs.append(fmt[i])
-                    vrules.append(0)
-                    extras.append("")
-                    i += 1
-                    continue
-                break
-            continue
-
-        # if we get here, we don't recognize the token
-        if i == start_i:
-            raise ValueError(f"Unsupported token {fmt[i]!r} at pos {i} in preamble: {fmt!r}")
-
-    return colspecs, vrules, extras
 
 
 class TexTable:
@@ -760,27 +581,13 @@ class TexTable:
         else:
             row_indices = list(rows)
 
-        color_tup = None
-
-        if isinstance(color, str):
-            if re.match(r"^#?[0-9A-Fa-f]{6}$", color):
-                # hex string
-                color_tup = ("HTML", color.lstrip("#").lower())
-            else:
-                color_tup = ("NAME", color)
-        elif isinstance(color, tuple) and len(color) == 3:
-            if all(0.0 <= c <= 1.0 for c in color):  # type: ignore
-                color_tup = ("rgb", (color[0], color[1], color[2]))
-            elif all(0 <= c <= 255 for c in color):  # type: ignore
-                color_tup = (
-                    "RGB",
-                    (int(round(color[0])), int(round(color[1])), int(round(color[2]))),
-                )
-            else:
-                raise ValueError("RGB color components must be in the range [0.0, 1.0] or [0, 255]")
-
-        if color_tup is None:
-            raise ValueError("Invalid color specification for row highlighting")
+        try:
+            color_type, color_value = to_latex_color_spec(color)
+        except ValueError as exc:
+            if isinstance(color, tuple) and len(color) == 3:
+                raise
+            raise ValueError("Invalid color specification for row highlighting") from exc
+        color_tup = (color_type, color_value)
 
         if (
             self.__options.row_highlight_colors is None
@@ -822,8 +629,8 @@ class TexTable:
     # ==================
 
     def set_column_headers_text_format(self, bold: bool = True, italic: bool = False) -> None:
+        """Set whether to bold and/or italicize column headers."""
         self.__options.bold_column_headers = bold
-        """Set whether to bold or italicize the column headers in the LaTeX table."""
         self.__options.italic_column_headers = italic
 
     def set_group_headers_text_format(self, bold: bool = True, italic: bool = False) -> None:
@@ -1124,11 +931,11 @@ class TexTable:
 
         self.__options.row_formatters[row_idx] = new_fn
 
-    def set_row_formatter(self, row_idx: int, fmt_fn: CellWrapper) -> None:
+    def set_row_formatter(self, row_idx: int | list[int], fmt_fn: CellWrapper) -> None:
         """Set a specific row formatter function for the LaTeX table.
 
         Args:
-            row_idx (int): Row index to set the formatter for.
+            row_idx (int | list[int]): Row index or list of row indices to set formatters for.
             fmt_fn (Wrapper): Formatter function for the specified row.
 
         Raises:

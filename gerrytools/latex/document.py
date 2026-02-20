@@ -1,5 +1,4 @@
 import logging
-import re
 import shutil
 import subprocess
 import tempfile
@@ -8,6 +7,7 @@ import weakref
 from pathlib import Path
 from typing import Iterable, Optional
 
+from gerrytools.latex._colors import to_latex_color_spec
 from gerrytools.logging import get_logger
 from gerrytools.typing import Color
 
@@ -160,7 +160,7 @@ class TexDocument:
         preview(): Renders and displays the LaTeX content.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._uuid = uuid.uuid4().hex
         self._workdir: Path = Path(tempfile.mkdtemp(prefix="latex-preview-"))
         self._tex_path = self._workdir / f"{self._uuid}.tex"
@@ -179,10 +179,14 @@ class TexDocument:
         ]
         self.extra_package_commands: list[str] = []
         self.command_list: list[str] = []
-        self.color_dict: dict[str, tuple[str, Color]] = {
+        self.color_dict: dict[
+            str, tuple[str, str | tuple[float, float, float] | tuple[int, int, int]]
+        ] = {
             "snsgreen": ("rgb", (0.16, 0.51, 0.25)),
             "snspurple": ("rgb", (0.5, 0.24, 0.55)),
         }
+        self._auto_color_count = 0
+        self._auto_color_map: dict[str, str] = {}
         self.engine_preference_order = ("tectonic", "pdflatex", "xelatex", "lualatex")
         self._finalizer = weakref.finalize(
             self,
@@ -260,38 +264,93 @@ class TexDocument:
 
         Args:
             color_name (str): The name of the color to define.
-            color: Either the HEX string or RGB values of the color. If using RGB tuple
-                format, all values must either be in the range [0, 1] or all in the range [0, 255].
+            color (Color): HEX string or RGB tuple. RGB tuple values must all be in
+                ``[0, 1]`` or all be in ``[0, 255]``.
 
         Returns:
             None
+
+        Raises:
+            ValueError: If ``color`` is not a valid HEX string or RGB tuple.
         """
-        if isinstance(color, str):
-            if re.match(r"^#?[0-9A-Fa-f]{6}$", color):
-                # hex string
-                hex_str = color.lower().lstrip("#")
-                self.color_dict[color_name] = ("HTML", hex_str)
-                return
-            else:
-                raise ValueError(
-                    "Color string must be a HEX string in the format '#RRGGBB' or 'RRGGBB'."
-                )
-
-        if not isinstance(color, tuple) or len(color) != 3:
-            raise ValueError("Color must be a HEX string or an RGB tuple of length 3.")
-
-        if all(0.0 <= c <= 1.0 for c in color):
+        try:
+            color_type, color_value = to_latex_color_spec(color)
+        except ValueError as exc:
+            if not isinstance(color, tuple) or len(color) != 3:
+                raise ValueError("Color must be a HEX string or an RGB tuple of length 3.") from exc
+            raise ValueError(
+                "Color values must be in the range [0, 1] or in the range [0, 255]."
+            ) from exc
+        if color_type == "NAME":
+            raise ValueError(
+                "Color string must be a HEX string in the format '#RRGGBB' or 'RRGGBB'."
+            )
+        if color_type == "HTML":
+            assert isinstance(color_value, str)
+            self.color_dict[color_name] = ("HTML", color_value)
+            return
+        if color_type == "rgb":
+            assert isinstance(color_value, tuple)
             self.color_dict[color_name] = (
                 "rgb",
-                (round(color[0], 2), round(color[1], 2), round(color[2], 2)),
+                (round(color_value[0], 2), round(color_value[1], 2), round(color_value[2], 2)),
             )
-        elif all(0 <= c <= 255 for c in color):
-            self.color_dict[color_name] = (
-                "RGB",
-                (int(color[0]), int(color[1]), int(color[2])),
-            )
+            return
+        assert isinstance(color_value, tuple)
+        self.color_dict[color_name] = (
+            "RGB",
+            (int(color_value[0]), int(color_value[1]), int(color_value[2])),
+        )
+
+    def _next_auto_color_name(self, prefix: str) -> str:
+        """Generate the next unique auto-color name.
+
+        Args:
+            prefix (str): Prefix to prepend to the generated color name.
+
+        Returns:
+            str: Unique color name within this document instance.
+        """
+        self._auto_color_count += 1
+        return f"{prefix}{self._auto_color_count}"
+
+    def resolve_color(self, color: Color, *, prefix: str) -> str:
+        """Resolve a ``Color`` value to a LaTeX-usable color name.
+
+        Args:
+            color (Color): Color value represented as a name, HEX string, or RGB tuple.
+            prefix (str): Prefix used when defining new auto-generated color names.
+
+        Returns:
+            str: Existing or newly-defined LaTeX color name.
+        """
+        color_type, color_value = to_latex_color_spec(color)
+        if color_type == "NAME":
+            assert isinstance(color_value, str)
+            return color_value
+
+        if color_type == "HTML":
+            assert isinstance(color_value, str)
+            key = f"HTML:{color_value}"
+        elif color_type == "rgb":
+            assert isinstance(color_value, tuple)
+            key = f"rgb:{color_value[0]:0.6f},{color_value[1]:0.6f},{color_value[2]:0.6f}"
         else:
-            raise ValueError("Color values must be in the range [0, 1] or in the range [0, 255].")
+            assert isinstance(color_value, tuple)
+            key = f"RGB:{color_value[0]},{color_value[1]},{color_value[2]}"
+
+        if key in self._auto_color_map:
+            return self._auto_color_map[key]
+
+        color_name = self._next_auto_color_name(prefix)
+        if color_type == "HTML":
+            assert isinstance(color_value, str)
+            self.add_color(color_name, color_value)
+        else:
+            assert isinstance(color_value, tuple)
+            self.add_color(color_name, color_value)
+        self._auto_color_map[key] = color_name
+        return color_name
 
     @property
     def preamble(self) -> str:
@@ -370,7 +429,7 @@ class TexDocument:
 
     def _show_png_jupyter(self) -> None:  # pragma: no cover
         """Displays the rendered PNG in a Jupyter notebook."""
-        from IPython.display import Image, display  # type: ignore
+        from IPython.display import Image, display
 
         display(Image(filename=str(self._png_path)))
 

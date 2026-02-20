@@ -4,8 +4,18 @@ import re
 _CMD_RE = re.compile(r"^[A-Za-z]+$")
 
 
-def _validate_command_name(cmd_str: str) -> None:
-    """Validates that a LaTeX command name is valid."""
+def validate_command_name(cmd_str: str) -> None:
+    """Validate that a LaTeX command name is legal.
+
+    Args:
+        cmd_str (str): LaTeX command name without a leading backslash.
+
+    Returns:
+        None
+
+    Raises:
+        ValueError: If ``cmd_str`` starts with ``"\\\\"`` or contains non-letter characters.
+    """
     if cmd_str.startswith("\\"):
         raise ValueError(
             f"`cmd` should not start with '\\\\' (got {cmd_str!r}). Use 'textbf', not '\\\\textbf'."
@@ -31,15 +41,17 @@ def tex_gradient_command(
     Requires: xcolor (with [table]), colortbl, xfp, siunitx.
 
     Args:
-        cmd_str (str): The name of the LaTeX command to create.
-        color_name (str): The name of the color to use for the gradient.
-        lo (float): The lower bound of the numerical range.
-        hi (float): The upper bound of the numerical range.
+        cmd_str (str, optional): The name of the LaTeX command to create.
+            Defaults to ``"gradient"``.
+        color_name (str, optional): The name of the color to use for the gradient.
+            Defaults to ``"denim"``.
+        lo (float, optional): The lower bound of the numerical range. Defaults to ``0.0``.
+        hi (float, optional): The upper bound of the numerical range. Defaults to ``1.0``.
 
     Returns:
         str: A string containing the LaTeX command definition.
     """
-    _validate_command_name(cmd_str)
+    validate_command_name(cmd_str)
 
     # Additional % at the end of lines to prevent unwanted spaces in output
     return (
@@ -73,21 +85,23 @@ def tex_twocolor_gradient_command(
 
     Requires: xcolor (with [table]), colortbl, xfp, siunitx.
 
-    Note: color mixing is done in the xcolor, and is just a linear interpolation
-    by mixing satruation percentages of the two colors.
+    Note: color mixing is done in xcolor and is a linear interpolation
+    by mixing saturation percentages of the two colors.
 
     Args:
-        cmd_str (str): The name of the LaTeX command to create.
-        lo (float): The lower bound of the numerical range.
-        hi (float): The upper bound of the numerical range.
-        color_lo (str): The color at the lower bound.
-        color_hi (str): The color at the upper bound.
-        precision (int): Number of decimal places to round the number to.
+        cmd_str (str, optional): The name of the LaTeX command to create.
+            Defaults to ``"heat"``.
+        lo (float, optional): The lower bound of the numerical range. Defaults to ``0.0``.
+        hi (float, optional): The upper bound of the numerical range. Defaults to ``1.0``.
+        color_lo (str, optional): The color at the lower bound. Defaults to ``"denim"``.
+        color_hi (str, optional): The color at the upper bound. Defaults to ``"alizarin"``.
+        precision (int, optional): Number of decimal places to round the number to.
+            Defaults to ``4``.
 
     Returns:
         str: A string containing the LaTeX command definition to be added to preamble.
     """
-    _validate_command_name(cmd_str)
+    validate_command_name(cmd_str)
 
     return (
         rf"\newcommand{{\{cmd_str}}}[1]{{%"
@@ -115,7 +129,14 @@ def tex_twocolor_gradient_command(
 
 
 def _tex_ident(s: str) -> str:
-    """Converts a string to a valid LaTeX identifier by removing invalid characters."""
+    """Convert a string to a valid LaTeX identifier.
+
+    Args:
+        s (str): Arbitrary input string.
+
+    Returns:
+        str: An identifier containing only letters and digits.
+    """
     return re.sub(r"[^A-Za-z0-9]+", "", s) or "X"
 
 
@@ -139,19 +160,22 @@ def tex_diverging_gradient_command(
     Requires: xcolor[table], latexcolor, xfp, siunitx.
 
     Args:
-        cmd_str (str): The name of the LaTeX command to create. Default is "heat".
-        lo (float): The lower bound of the numerical range. Default is 0.0.
-        mid (float): The midpoint of the numerical range. Default is 0.5.
-        hi (float): The upper bound of the numerical range. Default is 1.0.
-        color_lo (str): The color at the lower bound. Default is "darkpastelgreen".
-        color_hi (str): The color at the upper bound. Default is "richlavender".
-        color_mid (str): The color at the midpoint. Default is "white".
-        precision (int): Number of decimal places to round the number to. Default is 4.
+        cmd_str (str, optional): The name of the LaTeX command to create.
+            Defaults to ``"heat"``.
+        lo (float, optional): The lower bound of the numerical range. Defaults to ``0.0``.
+        mid (float, optional): The midpoint of the numerical range. Defaults to ``0.5``.
+        hi (float, optional): The upper bound of the numerical range. Defaults to ``1.0``.
+        color_lo (str, optional): The color at the lower bound.
+            Defaults to ``"darkpastelgreen"``.
+        color_hi (str, optional): The color at the upper bound. Defaults to ``"richlavender"``.
+        color_mid (str, optional): The color at the midpoint. Defaults to ``"white"``.
+        precision (int, optional): Number of decimal places to round the number to.
+            Defaults to ``4``.
 
     Returns:
         str: A string containing the LaTeX command definition to be added to preamble.
     """
-    _validate_command_name(cmd_str)
+    validate_command_name(cmd_str)
 
     lo_name = f"{cmd_str}Lo{_tex_ident(color_lo)}"
     hi_name = f"{cmd_str}Hi{_tex_ident(color_hi)}"

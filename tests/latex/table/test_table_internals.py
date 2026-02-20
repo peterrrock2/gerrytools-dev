@@ -1,12 +1,12 @@
 import pytest
 
-from gerrytools.latex.commands import _validate_command_name
-from gerrytools.latex.table import (
+from gerrytools.latex._table_preamble import (
     _consume_balanced,
     _infer_group_cell_align_from_data,
     _parse_tabular_preamble,
-    latex_escape,
 )
+from gerrytools.latex._text import latex_escape
+from gerrytools.latex.commands import validate_command_name
 
 # ==============================
 #   TEST LATEX ESCAPE FUNCTION
@@ -382,14 +382,14 @@ def test_infer_group_align_mixed_defaults_to_c():
 def test_validate_command_name_good():
     good_names = ["cmd", "MyCommand", "anotherCMD", "A", "zZyXx"]
     for name in good_names:
-        _validate_command_name(name)  # should not raise
+        validate_command_name(name)  # should not raise
 
 
 def test_validate_command_name_starts_with_backslash_raises():
     bad_names = ["\\cmd", "\\MyCommand", "\\A"]
     for name in bad_names:
         with pytest.raises(ValueError, match="should not start with"):
-            _validate_command_name(name)
+            validate_command_name(name)
 
 
 def test_validate_command_name_invalid_chars_raises():
@@ -409,7 +409,7 @@ def test_validate_command_name_invalid_chars_raises():
     ]
     for name in bad_names:
         with pytest.raises(ValueError, match="Illegal LaTeX command name"):
-            _validate_command_name(name)
+            validate_command_name(name)
 
 
 # ==================================

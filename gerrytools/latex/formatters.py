@@ -1,31 +1,46 @@
 from __future__ import annotations
 
 import math
-import re
 from numbers import Real
-from typing import Any
+from typing import Any, Callable
 
-from gerrytools.latex.commands import _validate_command_name
+from gerrytools.latex._colors import cellcolor_prefix
+from gerrytools.latex.commands import validate_command_name
 from gerrytools.typing import CellWrapper, Color
 
 
 def boxed_center(width: int, height: int | None = None, unit: str = "mm") -> CellWrapper:
+    """Create a formatter that centers content in a fixed-size LaTeX ``\\parbox``.
+
+    Args:
+        width (int): Box width value.
+        height (int | None, optional): Box height value. If None, uses ``width``.
+            Defaults to None.
+        unit (str, optional): LaTeX unit suffix for ``width``/``height`` (for example ``"mm"``).
+            Defaults to ``"mm"``.
+
+    Returns:
+        CellWrapper: Formatter that wraps rendered text in a centered parbox.
+    """
     if height is None:
         height = width
 
-    def _inner_boxed_center(v, s):
+    def _inner_boxed_center(v: Any, s: str) -> tuple[Any, str]:
         return v, rf"\parbox[c][{height}{unit}][c]{{{width}}}{{\centering\strut {s}}}"
 
     return _inner_boxed_center
 
 
 def wrap_with_tex_command(cmd_str: str) -> CellWrapper:
-    """Wrap cell content with a LaTeX command like \\textbf{...}.
+    """Wrap rendered cell text in a LaTeX command.
 
-    Validates that `cmd` is a legal LaTeX command name (no leading backslash,
-    no underscores, braces, spaces, etc.).
+    Args:
+        cmd_str (str): LaTeX command name without a leading backslash.
+
+    Returns:
+        CellWrapper: Formatter that renders output as ``\\<cmd_str>{...}``.
     """
-    _validate_command_name(cmd_str)
+    validate_command_name(cmd_str)
 
     def _inner(cell_value: Any, rendered_str: str) -> tuple[Any, str]:
         return cell_value, rf"\{cmd_str}{{{rendered_str}}}"
@@ -34,37 +49,32 @@ def wrap_with_tex_command(cmd_str: str) -> CellWrapper:
 
 
 def compose_formatters(*funcs: CellWrapper) -> CellWrapper:
-    """Composes multiple formatter functions into a single formatter.
-
-    Note: Each of the formatting functions is expected to adhere to the
-    CellWrapper signature, taking in the original value and the currently
-    rendered string, and returning the original value and the newly rendered string.
+    """Compose multiple ``CellWrapper`` formatters into one formatter.
 
     Args:
-        *funcs (CellWrapper): Formatter functions to compose (an arbitrary number
-        of such functions can be provided).
+        *funcs (CellWrapper): One or more formatter callables.
 
     Returns:
-        CellWrapper: A single formatter function that applies all provided
+        CellWrapper: A formatter that applies all provided formatters from right to left.
     """
 
-    # compose2(f, g, h)(v, s) == f(g(h(v, s)))
-    def run(v: str | int | float, s: str) -> tuple[str | int | float, str]:
-        for f in reversed(funcs):
-            v, s = f(v, s)
+    # compose(f, g, h)(v, s) == f(g(h(v, s)))
+    def run(v: Any, s: str) -> tuple[Any, str]:
+        for formatter in reversed(funcs):
+            v, s = formatter(v, s)
         return v, s
 
     return run
 
 
 def round_decimals(decimal_places: int) -> CellWrapper:
-    """Generates a formatter that rounds numerical values to a specified number of decimal places.
+    """Create a formatter that renders numeric values with fixed decimal places.
 
     Args:
-        decimal_places (int): The number of decimal places to round to.
+        decimal_places (int): Number of decimal places to render.
 
     Returns:
-        CellWrapper: A function that rounds numerical values to the specified.
+        CellWrapper: Formatter that applies fixed-point rendering to numeric values.
     """
 
     def _inner_round_decimals(v: Any, s: str) -> tuple[Any, str]:
@@ -76,17 +86,16 @@ def round_decimals(decimal_places: int) -> CellWrapper:
 
 
 def _safe_round(v: Any, round_to: int | None) -> Any:  # pragma: no cover
-    """Rounds a numerical value to a specified number of decimal places, handling special cases.
+    """Round numeric values while preserving ``NaN`` and infinite values.
 
     Args:
-        v (Any): The numerical value to round.
-        round_to (int): The number of decimal places to round to.
+        v (Any): Candidate value.
+        round_to (int | None): Decimal places to round to, if provided.
 
     Returns:
-        str: The rounded value as a string, or special strings for NaN and infinity.
+        Any: Rounded numeric value or the original input.
     """
     if isinstance(v, Real) and round_to is not None:
-        assert isinstance(round_to, int), "value of `round_to` must be an integer"
         if v != v:  # NaN check
             return v
         if v == float("inf"):
@@ -97,247 +106,110 @@ def _safe_round(v: Any, round_to: int | None) -> Any:  # pragma: no cover
     return v
 
 
-def highlight_gt(
-    thresh: int | float, color: Color = "yellow", *, round_to: int | None = None
+def _make_numeric_highlighter(
+    predicate: Callable[[float], bool],
+    color: Color,
+    *,
+    round_to: int | None,
 ) -> CellWrapper:
-    """Generates a formatter that highlights numerical values greater than a threshold.
+    """Build a numeric highlighter formatter from a predicate.
 
     Args:
-        thresh (float): The threshold value.
-        color (Color): The LaTeX color name string or RGB tuple or hex string to use for
-            highlighting. Default is "yellow".
-        round_to (int | None): If provided, numerical values will be rounded to this
-            number of decimal places before comparison.
+        predicate (Callable[[float], bool]): Comparison predicate.
+        color (Color): Highlight color.
+        round_to (int | None): Decimal places to round values before comparison.
 
     Returns:
-        CellWrapper: A function that highlights numerical values greater than the threshold.
+        CellWrapper: Formatter that prepends a LaTeX ``\\cellcolor`` command when matched.
     """
+    prefix = cellcolor_prefix(color)
 
-    if isinstance(color, str):
-        if re.match(r"^#?[0-9A-Fa-f]{6}$", color):
-            # hex string
-            color_hex = color.lower().lstrip("#")
+    def _inner(v: Any, s: str) -> tuple[Any, str]:
+        if isinstance(v, Real) and predicate(float(_safe_round(v, round_to))):
+            return v, f"{prefix}{s}"
+        return v, s
 
-            def _inner_highlight_gt(v: int | float, s: str) -> tuple[int | float, str]:
-                if isinstance(v, Real) and _safe_round(v, round_to) > thresh:
-                    return v, rf"\cellcolor[HTML]{{{color_hex}}}{s}"
-                return v, s
+    return _inner
 
-            return _inner_highlight_gt
 
-        def _inner_highlight_gt(v: int | float, s: str) -> tuple[int | float, str]:
-            if isinstance(v, Real) and _safe_round(v, round_to) > thresh:
-                return v, rf"\cellcolor{{{color}}}{s}"
-            return v, s
+def highlight_gt(
+    thresh: int | float,
+    color: Color = "yellow",
+    *,
+    round_to: int | None = None,
+) -> CellWrapper:
+    """Highlight values strictly greater than a threshold.
 
-        return _inner_highlight_gt
+    Args:
+        thresh (int | float): Threshold value.
+        color (Color, optional): Highlight color. Defaults to ``"yellow"``.
+        round_to (int | None, optional): Decimal places for comparison rounding.
+            Defaults to None.
 
-    if isinstance(color, tuple) and len(color) == 3:
-        if all(0.0 <= c <= 1.0 for c in color):  # type: ignore
-
-            def _inner_highlight_gt(v: int | float, s: str) -> tuple[int | float, str]:
-                if isinstance(v, Real) and _safe_round(v, round_to) > thresh:
-                    return (
-                        v,
-                        rf"\cellcolor[rgb]{{{color[0]:0.2f},{color[1]:0.2f},{color[2]:0.2f}}}{s}",
-                    )
-                return v, s
-
-            return _inner_highlight_gt
-        elif all(0 <= c <= 255 for c in color):  # type: ignore
-
-            def _inner_highlight_gt(v: int | float, s: str) -> tuple[int | float, str]:
-                if isinstance(v, Real) and _safe_round(v, round_to) > thresh:
-                    return (
-                        v,
-                        rf"\cellcolor[RGB]{{{int(color[0])},{int(color[1])},{int(color[2])}}}{s}",
-                    )
-                return v, s
-
-            return _inner_highlight_gt
-        else:  # pragma: no cover
-            raise ValueError("RGB color components must be in the range [0.0, 1.0] or [0, 255].")
+    Returns:
+        CellWrapper: Highlight formatter.
+    """
+    return _make_numeric_highlighter(lambda x: x > float(thresh), color, round_to=round_to)
 
 
 def highlight_ge(
-    thresh: int | float, color: Color = "yellow", *, round_to: int | None = None
+    thresh: int | float,
+    color: Color = "yellow",
+    *,
+    round_to: int | None = None,
 ) -> CellWrapper:
-    """Generates a formatter that highlights numerical values greater than or equal to a threshold.
+    """Highlight values greater than or equal to a threshold.
 
     Args:
-        thresh (float): The threshold value.
-        color (Color): The LaTeX color name string or RGB tuple or hex string to use for
-            highlighting. Default is "yellow".
-        round_to (int | None): If provided, numerical values will be rounded to this
-            number of decimal places before comparison.
+        thresh (int | float): Threshold value.
+        color (Color, optional): Highlight color. Defaults to ``"yellow"``.
+        round_to (int | None, optional): Decimal places for comparison rounding.
+            Defaults to None.
 
     Returns:
-        CellWrapper: A function that highlights numerical values greater than the threshold.
+        CellWrapper: Highlight formatter.
     """
-    if isinstance(color, str):
-        if re.match(r"^#?[0-9A-Fa-f]{6}$", color):
-            # hex string
-            color_hex = color.lower().lstrip("#")
-
-            def _inner_highlight_ge(v: int | float, s: str) -> tuple[int | float, str]:
-                if isinstance(v, Real) and _safe_round(v, round_to) >= thresh:
-                    return v, rf"\cellcolor[HTML]{{{color_hex}}}{s}"
-                return v, s
-
-            return _inner_highlight_ge
-
-        def _inner_highlight_ge(v: int | float, s: str) -> tuple[int | float, str]:
-            if isinstance(v, Real) and _safe_round(v, round_to) >= thresh:
-                return v, rf"\cellcolor{{{color}}}{s}"
-            return v, s
-
-        return _inner_highlight_ge
-
-    if isinstance(color, tuple) and len(color) == 3:
-        if all(0.0 <= c <= 1.0 for c in color):  # type: ignore
-
-            def _inner_highlight_ge(v: int | float, s: str) -> tuple[int | float, str]:
-                if isinstance(v, Real) and _safe_round(v, round_to) >= thresh:
-                    return (
-                        v,
-                        rf"\cellcolor[rgb]{{{color[0]:0.2f},{color[1]:0.2f},{color[2]:0.2f}}}{s}",
-                    )
-                return v, s
-
-            return _inner_highlight_ge
-        elif all(0 <= c <= 255 for c in color):  # type: ignore
-
-            def _inner_highlight_ge(v: int | float, s: str) -> tuple[int | float, str]:
-                if isinstance(v, Real) and _safe_round(v, round_to) >= thresh:
-                    return (
-                        v,
-                        rf"\cellcolor[RGB]{{{int(color[0])},{int(color[1])},{int(color[2])}}}{s}",
-                    )
-                return v, s
-
-            return _inner_highlight_ge
-        else:  # pragma: no cover
-            raise ValueError("RGB color components must be in the range [0.0, 1.0] or [0, 255].")
+    return _make_numeric_highlighter(lambda x: x >= float(thresh), color, round_to=round_to)
 
 
 def highlight_lt(
-    thresh: float, color: Color = "yellow", *, round_to: int | None = None
+    thresh: float,
+    color: Color = "yellow",
+    *,
+    round_to: int | None = None,
 ) -> CellWrapper:
-    """Generates a formatter that highlights numerical values less than a threshold.
+    """Highlight values strictly less than a threshold.
 
     Args:
-        thresh (float): The threshold value.
-        color (str): The LaTeX color name string to use for highlighting. Default is "yellow".
-        round_to (int | None): If provided, numerical values will be rounded to this
-            number of decimal places before comparison.
+        thresh (float): Threshold value.
+        color (Color, optional): Highlight color. Defaults to ``"yellow"``.
+        round_to (int | None, optional): Decimal places for comparison rounding.
+            Defaults to None.
 
     Returns:
-        CellWrapper: A function that highlights numerical values less than the threshold.
+        CellWrapper: Highlight formatter.
     """
-    if isinstance(color, str):
-        if re.match(r"^#?[0-9A-Fa-f]{6}$", color):
-            # hex string
-            color_hex = color.lower().lstrip("#")
-
-            def _inner_highlight_lt(v: int | float, s: str) -> tuple[int | float, str]:
-                if isinstance(v, Real) and _safe_round(v, round_to) < thresh:
-                    return v, rf"\cellcolor[HTML]{{{color_hex}}}{s}"
-                return v, s
-
-            return _inner_highlight_lt
-
-        def _inner_highlight_lt(v: int | float, s: str) -> tuple[int | float, str]:
-            if isinstance(v, Real) and _safe_round(v, round_to) < thresh:
-                return v, rf"\cellcolor{{{color}}}{s}"
-            return v, s
-
-        return _inner_highlight_lt
-
-    if isinstance(color, tuple) and len(color) == 3:
-        if all(0.0 <= c <= 1.0 for c in color):  # type: ignore
-
-            def _inner_highlight_lt(v: int | float, s: str) -> tuple[int | float, str]:
-                if isinstance(v, Real) and _safe_round(v, round_to) < thresh:
-                    return (
-                        v,
-                        rf"\cellcolor[rgb]{{{color[0]:0.2f},{color[1]:0.2f},{color[2]:0.2f}}}{s}",
-                    )
-                return v, s
-
-            return _inner_highlight_lt
-        elif all(0 <= c <= 255 for c in color):  # type: ignore
-
-            def _inner_highlight_lt(v: int | float, s: str) -> tuple[int | float, str]:
-                if isinstance(v, Real) and _safe_round(v, round_to) < thresh:
-                    return (
-                        v,
-                        rf"\cellcolor[RGB]{{{int(color[0])},{int(color[1])},{int(color[2])}}}{s}",
-                    )
-                return v, s
-
-            return _inner_highlight_lt
-        else:  # pragma: no cover
-            raise ValueError("RGB color components must be in the range [0.0, 1.0] or [0, 255].")
+    return _make_numeric_highlighter(lambda x: x < float(thresh), color, round_to=round_to)
 
 
 def highlight_le(
-    thresh: float, color: Color = "yellow", *, round_to: int | None = None
+    thresh: float,
+    color: Color = "yellow",
+    *,
+    round_to: int | None = None,
 ) -> CellWrapper:
-    """Generates a formatter that highlights numerical values less than or equal to a threshold.
+    """Highlight values less than or equal to a threshold.
 
     Args:
-        thresh (float): The threshold value.
-        color (str): The LaTeX color name string to use for highlighting. Default is "yellow".
-        round_to (int | None): If provided, numerical values will be rounded to this
-            number of decimal places before comparison.
+        thresh (float): Threshold value.
+        color (Color, optional): Highlight color. Defaults to ``"yellow"``.
+        round_to (int | None, optional): Decimal places for comparison rounding.
+            Defaults to None.
 
     Returns:
-        CellWrapper: A function that highlights numerical values less than the threshold.
+        CellWrapper: Highlight formatter.
     """
-    if isinstance(color, str):
-        if re.match(r"^#?[0-9A-Fa-f]{6}$", color):
-            # hex string
-            color_hex = color.lower().lstrip("#")
-
-            def _inner_highlight_le(v: int | float, s: str) -> tuple[int | float, str]:
-                if isinstance(v, Real) and _safe_round(v, round_to) <= thresh:
-                    return v, rf"\cellcolor[HTML]{{{color_hex}}}{s}"
-                return v, s
-
-            return _inner_highlight_le
-
-        def _inner_highlight_le(v: int | float, s: str) -> tuple[int | float, str]:
-            if isinstance(v, Real) and _safe_round(v, round_to) <= thresh:
-                return v, rf"\cellcolor{{{color}}}{s}"
-            return v, s
-
-        return _inner_highlight_le
-
-    if isinstance(color, tuple) and len(color) == 3:
-        if all(0.0 <= c <= 1.0 for c in color):  # type: ignore
-
-            def _inner_highlight_le(v: int | float, s: str) -> tuple[int | float, str]:
-                if isinstance(v, Real) and _safe_round(v, round_to) <= thresh:
-                    return (
-                        v,
-                        rf"\cellcolor[rgb]{{{color[0]:0.2f},{color[1]:0.2f},{color[2]:0.2f}}}{s}",
-                    )
-                return v, s
-
-            return _inner_highlight_le
-        elif all(0 <= c <= 255 for c in color):  # type: ignore
-
-            def _inner_highlight_le(v: int | float, s: str) -> tuple[int | float, str]:
-                if isinstance(v, Real) and _safe_round(v, round_to) <= thresh:
-                    return (
-                        v,
-                        rf"\cellcolor[RGB]{{{int(color[0])},{int(color[1])},{int(color[2])}}}{s}",
-                    )
-                return v, s
-
-            return _inner_highlight_le
-        else:  # pragma: no cover
-            raise ValueError("RGB color components must be in the range [0.0, 1.0] or [0, 255].")
+    return _make_numeric_highlighter(lambda x: x <= float(thresh), color, round_to=round_to)
 
 
 def highlight_between(
@@ -349,69 +221,27 @@ def highlight_between(
     include_lower: bool = True,
     include_upper: bool = True,
 ) -> CellWrapper:
-    """Generates a formatter that highlights numerical values between two bounds.
+    """Highlight values between lower and upper bounds.
 
     Args:
-        lower_bound (int | float): The lower bound.
-        upper_bound (int | float): The upper bound.
-        color (str): The LaTeX color name string to use for highlighting. Default is "yellow".
-        round_to (int | None): If provided, numerical values will be rounded to this
-            number of decimal places before comparison.
-        include_bounds (bool): If True, values equal to the bounds are included. Default is True.
+        lower_bound (int | float): Lower bound.
+        upper_bound (int | float): Upper bound.
+        color (Color, optional): Highlight color. Defaults to ``"yellow"``.
+        round_to (int | None, optional): Decimal places for comparison rounding.
+            Defaults to None.
+        include_lower (bool, optional): Whether the lower bound is inclusive.
+            Defaults to True.
+        include_upper (bool, optional): Whether the upper bound is inclusive.
+            Defaults to True.
 
     Returns:
-        CellWrapper: A function that highlights numerical values between the bounds.
+        CellWrapper: Highlight formatter.
     """
     if not include_lower:
-        lower_bound = math.nextafter(
-            float(lower_bound), math.inf
-        )  # smallest float > original lower_bound
+        lower_bound = math.nextafter(float(lower_bound), math.inf)  # smallest float > lower_bound
     if not include_upper:
-        upper_bound = math.nextafter(
-            float(upper_bound), -math.inf
-        )  # largest float < original upper_bound
+        upper_bound = math.nextafter(float(upper_bound), -math.inf)  # largest float < upper_bound
 
-    if isinstance(color, str):
-        if re.match(r"^#?[0-9A-Fa-f]{6}$", color):
-            # hex string
-            color_hex = color.lower().lstrip("#")
-
-            def _inner_highlight_btwn(v: int | float, s: str) -> tuple[int | float, str]:
-                if isinstance(v, Real) and lower_bound <= _safe_round(v, round_to) <= upper_bound:
-                    return v, rf"\cellcolor[HTML]{{{color_hex}}}{s}"
-                return v, s
-
-            return _inner_highlight_btwn
-
-        def _inner_highlight_btwn(v: int | float, s: str) -> tuple[int | float, str]:
-            if isinstance(v, Real) and lower_bound <= _safe_round(v, round_to) <= upper_bound:
-                return v, rf"\cellcolor{{{color}}}{s}"
-            return v, s
-
-        return _inner_highlight_btwn
-
-    if isinstance(color, tuple) and len(color) == 3:
-        if all(0.0 <= c <= 1.0 for c in color):  # type: ignore
-
-            def _inner_highlight_btwn(v: int | float, s: str) -> tuple[int | float, str]:
-                if isinstance(v, Real) and lower_bound <= _safe_round(v, round_to) <= upper_bound:
-                    return (
-                        v,
-                        rf"\cellcolor[rgb]{{{color[0]:0.2f},{color[1]:0.2f},{color[2]:0.2f}}}{s}",
-                    )
-                return v, s
-
-            return _inner_highlight_btwn
-        elif all(0 <= c <= 255 for c in color):  # type: ignore
-
-            def _inner_highlight_btwn(v: int | float, s: str) -> tuple[int | float, str]:
-                if isinstance(v, Real) and lower_bound <= _safe_round(v, round_to) <= upper_bound:
-                    return (
-                        v,
-                        rf"\cellcolor[RGB]{{{int(color[0])},{int(color[1])},{int(color[2])}}}{s}",
-                    )
-                return v, s
-
-            return _inner_highlight_btwn
-        else:  # pragma: no cover
-            raise ValueError("RGB color components must be in the range [0.0, 1.0] or [0, 255].")
+    low = float(lower_bound)
+    high = float(upper_bound)
+    return _make_numeric_highlighter(lambda x: low <= x <= high, color, round_to=round_to)

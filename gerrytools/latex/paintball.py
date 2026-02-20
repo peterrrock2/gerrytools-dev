@@ -1,8 +1,10 @@
 from dataclasses import dataclass
 from typing import Iterable, Literal
 
+from gerrytools.latex._geometry import line_segment_through_unit_square
 from gerrytools.latex.document import TexDocument
 from gerrytools.logging import get_logger
+from gerrytools.typing import Color
 
 logger = get_logger(__name__)
 
@@ -27,13 +29,13 @@ class PaintBallLine:
 
     Attributes:
         slope (float): The slope of the line.
-        linecolor (str): The color of the line.
+        linecolor (Color): The color of the line.
         linewidth (float): The width of the line.
         linestyle (TikzLineStyle): The style of the line.
     """
 
     slope: float
-    linecolor: str
+    linecolor: Color
     linewidth: float
     linestyle: TikzLineStyle
 
@@ -60,15 +62,16 @@ class PaintBallLine:
             )
 
 
+@dataclass(slots=True)
 class PaintBallOptions:
     """Class for storing paintball plot options
 
 
     Attributes:
         markersize (float): The size of the markers in points.
-        markercolor (str): The color of the markers.
+        markercolor (Color): The color of the markers.
         markeralpha (float): The opacity of the markers (0.0 to 1.0).
-        crosshair_color (str): The color of the crosshair lines.
+        crosshair_color (Color): The color of the crosshair lines.
         crosshair_width (float): The width of the crosshair lines.
         xlim (tuple[float, float]): The x-axis limits.
         ylim (tuple[float, float]): The y-axis limits.
@@ -77,31 +80,31 @@ class PaintBallOptions:
     """
 
     markersize: float = 8
-    markercolor = "cadmiumgreen"
+    markercolor: Color = "cadmiumgreen"
     markeralpha: float = 0.8
-    markeredgecolor: str = "cadmiumgreen"
+    markeredgecolor: Color = "cadmiumgreen"
     markeredgewidth: float = 0.5
     markeredgealpha: float = 1.0
-    hullcolor: str | None = None
+    hullcolor: Color | None = None
     hullalpha: float | None = None
-    hulledgecolor: str | None = None
+    hulledgecolor: Color | None = None
     hulledgewidth: float | None = 2.0
     hulledgealpha: float | None = None
-    crosshair_color: str = "gray!50"
+    crosshair_color: Color = "gray!50"
     crosshair_width: float = 5.0
     xlim: tuple[float, float] = (0.0, 1.0)
     ylim: tuple[float, float] = (0, 1)
     xscale: float = 10
     yscale: float = 10
 
-    def __setattr__(self, key, value):
+    def __setattr__(self, key: str, value) -> None:
         match key:
             case "markersize":
                 if not (0.0 < value):
                     raise ValueError("markersize must be positive")
                 object.__setattr__(self, key, round(float(value), 4))
             case "markercolor":
-                object.__setattr__(self, key, str(value))
+                object.__setattr__(self, key, value)
             case "markeralpha":
                 if not (0.0 <= value <= 1.0):
                     raise ValueError("markeralpha must be in [0.0, 1.0]")
@@ -111,19 +114,19 @@ class PaintBallOptions:
                     raise ValueError("markeredgewidth must be non-negative")
                 object.__setattr__(self, key, round(float(value), 4))
             case "markeredgecolor":
-                object.__setattr__(self, key, str(value))
+                object.__setattr__(self, key, value)
             case "markeredgealpha":
                 if not (0.0 <= value <= 1.0):
                     raise ValueError("markeredgealpha must be in [0.0, 1.0]")
                 object.__setattr__(self, key, round(float(value), 4))
             case "hullcolor":
-                object.__setattr__(self, key, str(value))
+                object.__setattr__(self, key, value)
             case "hullalpha":
                 if not (0.0 <= value <= 1.0):
                     raise ValueError("hullalpha must be in [0.0, 1.0]")
                 object.__setattr__(self, key, round(float(value), 4))
             case "hulledgecolor":
-                object.__setattr__(self, key, str(value))
+                object.__setattr__(self, key, value)
             case "hulledgewidth":
                 if not (0.0 <= value):
                     raise ValueError("hulledgewidth must be non-negative")
@@ -133,7 +136,7 @@ class PaintBallOptions:
                     raise ValueError("hulledgealpha must be in [0.0, 1.0]")
                 object.__setattr__(self, key, round(float(value), 4))
             case "crosshair_color":
-                object.__setattr__(self, key, str(value))
+                object.__setattr__(self, key, value)
             case "crosshair_width":
                 if not (0.0 <= value):
                     raise ValueError("crosshair_width must be non-negative")
@@ -240,28 +243,57 @@ class PaintBall:
 
     @property
     def document(self) -> TexDocument:
-        """TexDocument: The LaTeX document associated with this table."""
+        """Return the LaTeX document for the point-based paintball plot.
+
+        Returns:
+            TexDocument: Document object containing the generated TikZ code.
+        """
         self._document.body_string = self._generate_latex()
         return self._document
 
     @property
     def hull_document(self) -> TexDocument:
-        """TexDocument: The LaTeX document associated with this table, including the convex hull."""
+        """Return the LaTeX document for the hull-based paintball plot.
+
+        Returns:
+            TexDocument: Document object containing hull-rendered TikZ code.
+        """
         self._document.body_string = self._generate_latex(hull=True)
         return self._document
 
     def print(self, *, hull: bool = False) -> None:
+        """Print the generated TikZ body to stdout.
+
+        Args:
+            hull (bool, optional): If True, print the hull-rendered plot; otherwise print
+                the point-rendered plot. Defaults to False.
+
+        Returns:
+            None
+        """
         if hull:
             print(self._generate_latex(hull=True))
         else:
             print(self._generate_latex())
 
     def clear_options(self) -> None:
-        """Resets all table options to their default values."""
+        """Reset paintball options to defaults.
+
+        Returns:
+            None
+        """
         self.options = PaintBallOptions()
 
-    def preview(self, hull=False) -> None:  # pragma: no cover
-        """Previews the LaTeX document associated with this table."""
+    def preview(self, hull: bool = False) -> None:  # pragma: no cover
+        """Preview the rendered LaTeX plot.
+
+        Args:
+            hull (bool, optional): If True, preview the hull-rendered plot; otherwise preview
+                the point-rendered plot. Defaults to False.
+
+        Returns:
+            None
+        """
         if hull:
             self.hull_document.preview()
         else:
@@ -350,7 +382,7 @@ class PaintBall:
     def add_lines_with_slope(
         self,
         slopes: Iterable[float],
-        linecolor: str = "black",
+        linecolor: Color = "black",
         linewidth: float = 1.0,
         linestyle: TikzLineStyle = "solid",
         *,
@@ -360,7 +392,7 @@ class PaintBall:
 
         Args:
             slopes (Iterable[float]): The slopes of the lines to be added.
-            linecolor (str, optional): The color of the lines. Defaults to "black".
+            linecolor (Color, optional): The color of the lines. Defaults to "black".
             linewidth (float, optional): The width of the lines. Defaults to 1.0
             linestyle (TikzLineStyle, optional): The style of the lines. Defaults to "solid".
             name (str | None, optional): An optional name for the line. If provided,
@@ -431,19 +463,21 @@ class PaintBall:
         """Sets both the x-axis and y-axis scales for the paintball plot.
 
         Args:
-            xscale (float): The x-axis scale factor.
-            yscale (float): The y-axis scale factor.
+            xscale (float | None, optional): The x-axis scale factor. If None, the x-scale
+                is left unchanged. Defaults to None.
+            yscale (float | None, optional): The y-axis scale factor. If None, the y-scale
+                is left unchanged. Defaults to None.
         """
         if xscale is not None:
             self.set_xscale(xscale)
         if yscale is not None:
             self.set_yscale(yscale)
 
-    def set_crosshair_options(self, color: str, width: float) -> None:
+    def set_crosshair_options(self, color: Color, width: float) -> None:
         """Sets the crosshair options for the paintball plot.
 
         Args:
-            color (str): The color of the crosshair.
+            color (Color): The color of the crosshair.
             width (float): The width of the crosshair lines.
         """
         self.options.crosshair_color = color
@@ -452,9 +486,9 @@ class PaintBall:
     def set_marker_options(
         self,
         size: float | None = None,
-        color: str | None = None,
+        color: Color | None = None,
         alpha: float | None = None,
-        edgecolor: str | None = None,
+        edgecolor: Color | None = None,
         edgewidth: float | None = None,
         edgealpha: float | None = None,
     ) -> None:
@@ -463,11 +497,11 @@ class PaintBall:
         Args:
             size_pts (float | None): The size of the markers in points. If None, the size is not
                 changed from the previous setting. Defaults to None.
-            color (str | None): The color of the markers. If None, the color is not changed from
+            color (Color | None): The color of the markers. If None, the color is not changed from
                 the previous setting. Defaults to None.
             alpha (float): The opacity of the markers (0.0 to 1.0). If None, the opacity is not
                 changed from the previous setting. Defaults to None.
-            edgecolor (str | None): The edge color of the markers. If None, the edge color is not
+            edgecolor (Color | None): The edge color of the markers. If None, the edge color is not
                 changed from the previous setting. Defaults to None.
             edgewidth (float | None): The edge width of the markers. If None, the edge width is not
                 changed from the previous setting. Defaults to None.
@@ -489,20 +523,20 @@ class PaintBall:
 
     def set_hull_options(
         self,
-        color: str | None = None,
+        color: Color | None = None,
         alpha: float | None = None,
-        edgecolor: str | None = None,
+        edgecolor: Color | None = None,
         edgewidth: float | None = None,
         edgealpha: float | None = None,
     ) -> None:
         """Sets the hull options for the paintball plot.
 
         Args:
-            color (str | None): The color of the hull. If None, the color is not changed from
+            color (Color | None): The color of the hull. If None, the color is not changed from
                 the previous setting. Defaults to None.
             alpha (float | None): The opacity of the hull (0.0 to 1.0). If None, the opacity is not
                 changed from the previous setting. Defaults to None.
-            edgecolor (str | None): The edge color of the hull. If None, the edge color is not
+            edgecolor (Color | None): The edge color of the hull. If None, the edge color is not
                 changed from the previous setting. Defaults to None.
             edgewidth (float | None): The edge width of the hull. If None, the edge width is not
                 changed from the previous setting. Defaults to None.
@@ -524,6 +558,18 @@ class PaintBall:
     #   STRING GENERATORS
     # =====================
 
+    def _to_latex_color(self, color: Color, *, prefix: str) -> str:
+        """Resolve a color to a LaTeX color name.
+
+        Args:
+            color (Color): Input color value.
+            prefix (str): Prefix for auto-generated color names.
+
+        Returns:
+            str: LaTeX color name safe to reference in TikZ commands.
+        """
+        return self._document.resolve_color(color, prefix=prefix)
+
     def _compute_starting_ending_points_for_line_with_slope(
         self, slope: float
     ) -> tuple[float, float, float, float]:
@@ -539,55 +585,25 @@ class PaintBall:
             tuple[float, float, float, float]: The starting and ending points of the line
                 in the format (starting_x, starting_y, ending_x, ending_y).
         """
-        if slope == 0:
-            starting_x = 0.0
-            ending_x = 1.0
-            starting_y = 0.5
-            ending_y = 0.5
-        elif slope == float("inf") or slope == float("-inf"):
-            starting_x = 0.5
-            ending_x = 0.5
-            starting_y = 0.0
-            ending_y = 1.0
-        elif slope >= 1:
-            starting_x = 0.5 - (0.5 / slope)
-            starting_y = 0.0
-            ending_x = 0.5 + (0.5 / slope)
-            ending_y = 1.0
-        elif 0 < slope < 1:
-            starting_x = 0.0
-            starting_y = 0.5 - (0.5 * slope)
-            ending_x = 1.0
-            ending_y = 0.5 + (0.5 * slope)
-        elif -1 < slope < 0:
-            starting_x = 0.0
-            starting_y = 0.5 - (0.5 * slope)
-            ending_x = 1.0
-            ending_y = 0.5 + (0.5 * slope)
-        else:
-            starting_x = 0.5 - (0.5 / slope)
-            starting_y = 0.0
-            ending_x = 0.5 + (0.5 / slope)
-            ending_y = 1.0
-
-        starting_x = round(starting_x, 4)
-        starting_y = round(starting_y, 4)
-        ending_x = round(ending_x, 4)
-        ending_y = round(ending_y, 4)
-
-        return starting_x, starting_y, ending_x, ending_y
+        return line_segment_through_unit_square(slope, round_to=4)
 
     def _paintball_points_str(self) -> str:
-        """Generate the LaTeX string for the paintball points."""
+        """Generate TikZ code for point markers.
+
+        Returns:
+            str: TikZ snippet that renders all paintball markers.
+        """
+        marker_fill = self._to_latex_color(self.options.markercolor, prefix="pbmarker")
+        marker_edge = self._to_latex_color(self.options.markeredgecolor, prefix="pbmarker")
         tex_string = "\\foreach \\votes/\\seats in {\n"
         for v, s in zip(self._voteshare_data, self._seatshare_data):
             tex_string += f"    {v}/{s},\n"
         tex_string = tex_string.rstrip(",\n") + "\n"  # Remove trailing comma
         tex_string += "} {\n"
         tex_string += (
-            f"    \\node[transform shape=false, circle , fill={self.options.markercolor}, "
+            f"    \\node[transform shape=false, circle , fill={marker_fill}, "
             f"fill opacity={self.options.markeralpha}, inner sep=0pt, "
-            f"minimum size={self.options.markersize}pt, draw={self.options.markeredgecolor}, "
+            f"minimum size={self.options.markersize}pt, draw={marker_edge}, "
             f"line width={self.options.markeredgewidth}, "
             f"draw opacity={self.options.markeredgealpha}] \n"
             "    at (1-\\votes, 1-\\seats) {{}};\n}"
@@ -595,7 +611,11 @@ class PaintBall:
         return tex_string
 
     def _paintball_hull_str(self) -> str:
-        """Generate the LaTeX string for the horizontal hull of the paintball points."""
+        """Generate TikZ code for the horizontal hull polygon.
+
+        Returns:
+            str: TikZ snippet that renders the hull polygon.
+        """
         decimal_places = max(
             [len(str(v).split(".")[1]) if "." in str(v) else 0 for v in self._seatshare_data]
             + [len(str(v).split(".")[1]) if "." in str(v) else 0 for v in self._voteshare_data]
@@ -644,10 +664,12 @@ class PaintBall:
             if self.options.hulledgealpha is not None
             else self.options.markeredgealpha
         )
+        fillcolor_str = self._to_latex_color(fillcolor, prefix="pbhull")
+        linecolor_str = self._to_latex_color(linecolor, prefix="pbhull")
 
         draw_string = (
-            f"\\draw [fill={fillcolor}, fill opacity={fillalpha}, line width={linewidth}, "
-            f"color={linecolor}, draw opacity={linealpha}] "
+            f"\\draw [fill={fillcolor_str}, fill opacity={fillalpha}, line width={linewidth}, "
+            f"color={linecolor_str}, draw opacity={linealpha}] "
         )
 
         # Draw left side
@@ -664,11 +686,14 @@ class PaintBall:
         return draw_string
 
     def _generate_latex(self, *, hull=False) -> str:
-        """Generate the complete LaTeX table string.
+        """Generate complete TikZ content for the paintball plot.
 
         Args:
-            hull (bool): Whether to draw the horizontal hull of the paintball points rather
+            hull (bool, optional): Whether to draw the horizontal hull of the paintball points rather
                 than the individual points. Defaults to False.
+
+        Returns:
+            str: Complete TikZ picture source.
         """
         tex_string = "\\begin{tikzpicture}\n\\begin{scope}"
         tex_string += f"[xscale={self.options.xscale}, yscale={self.options.yscale}]\n\n"
@@ -680,11 +705,12 @@ class PaintBall:
         )
 
         # Draw crosshairs
+        crosshair_color = self._to_latex_color(self.options.crosshair_color, prefix="pbcross")
         tex_string += (
             f"\\draw [line width={self.options.crosshair_width}pt, "
-            f"color={self.options.crosshair_color}] (0.5, 0) -- (0.5, 1);\n"
+            f"color={crosshair_color}] (0.5, 0) -- (0.5, 1);\n"
             f"\\draw [line width={self.options.crosshair_width}pt, "
-            f"color={self.options.crosshair_color}] (0, 0.5) -- (1, 0.5);\n\n"
+            f"color={crosshair_color}] (0, 0.5) -- (1, 0.5);\n\n"
         )
 
         # Draw lines
@@ -692,18 +718,20 @@ class PaintBall:
             starting_x, starting_y, ending_x, ending_y = (
                 self._compute_starting_ending_points_for_line_with_slope(line.slope)
             )
+            line_color = self._to_latex_color(line.linecolor, prefix="pbline")
             tex_string += (
-                f"\\draw [color={line.linecolor}, line width={line.linewidth}pt, "
+                f"\\draw [color={line_color}, line width={line.linewidth}pt, "
                 f"{line.linestyle}] "
                 f"({starting_x}, {starting_y}) -- ({ending_x}, {ending_y});\n"
             )
-        for slope, lines in self._lines.items():
+        for _slope, lines in self._lines.items():
             for line in lines:
                 starting_x, starting_y, ending_x, ending_y = (
                     self._compute_starting_ending_points_for_line_with_slope(line.slope)
                 )
+                line_color = self._to_latex_color(line.linecolor, prefix="pbline")
                 tex_string += (
-                    f"\\draw [color={line.linecolor}, line width={line.linewidth}pt, "
+                    f"\\draw [color={line_color}, line width={line.linewidth}pt, "
                     f"{line.linestyle}] "
                     f"({starting_x}, {starting_y}) -- ({ending_x}, {ending_y});\n"
                 )
