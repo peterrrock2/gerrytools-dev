@@ -2,7 +2,7 @@ import weakref
 from abc import ABC, abstractmethod
 from io import BytesIO
 from numbers import Real
-from typing import Any, Iterable, Literal
+from typing import Any, Iterable, Literal, Sequence
 
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
@@ -936,6 +936,46 @@ class GerryPlotBase(ABC):
         """Clear y-tick locations and labels."""
         self._y_tick_locations = []
         self._y_tick_labels = []
+
+    def set_xticks(
+        self,
+        locations: Sequence[float] | None = None,
+        *,
+        labels: Sequence[str] | None = None,
+    ) -> None:
+        """Set x-axis tick locations and optionally labels.
+
+        Args:
+            locations (Sequence[float] | None, optional): X-axis tick locations. Defaults to None.
+            labels (Sequence[str] | None, optional): X-axis tick labels. Defaults to None.
+
+        Returns:
+            None
+        """
+        self.update_xtick_values(
+            locations=None if locations is None else list(locations),
+            labels=None if labels is None else list(labels),
+        )
+
+    def set_yticks(
+        self,
+        locations: Sequence[float] | None = None,
+        *,
+        labels: Sequence[str] | None = None,
+    ) -> None:
+        """Set y-axis tick locations and optionally labels.
+
+        Args:
+            locations (Sequence[float] | None, optional): Y-axis tick locations. Defaults to None.
+            labels (Sequence[str] | None, optional): Y-axis tick labels. Defaults to None.
+
+        Returns:
+            None
+        """
+        self.update_ytick_values(
+            locations=None if locations is None else list(locations),
+            labels=None if labels is None else list(labels),
+        )
 
     def set_xlimits(self, lower: float, upper: float) -> None:
         """Set x-axis limits.

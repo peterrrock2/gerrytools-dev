@@ -27,6 +27,7 @@ from gerrytools.plotting.geoplot import GeoPlot
 from gerrytools.plotting.histogram import Histogram, HistogramData, HistPointList
 from gerrytools.plotting.scatterplot import ScatterPlot
 from gerrytools.plotting.sealevel import SeaLevel
+from gerrytools.plotting.seatsvotes import SeatsVotes, SeatsVotesData, SVPlotLine
 from gerrytools.plotting.subway import SubwaySignOptions, subway_signs
 from gerrytools.plotting.violin import ViolinPlot, ViolinPlotSetData
 
@@ -62,6 +63,9 @@ __all__ = [
     "HistPointList",
     "ScatterPlot",
     "SeaLevel",
+    "SeatsVotes",
+    "SeatsVotesData",
+    "SVPlotLine",
     "SubwaySignOptions",
     "subway_signs",
     "ViolinPlot",
