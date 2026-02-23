@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from numbers import Real
-from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -10,7 +9,7 @@ from matplotlib.lines import Line2D
 from gerrytools.plotting.data._gerryplot_dataclasses import LineData, PointSetData
 from gerrytools.plotting.data.gerryplot import GerryPlotBase
 from gerrytools.plotting.mpl.marker_options import PointMarkerOptions
-from gerrytools.typing import Color
+from gerrytools.typing import Color, LegendHandle
 
 
 class CategoricalDistributionPlotBase(GerryPlotBase):
@@ -114,22 +113,22 @@ class CategoricalDistributionPlotBase(GerryPlotBase):
 
             first = scores[0]
 
-            def _is_scalar(x: Any) -> bool:
+            def _is_scalar(x: object) -> bool:
                 """Return whether an object should be treated as a scalar score value.
 
                 Args:
-                    x (Any): Candidate object.
+                    x (object): Candidate object.
 
                 Returns:
                     bool: True when ``x`` is scalar-like for score parsing.
                 """
                 return isinstance(x, (str, bytes, Real, np.generic))
 
-            def _is_score_series(x: Any) -> bool:
+            def _is_score_series(x: object) -> bool:
                 """Return whether an object should be treated as a score sequence.
 
                 Args:
-                    x (Any): Candidate object.
+                    x (object): Candidate object.
 
                 Returns:
                     bool: True when ``x`` behaves like a sequence of scores.
@@ -228,7 +227,8 @@ class CategoricalDistributionPlotBase(GerryPlotBase):
         if labels is None:
             if self._labels is None:
                 raise ValueError(
-                    "For list pointset input, provide labels=... (or add distributions first to define labels)."
+                    "For list pointset input, provide labels=... (or add distributions first to "
+                    "define labels)."
                 )
             labels = self._labels
 
@@ -419,9 +419,9 @@ class CategoricalDistributionPlotBase(GerryPlotBase):
                 **sdata.point_data.to_mpl_settings_dict(),
             )
 
-    def _get_pointset_legend_handles(self) -> list[Any]:
+    def _get_pointset_legend_handles(self) -> list[LegendHandle]:
         """Generate legend handles for all point sets."""
-        handles: list[Any] = []
+        handles: list[LegendHandle] = []
 
         for sdata in self._pointset_data_list:
             handles.append(

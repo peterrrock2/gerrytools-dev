@@ -3,7 +3,6 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from numbers import Real
-from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -13,7 +12,7 @@ from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
 from gerrytools.plotting.data.gerryplot import GerryPlotBase
 from gerrytools.plotting.mpl.marker_options import PointMarkerOptions
-from gerrytools.typing import Color
+from gerrytools.typing import CategoryKey, Color, LegendHandle
 
 logger = get_logger(__name__)
 
@@ -247,7 +246,7 @@ class SeaLevel(GerryPlotBase):
         self,
         scores: dict[str, int | float] | list[int | float] | pd.Series | pd.DataFrame,
         scores_labels: list[str] | None = None,
-        df_row_index: Any | None = None,
+        df_row_index: CategoryKey | None = None,
     ) -> dict[str, float]:
         """Convert supported score inputs into a label-to-value dictionary.
 
@@ -255,7 +254,7 @@ class SeaLevel(GerryPlotBase):
             scores (dict[str, int | float] | list[int | float] | pd.Series | pd.DataFrame):
                 Input scores. Lists require ``scores_labels``; DataFrames require ``df_row_index``.
             scores_labels (list[str] | None, optional): Labels for list input. Defaults to None.
-            df_row_index (Any | None, optional): Row selector for DataFrame input.
+            df_row_index (CategoryKey | None, optional): Row selector for DataFrame input.
                 Defaults to None.
 
         Returns:
@@ -315,7 +314,7 @@ class SeaLevel(GerryPlotBase):
         scores: dict[str, float] | list[float] | pd.Series | pd.DataFrame,
         *,
         scores_labels: list[str] | None = None,
-        df_row_index: Any | None = None,
+        df_row_index: CategoryKey | None = None,
         name: str | None = None,
         linecolor: Color = "black",
         linealpha: float | None = None,
@@ -339,7 +338,8 @@ class SeaLevel(GerryPlotBase):
             scores_labels (list[str] | None, optional): The labels corresponding to the
                 scores list, if scores is provided as a list. Ignored if scores is a dict,
                 Series, or DataFrame. Defaults to None.
-            df_row_index (Any | None, optional): The row index to select if scores is a DataFrame.
+            df_row_index (CategoryKey | None, optional): The row index to select if scores is a
+                DataFrame.
                 Defaults to None.
             name (str | None, optional): The name of the point set for the legend.
                 Defaults to None.
@@ -467,7 +467,6 @@ class SeaLevel(GerryPlotBase):
                 y_positions.append(y_center)
 
             markersettings = sealevel_set.markersettings.to_mpl_settings_dict()
-            markersettings.pop("zorder", None)
             self._ax.plot(
                 x_positions,
                 y_positions,
@@ -480,7 +479,11 @@ class SeaLevel(GerryPlotBase):
                 linewidth=sealevel_set.linewidth,
                 zorder=sealevel_set.zorder,
                 label=sealevel_set.name,
-                **markersettings,
+                markerfacecolor=markersettings["markerfacecolor"],
+                marker=markersettings["marker"],
+                markersize=markersettings["markersize"],
+                markeredgecolor=markersettings["markeredgecolor"],
+                markeredgewidth=markersettings["markeredgewidth"],
             )
 
     def _build_plot(self) -> None:
@@ -493,17 +496,16 @@ class SeaLevel(GerryPlotBase):
 
         self._draw_sealevels()
 
-    def _get_sealevel_legend_handles(self) -> list[Any]:
+    def _get_sealevel_legend_handles(self) -> list[LegendHandle]:
         """Generate legend handles for sealevel sets.
 
         Returns:
-            list[Any]: A list of legend handles for the sealevel sets.
+            list[LegendHandle]: A list of legend handles for the sealevel sets.
         """
-        handles: list[Any] = []
+        handles: list[LegendHandle] = []
 
         for sealevel_data in self._sealevel_data_list:
             markersettings = sealevel_data.markersettings.to_mpl_settings_dict()
-            markersettings.pop("zorder", None)
             handles.append(
                 Line2D(
                     [0],
@@ -517,7 +519,11 @@ class SeaLevel(GerryPlotBase):
                     linewidth=sealevel_data.linewidth,
                     label=sealevel_data.name,
                     zorder=sealevel_data.zorder,
-                    **markersettings,
+                    markerfacecolor=markersettings["markerfacecolor"],
+                    marker=markersettings["marker"],
+                    markersize=markersettings["markersize"],
+                    markeredgecolor=markersettings["markeredgecolor"],
+                    markeredgewidth=markersettings["markeredgewidth"],
                 )
             )
 
@@ -564,9 +570,9 @@ class SeaLevel(GerryPlotBase):
         )
 
     @property
-    def _legend_handles(self) -> list[Any]:
+    def _legend_handles(self) -> list[LegendHandle]:
         """Generated legend handles for sealevel sets."""
-        handles: list[Any] = []
+        handles: list[LegendHandle] = []
         handles.extend(self._get_sealevel_legend_handles())
         handles.extend(self._get_named_line_legend_handles())
         handles.extend(self._get_named_band_legend_handles())

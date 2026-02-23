@@ -3,13 +3,12 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass
-from typing import Any
 
 import matplotlib.colors as mcolors
 
 from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
-from gerrytools.typing import Color
+from gerrytools.typing import Color, PlotMarkerKwargs, ScatterMarkerKwargs
 
 logger = get_logger(__name__)
 
@@ -89,7 +88,7 @@ class PointMarkerOptions:
             )
             object.__setattr__(self, "markeredgewidth", 0.0)
 
-    def to_mpl_settings_dict(self) -> dict[str, Any]:
+    def to_mpl_settings_dict(self) -> PlotMarkerKwargs:
         """Convert to Matplotlib kwargs for ``Axes.plot`` marker styling."""
         return {
             "markerfacecolor": mcolors.to_rgba(self.markerfacecolor, alpha=self.markerfacealpha),
@@ -100,7 +99,7 @@ class PointMarkerOptions:
             "zorder": self.zorder,
         }
 
-    def to_mpl_scatter_settings_dict(self) -> dict[str, Any]:
+    def to_mpl_scatter_settings_dict(self) -> ScatterMarkerKwargs:
         """Convert to Matplotlib kwargs for ``Axes.scatter`` marker styling."""
         return {
             "marker": self.marker,

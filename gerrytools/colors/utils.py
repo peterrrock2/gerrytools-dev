@@ -1,5 +1,5 @@
 from collections.abc import Mapping, Sequence
-from typing import Union
+from typing import Union, cast
 
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
@@ -98,8 +98,11 @@ def compare_palettes(
         (fig, ax)
     """
     # Normalize palettes to dict[name -> list[RGB triples]]
+    items: list[tuple[str, Sequence[Color]]]
     if isinstance(palettes, Mapping):
-        items = list(palettes.items())
+        # Cast to satisfy the type-checker after runtime Mapping narrowing.
+        palette_map = cast(Mapping[str, Sequence[Color]], palettes)
+        items = [(str(name), palette) for name, palette in palette_map.items()]
     else:
         items = [(str(i), row) for i, row in enumerate(palettes)]
 

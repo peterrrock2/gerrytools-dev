@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Iterable
 
 from matplotlib.axes import Axes
 from matplotlib.lines import Line2D
@@ -12,7 +12,7 @@ from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
 from gerrytools.plotting.data._geometry import line_segment_through_unit_square
 from gerrytools.plotting.data.gerryplot import GerryPlotBase
-from gerrytools.typing import Color
+from gerrytools.typing import Color, LegendHandle
 
 logger = get_logger(__name__)
 
@@ -664,9 +664,9 @@ class PaintBall(GerryPlotBase):
         self._ax.set_aspect(self.yscale / self.xscale, adjustable="box")
 
     @property
-    def _legend_handles(self) -> list[Any]:
+    def _legend_handles(self) -> list[LegendHandle]:
         """Generate legend handles for paintball data and named lines."""
-        handles: list[Any] = []
+        handles: list[LegendHandle] = []
 
         if self._draw_hull:
             fillcolor = self.hullcolor if self.hullcolor is not None else self.markercolor
@@ -743,14 +743,14 @@ class PaintBall(GerryPlotBase):
         finally:
             self._draw_hull = previous_hull_setting
 
-    def save(self, filepath: str, *, hull: bool = False, **kwargs: Any) -> None:
+    def save(self, filepath: str, *, hull: bool = False, **kwargs: object) -> None:
         """Save the paintball figure to a file.
 
         Args:
             filepath (str): Output image file path.
             hull (bool, optional): Whether to save the horizontal hull view.
                 Defaults to False.
-            **kwargs (Any): Additional keyword arguments forwarded to ``Figure.savefig``.
+            **kwargs (object): Additional keyword arguments forwarded to ``Figure.savefig``.
         """
         previous_hull_setting = self._draw_hull
         self._draw_hull = hull

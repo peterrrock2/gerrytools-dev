@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import Literal
 
 from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
@@ -21,7 +22,7 @@ class TickStyle:
     tickcolor: Color = "black"
     tickalpha: float | None = None
     fontweight: str = "normal"
-    fontstyle: str = "normal"
+    fontstyle: Literal["normal", "italic", "oblique"] = "normal"
     fontfamily: str = "sans-serif"
     ticktype: TickType = "major"
 

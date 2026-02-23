@@ -2,7 +2,7 @@ import atexit
 import os
 import tempfile
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 from warnings import warn
 
 import numpy as np
@@ -20,7 +20,7 @@ from gerrytools.plotting._legend_utils import build_legend_options, save_legend_
 from gerrytools.plotting.geometry.geoplot import GeoPlot
 from gerrytools.plotting.mpl.label_text_options import LabelBoxOptions, LabelFontOptions
 from gerrytools.plotting.mpl.marker_options import PointMarkerOptions
-from gerrytools.typing import Color, MplCompatibleColor
+from gerrytools.typing import Color, CRSLike, MplCompatibleColor, ScatterMarkerKwargs
 
 logger = get_logger(__name__)
 
@@ -191,7 +191,7 @@ class DotDensityPlot(GeoPlot):
         outline_column: str,
         dpi: int = 300,
         show_axis: bool = False,
-        target_crs=None,
+        target_crs: CRSLike | None = None,
         include_default_outline: bool = False,
         silent: bool = False,
         people_per_dot: int = 100,
@@ -230,7 +230,8 @@ class DotDensityPlot(GeoPlot):
             edgewidth (float, optional): Width of the outline edges. Defaults to 0.6.
             dpi (int, optional): Dots per inch for the plot. Defaults to 300.
             show_axis (bool, optional): Whether to show the axis. Defaults to False.
-            target_crs (optional): Target CRS for reprojecting geometries. Defaults to None.
+            target_crs (CRSLike | None, optional): Target CRS for reprojecting geometries.
+                Defaults to None.
             include_default_outline (bool, optional): Whether to include a default outline
                 layer. Defaults to False because the outline layer is already being added.
             silent (bool, optional): Whether to suppress informational output throughout
@@ -286,7 +287,7 @@ class DotDensityPlot(GeoPlot):
             markeredgealpha=None,
             markeredgewidth=0.0,
         ).to_mpl_scatter_settings_dict()
-        self.__global_marker_settings_dict = marker_options
+        self.__global_marker_settings_dict: ScatterMarkerKwargs = marker_options
 
         # Used for caching the dots so that you can iterate quickly when adjusting styles
         self.__temp_dir: tempfile.TemporaryDirectory | None = tempfile.TemporaryDirectory()
@@ -321,7 +322,7 @@ class DotDensityPlot(GeoPlot):
         markeredgecolor: Color = "none",
         markeredgealpha: float | None = None,
         markeredgewidth: float = 0.0,
-    ):
+    ) -> None:
         """Set global marker options for all dot density layers.
 
         This method will set the marker style for all dot density layers in the plot. So all
@@ -354,7 +355,7 @@ class DotDensityPlot(GeoPlot):
         force_new_dots: bool = False,
         n_cores_for_processing: int = -1,
         n_chunks: int = 10,
-    ):
+    ) -> None:
         """Add a dot density layer for a specific data column.
 
         This method generates random dots within the polygons of the GeoDataFrame
@@ -434,8 +435,8 @@ class DotDensityPlot(GeoPlot):
         *,
         layers_xy_polyid: list[tuple[NDArray, NDArray, NDArray]],
         layer_colors: list[MplCompatibleColor],
-        block=200_000,
-    ):
+        block: int = 200_000,
+    ) -> None:
         """Draw dots from all layers in interleaved blocks for visual mixing.
 
         Args:
@@ -470,13 +471,19 @@ class DotDensityPlot(GeoPlot):
 
         # Draw in blocks (keeps memory + scatter call size reasonable)
         n = len(xs_all)
+        marker_settings = self.__global_marker_settings_dict
+
         for start in range(0, n, block):
             end = min(n, start + block)
             self._ax.scatter(
                 xs_all[start:end],
                 ys_all[start:end],
                 c=palette[layer_ids[start:end]],
-                **self.__global_marker_settings_dict,
+                marker=marker_settings["marker"],
+                s=marker_settings["s"],
+                edgecolor=marker_settings["edgecolor"],
+                linewidths=marker_settings["linewidths"],
+                zorder=marker_settings["zorder"],
             )
 
     def _draw_all_dots(self) -> None:
@@ -501,17 +508,18 @@ class DotDensityPlot(GeoPlot):
             n_cols = len(self.__column_to_color_dict)
             cols = list(self.__column_to_color_dict.keys())
             print(
-                f"Rendering {sum(len(x) for x, _, _ in layers_xy_polyid):,} dots for column{'s' if n_cols > 1 else ''} '{cols}'..."
+                f"Rendering {sum(len(x) for x, _, _ in layers_xy_polyid):,} dots for "
+                f"column{'s' if n_cols > 1 else ''} '{cols}'..."
             )
         self.__draw_interleaved_scatter_blocks(
             layers_xy_polyid=layers_xy_polyid, layer_colors=colors, block=200_000
         )
 
-    def _draw_legend(self, **legend_kwargs) -> None:
+    def _draw_legend(self, **legend_kwargs: object) -> None:
         """Draw the in-axes legend for currently configured dot-density layers.
 
         Args:
-            **legend_kwargs (Any): Extra keyword arguments forwarded to
+            **legend_kwargs (object): Extra keyword arguments forwarded to
                 ``matplotlib.axes.Axes.legend``.
 
         Returns:
@@ -520,12 +528,7 @@ class DotDensityPlot(GeoPlot):
         if not self.show_legend or not self.__column_to_color_dict:
             return
 
-        settings = {}
-        settings["marker"] = self.__global_marker_settings_dict.get("marker", "o")
-        settings["markeredgecolor"] = self.__global_marker_settings_dict.get("edgecolor", "none")
-        settings["markeredgewidth"] = self.__global_marker_settings_dict.get("linewidths", 0.0)
-        if getattr(settings["markeredgewidth"], "__len__", None) is not None:
-            settings["markeredgewidth"] = settings["markeredgewidth"][0]
+        marker_settings = self.__global_marker_settings_dict
 
         handles = [
             Line2D(
@@ -534,7 +537,10 @@ class DotDensityPlot(GeoPlot):
                 label=label,
                 linestyle="",
                 markerfacecolor=color,
-                **settings,
+                marker=marker_settings["marker"],
+                markersize=float(np.sqrt(marker_settings["s"])),
+                markeredgecolor=marker_settings["edgecolor"],
+                markeredgewidth=marker_settings["linewidths"],
             )
             for label, color in self.__column_to_color_dict.items()
         ]
@@ -626,7 +632,7 @@ class DotDensityPlot(GeoPlot):
         column_to_display_name: dict[str, str] | None = None,
         outer_padding: float = 0.07,
         dpi: int | None = None,
-        **legend_kwargs: Any,
+        **legend_kwargs: object,
     ) -> None:
         """Save the legend to a separate file.
 
@@ -639,7 +645,7 @@ class DotDensityPlot(GeoPlot):
                 same DPI as the main figure. Defaults to None.
             outer_padding (float, optional): The outer padding around the legend.
                 Defaults to 0.07.
-            **legend_kwargs (Any): Additional keyword arguments passed to
+            **legend_kwargs (object): Additional keyword arguments passed to
                 ``matplotlib.axes.Axes.legend``.
 
         Returns:
@@ -650,12 +656,7 @@ class DotDensityPlot(GeoPlot):
             print("No legend to save.")
             return
 
-        settings = {}
-        settings["marker"] = self.__global_marker_settings_dict.get("marker", "o")
-        settings["markeredgecolor"] = self.__global_marker_settings_dict.get("edgecolor", "none")
-        settings["markeredgewidth"] = self.__global_marker_settings_dict.get("linewidths", 0.0)
-        if getattr(settings["markeredgewidth"], "__len__", None) is not None:
-            settings["markeredgewidth"] = settings["markeredgewidth"][0]
+        marker_settings = self.__global_marker_settings_dict
 
         column_to_color_dict = self.__column_to_color_dict
         if column_to_display_name is not None:
@@ -671,7 +672,10 @@ class DotDensityPlot(GeoPlot):
                 label=label,
                 linestyle="",
                 markerfacecolor=color,
-                **settings,
+                marker=marker_settings["marker"],
+                markersize=float(np.sqrt(marker_settings["s"])),
+                markeredgecolor=marker_settings["edgecolor"],
+                markeredgewidth=marker_settings["linewidths"],
             )
             for label, color in column_to_color_dict.items()
         ]

@@ -1,13 +1,14 @@
 from collections.abc import Iterable
 from numbers import Real
-from typing import Any
+
+from gerrytools.typing import Numeric, NumericIterable
 
 
-def _coerce_real_iter(values: Any, *, field: str) -> list[float]:
+def _coerce_real_iter(values: Numeric | NumericIterable, *, field: str) -> list[float]:
     """Normalize scalar/iterable numeric input to a list of floats.
 
     Args:
-        values (Any): Scalar real value or iterable of real values.
+        values (Numeric | NumericIterable): Scalar real value or iterable of real values.
         field (str): Field name used in validation error messages.
 
     Returns:
@@ -33,7 +34,7 @@ def _coerce_real_iter(values: Any, *, field: str) -> list[float]:
     raise TypeError(f"{field} must be a number or an iterable of numbers.")
 
 
-def sort_elections(elec_list):
+def sort_elections(elec_list: Iterable[str]) -> list[str]:
     """Sort election identifiers by two-digit year suffix.
 
     Assumes each identifier ends with a two-character year token such as ``"SEN18"``.

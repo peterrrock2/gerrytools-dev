@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Iterable
 from dataclasses import dataclass
 from itertools import chain
-from typing import Any, Iterable
 from warnings import warn
 
 import numpy as np
@@ -17,18 +17,18 @@ from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
 from gerrytools.plotting.data.gerryplot import GerryPlotBase
 from gerrytools.plotting.mpl.marker_options import PointMarkerOptions
-from gerrytools.typing import BinsType, Color, HistType
+from gerrytools.typing import BinsType, Color, HistType, LegendHandle, NumericArrayLike
 
 logger = get_logger(__name__)
 
 
 def _coerce_to_1d_float_array(
-    values: Any, *, column: str | None = None, field: str
+    values: NumericArrayLike, *, column: str | None = None, field: str
 ) -> NDArray[np.float64]:
     """Coerce various inputs into a 1D float ndarray (no finite-filtering).
 
     Args:
-        values (Any): Input values. Supported forms include scalar numerics, iterables,
+        values (NumericArrayLike): Input values. Supported forms include scalar numerics, iterables,
             numpy arrays, pandas Series, and pandas DataFrames.
         column (str | None, optional): DataFrame column name to extract when ``values``
             is a DataFrame. Defaults to None.
@@ -61,6 +61,10 @@ def _coerce_to_1d_float_array(
     elif isinstance(values, (list, tuple)):
         arr = np.asarray(values, dtype=float)
     else:
+        if not isinstance(values, Iterable):
+            raise TypeError(
+                f"{field}: expected an iterable of numeric values, got {type(values).__name__!r}."
+            )
         # generators/iterators need materializing for numpy coercion
         arr = np.asarray(list(values), dtype=float)
 
@@ -69,16 +73,16 @@ def _coerce_to_1d_float_array(
 
 
 def _coerce_values_and_weights(
-    values: Any,
+    values: NumericArrayLike,
     *,
-    weights: Any | None,
+    weights: NumericArrayLike | None,
     column: str | None,
 ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
     """Coerce values and weights while preserving alignment through shared masking.
 
     Args:
-        values (Any): Histogram values input.
-        weights (Any | None): Optional weights input aligned to ``values``.
+        values (NumericArrayLike): Histogram values input.
+        weights (NumericArrayLike | None): Optional weights input aligned to ``values``.
         column (str | None): DataFrame column name for ``values`` when applicable.
 
     Returns:
@@ -113,12 +117,12 @@ def _coerce_values_and_weights(
 
 
 def _coerce_to_1d_finite_float_array(
-    values: Any, *, column: str | None = None, field: str
+    values: NumericArrayLike, *, column: str | None = None, field: str
 ) -> NDArray[np.float64]:
     """Coerce various inputs into a finite 1D float ndarray.
 
     Args:
-        values (Any): Input values. Supported forms include scalar numerics, iterables,
+        values (NumericArrayLike): Input values. Supported forms include scalar numerics, iterables,
             numpy arrays, pandas Series, and pandas DataFrames.
         column (str | None, optional): DataFrame column name to extract when ``values``
             is a DataFrame. Defaults to None.
@@ -774,9 +778,9 @@ class Histogram(GerryPlotBase):
         self._draw_histograms()
         self._draw_points()
 
-    def _get_histogram_legend_handles(self) -> list[Any]:
+    def _get_histogram_legend_handles(self) -> list[LegendHandle]:
         """Get legend handles for the histogram sets."""
-        handles: list[Any] = []
+        handles: list[LegendHandle] = []
         for hdata in chain(*self._hist_data_dict.values()):
             handles.append(
                 Patch(
@@ -800,13 +804,13 @@ class Histogram(GerryPlotBase):
             )
         return handles
 
-    def _get_pointset_legend_handles(self) -> list[Any]:
+    def _get_pointset_legend_handles(self) -> list[LegendHandle]:
         """Generate legend handles for point sets.
 
         Returns:
-            list[Any]: A list of legend handles for the point sets.
+            list[LegendHandle]: A list of legend handles for the point sets.
         """
-        handles: list[Any] = []
+        handles: list[LegendHandle] = []
 
         for histpoint in self._histpointlist_list:
             handles.append(
@@ -822,9 +826,9 @@ class Histogram(GerryPlotBase):
         return handles
 
     @property
-    def _legend_handles(self) -> list[Any]:
+    def _legend_handles(self) -> list[LegendHandle]:
         """Get all legend handles for the plot."""
-        handles: list[Any] = []
+        handles: list[LegendHandle] = []
         handles.extend(self._get_histogram_legend_handles())
         handles.extend(self._get_named_line_legend_handles())
         handles.extend(self._get_named_band_legend_handles())

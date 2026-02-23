@@ -1,7 +1,7 @@
 import logging
 import math
 from numbers import Real
-from typing import Any, TypeGuard
+from typing import Literal, TypeAlias, TypeGuard, cast
 
 import matplotlib.colors as mcolors
 
@@ -10,9 +10,10 @@ from gerrytools.colors.districtr import DISTRICTR_COLOR_DICT
 from gerrytools.colors.latex import get_color_from_latex_string
 from gerrytools.colors.latex_full import LATEX_COLOR_DICT
 from gerrytools.logging import get_logger
-from gerrytools.typing import MplCompatibleColor
+from gerrytools.typing import Color, HexColor, MplBaseColor, MplCompatibleColor, ResolvedColor
 
 gt_logger = get_logger(__name__)
+_MplBaseColorWithAlpha: TypeAlias = tuple[MplBaseColor, Real]
 
 DEFAULT_GREY = "#5c676f"
 """
@@ -77,7 +78,7 @@ GERRYTOOLS_EXTRA_COLORS_DICT = (
 )
 
 
-def get_all_supported_colors_dict() -> dict[str, Any]:
+def get_all_supported_colors_dict() -> dict[str, Color]:
     """Get a dictionary of all supported color names mapping to their values."""
     return (
         mcolors.get_named_colors_mapping()
@@ -89,14 +90,14 @@ def get_all_supported_colors_dict() -> dict[str, Any]:
     )
 
 
-def get_named_color(name: str) -> str:
+def get_named_color(name: str) -> Color:
     """Get a color value from the supported color names.
 
     Args:
         name (str): The name of the color.
 
     Returns:
-        str: The corresponding hex color value.
+        Color: The corresponding color value.
 
     Raises:
         KeyError: If the color name is not recognized.
@@ -126,29 +127,37 @@ def get_named_color(name: str) -> str:
     raise KeyError(f"Unknown color name: {name!r}")
 
 
-def _is_real(x: Any) -> TypeGuard[Real]:
+def _is_real(x: object) -> TypeGuard[Real]:
     return (
         isinstance(x, Real) and not isinstance(x, bool) and math.isfinite(float(x))
     )  # filters NaN too
 
 
-def _is_rgb_tuple(x: Any) -> TypeGuard[tuple[Real, Real, Real]]:
+def _is_rgb_tuple(x: object) -> TypeGuard[tuple[int | float, int | float, int | float]]:
     return isinstance(x, tuple) and len(x) == 3 and all(_is_real(v) for v in x)
 
 
-def _is_rgba_tuple(x: Any) -> TypeGuard[tuple[Real, Real, Real, Real]]:
+def _is_rgba_tuple(
+    x: object,
+) -> TypeGuard[tuple[int | float, int | float, int | float, int | float]]:
     return isinstance(x, tuple) and len(x) == 4 and all(_is_real(v) for v in x)
 
 
-def _is_mpl_rgb_color(x: Any) -> TypeGuard[str | tuple[Real, Real, Real]]:
-    return isinstance(x, str) or _is_rgb_tuple(x)
+def _is_mpl_base_color(x: object) -> TypeGuard[MplBaseColor]:
+    return isinstance(x, str) or _is_rgb_tuple(x) or _is_rgba_tuple(x)
 
 
-def convert_color_to_hexa_or_none(color: Any) -> str:
+def _is_mpl_base_color_with_alpha(x: object) -> TypeGuard[_MplBaseColorWithAlpha]:
+    return isinstance(x, tuple) and len(x) == 2 and _is_mpl_base_color(x[0]) and _is_real(x[1])
+
+
+def convert_color_to_hexa_or_none(
+    color: MplCompatibleColor | None,
+) -> HexColor | Literal["none"]:
     """Convert a color input to a hex8 string or "none".
 
     Args:
-        color (Any): The color input to convert. This can be a named color,
+        color (MplCompatibleColor | None): The color input to convert. This can be a named color,
             a LaTeX color string, an RGB(A) tuple, or other formats supported
             by Matplotlib.
     """
@@ -157,7 +166,7 @@ def convert_color_to_hexa_or_none(color: Any) -> str:
 
     # ---- strings: named / latex / plain mpl / hex ----
     log_string = ""
-    resolved_color: MplCompatibleColor | None = None
+    resolved_color: MplBaseColor | None = None
     if isinstance(color, str):
         try:
             resolved_color = get_named_color(color)
@@ -182,26 +191,24 @@ def convert_color_to_hexa_or_none(color: Any) -> str:
             gt_logger.debug(log_string)
 
     # ---- (base, alpha) tuples ----
-    elif (
-        isinstance(color, tuple)
-        and len(color) == 2
-        and _is_mpl_rgb_color(color[0])
-        and _is_real(color[1])
-    ):
-        base, a = color
-        _validate_alpha(float(a), field="alpha in (base, alpha) color tuple")
-        resolved_color = mcolors.to_rgba(base, alpha=float(a))
+    elif _is_mpl_base_color_with_alpha(color):
+        base, a = cast(_MplBaseColorWithAlpha, color)
+        alpha_value = _validate_alpha(float(a), field="alpha in (base, alpha) color tuple")
+        base_hex8 = convert_color_to_hexa_or_none(base)
+        if base_hex8.lower() == "none":
+            resolved_color = (0.0, 0.0, 0.0, 0.0)
+        else:
+            resolved_color = mcolors.to_rgba(base_hex8[:7], alpha=alpha_value)
 
     # ---- numeric RGB(A) tuples (0–1 or 0–255) ----
-    elif _is_rgb_tuple(color) or _is_rgba_tuple(color):
-        vals: list[float] = [float(v) for v in color]
+    elif _is_rgba_tuple(color):
+        rgba = cast(tuple[int | float, int | float, int | float, int | float], color)
+        vals: list[float] = [float(rgba[0]), float(rgba[1]), float(rgba[2]), float(rgba[3])]
         r, g, b = vals[:3]
 
-        # after reading vals
-        if len(vals) == 4:
-            a_raw: int | float = vals[3]
-            if a_raw < 0:
-                raise ValueError(f"Alpha must be non-negative: {color!r}")
+        a_raw = vals[3]
+        if a_raw < 0:
+            raise ValueError(f"Alpha must be non-negative: {color!r}")
 
         # if interpreting 0–255, enforce bounds
         if max(r, g, b) > 1.0:
@@ -217,18 +224,36 @@ def convert_color_to_hexa_or_none(color: Any) -> str:
 
             r, g, b = r / 255.0, g / 255.0, b / 255.0
 
-        if len(vals) == 4:
-            if a_raw > 1.0:
-                if a_raw > 255.0:
-                    raise ValueError(f"Alpha must be <=255 when using 0-255 scale: {color!r}")
-                a = a_raw / 255.0
-            else:
-                a = a_raw
+        if a_raw > 1.0:
+            if a_raw > 255.0:
+                raise ValueError(f"Alpha must be <=255 when using 0-255 scale: {color!r}")
+            a = a_raw / 255.0
         else:
-            a = 1.0
+            a = a_raw
 
         if not (0.0 <= a <= 1.0):
             raise ValueError(f"Alpha must be in [0,1]: {color!r}")
+
+        resolved_color = (r, g, b, a)
+    elif _is_rgb_tuple(color):
+        rgb = cast(tuple[int | float, int | float, int | float], color)
+        vals: list[float] = [float(rgb[0]), float(rgb[1]), float(rgb[2])]
+        r, g, b = vals[:3]
+        a = 1.0
+
+        # if interpreting 0–255, enforce bounds
+        if max(r, g, b) > 1.0:
+            if any(v < 0.0 for v in (r, g, b)):
+                raise ValueError(f"RGB values must be non-negative: {color!r}")
+            if max(r, g, b) > 255.0:
+                raise ValueError(f"RGB values must be <=255 when using 0-255 scale: {color!r}")
+            if max(r, g, b) < 2.0:
+                raise ValueError(
+                    f"Ambiguous RGB tuple {color!r}: values >1 but <2; "
+                    "use 0–1 floats or 0–255 ints."
+                )
+
+            r, g, b = r / 255.0, g / 255.0, b / 255.0
 
         resolved_color = (r, g, b, a)
 
@@ -249,14 +274,14 @@ def _validate_alpha(alpha: float, *, field: str = "alpha") -> float:
 
 
 def resolve_color_and_alpha(
-    color: Any,
+    color: MplCompatibleColor | None,
     alpha: float | None = None,
     *,
     allow_none: bool = True,
     field: str = "color",
     owner: str | None = None,
     logger: logging.Logger | None = None,
-) -> tuple[str, float]:
+) -> ResolvedColor:
     """Normalize a (color, alpha) pair into (hex6_or_none, resolved_alpha).
 
     Rules:
@@ -271,7 +296,7 @@ def resolve_color_and_alpha(
 
 
     Args:
-        color (Any): The color input to convert.
+        color (MplCompatibleColor | None): The color input to convert.
         alpha (float | None): An optional explicit alpha value between 0.0 and 1.0.
         allow_none (bool): Whether "none" is an acceptable color. Defaults to True.
         field (str): The name of the field being processed, for error messages.
@@ -279,7 +304,7 @@ def resolve_color_and_alpha(
         logger (logging.Logger | None): An optional logger for debug messages.
 
     Returns:
-        tuple[str, float]: A tuple of (hex6_or_none, resolved_alpha).
+        ResolvedColor: A tuple of (hex6_or_none, resolved_alpha).
     """
     hex8 = convert_color_to_hexa_or_none(color)
     if HEX8_OR_NONE_PATTERN.match(hex8) is None:

@@ -1,13 +1,15 @@
 import weakref
 from abc import ABC, abstractmethod
+from collections.abc import Iterable
 from numbers import Real
-from typing import Any, Iterable, Literal, Sequence
+from typing import Literal, Sequence
 
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
+from matplotlib.text import Text
 
 from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
@@ -17,7 +19,7 @@ from gerrytools.plotting.data._gerryplot_dataclasses import BandData, LineData
 from gerrytools.plotting.mpl.axis_title_style import AxisLabelStyle, TitleStyle
 from gerrytools.plotting.mpl.tick_style import TickStyle
 from gerrytools.plotting.utils import _coerce_real_iter
-from gerrytools.typing import Color, TickType
+from gerrytools.typing import Color, LegendHandle, TickType
 
 logger = get_logger(__name__)
 
@@ -542,18 +544,19 @@ class GerryPlotBase(ABC):
 
     @staticmethod
     def _apply_ticklabel_textprops(
-        labels,
+        labels: Iterable[Text],
         *,
         fontweight: str | None = None,
-        fontstyle: str | None = None,
+        fontstyle: Literal["normal", "italic", "oblique"] | None = None,
         fontfamily: str | None = None,
     ) -> None:
         """Apply text properties to tick labels.
 
         Args:
-            labels (Any): Iterable of Matplotlib ``Text`` tick-label objects.
+            labels (Iterable[Text]): Iterable of Matplotlib tick-label ``Text`` objects.
             fontweight (str | None, optional): Font weight to apply. Defaults to None.
-            fontstyle (str | None, optional): Font style to apply. Defaults to None.
+            fontstyle (Literal["normal", "italic", "oblique"] | None, optional):
+                Font style to apply. Defaults to None.
             fontfamily (str | None, optional): Font family to apply. Defaults to None.
 
         Returns:
@@ -681,23 +684,29 @@ class GerryPlotBase(ABC):
         doesn't wipe out label/title configuration.
         """
         if self.xlabel is not None:
-            kwargs = self._xlabel_style.to_mpl_settings_dict() if self._xlabel_style else {}
-            self._ax.set_xlabel(self.xlabel, **kwargs)
+            if self._xlabel_style is None:
+                self._ax.set_xlabel(self.xlabel)
+            else:
+                self._ax.set_xlabel(self.xlabel, **self._xlabel_style.to_mpl_settings_dict())
 
         if self.ylabel is not None:
-            kwargs = self._ylabel_style.to_mpl_settings_dict() if self._ylabel_style else {}
-            self._ax.set_ylabel(self.ylabel, **kwargs)
+            if self._ylabel_style is None:
+                self._ax.set_ylabel(self.ylabel)
+            else:
+                self._ax.set_ylabel(self.ylabel, **self._ylabel_style.to_mpl_settings_dict())
 
         if self.title is not None:
-            kwargs = self._title_style.to_mpl_settings_dict() if self._title_style else {}
-            self._ax.set_title(self.title, **kwargs)
+            if self._title_style is None:
+                self._ax.set_title(self.title)
+            else:
+                self._ax.set_title(self.title, **self._title_style.to_mpl_settings_dict())
 
     def set_xaxis_label_style(
         self,
         *,
         fontsize: float | int | None = None,
         fontweight: str | None = None,
-        fontstyle: str | None = None,
+        fontstyle: Literal["normal", "italic", "oblique"] | None = None,
         fontfamily: str | None = None,
         fontcolor: Color = "black",
         fontalpha: float | None = None,
@@ -710,7 +719,8 @@ class GerryPlotBase(ABC):
                 Defaults to None.
             fontweight (str | None, optional): Font weight (e.g., "normal", "bold").
                 Defaults to None.
-            fontstyle (str | None, optional): Font style (e.g., "normal", "italic").
+            fontstyle (Literal["normal", "italic", "oblique"] | None, optional):
+                Font style (e.g., "normal", "italic").
                 Defaults to None.
             fontfamily (str | None, optional): Font family (e.g., "sans-serif", "serif").
                 Defaults to None.
@@ -738,7 +748,7 @@ class GerryPlotBase(ABC):
         *,
         fontsize: float | int | None = None,
         fontweight: str | None = None,
-        fontstyle: str | None = None,
+        fontstyle: Literal["normal", "italic", "oblique"] | None = None,
         fontfamily: str | None = None,
         fontcolor: Color = "black",
         fontalpha: float | None = None,
@@ -751,7 +761,8 @@ class GerryPlotBase(ABC):
                 Defaults to None.
             fontweight (str | None, optional): Font weight (e.g., "normal", "bold").
                 Defaults to None.
-            fontstyle (str | None, optional): Font style (e.g., "normal", "italic").
+            fontstyle (Literal["normal", "italic", "oblique"] | None, optional):
+                Font style (e.g., "normal", "italic").
                 Defaults to None.
             fontfamily (str | None, optional): Font family (e.g., "sans-serif", "serif").
                 Defaults to None.
@@ -779,7 +790,7 @@ class GerryPlotBase(ABC):
         *,
         fontsize: float | int | None = None,
         fontweight: str | None = None,
-        fontstyle: str | None = None,
+        fontstyle: Literal["normal", "italic", "oblique"] | None = None,
         fontfamily: str | None = None,
         fontcolor: Color = "black",
         fontalpha: float | None = None,
@@ -792,7 +803,8 @@ class GerryPlotBase(ABC):
             fontsize (float | int | None, optional): Font size for the title. Defaults to None.
             fontweight (str | None, optional): Font weight (e.g., "normal", "bold").
                 Defaults to None.
-            fontstyle (str | None, optional): Font style (e.g., "normal", "italic").
+            fontstyle (Literal["normal", "italic", "oblique"] | None, optional):
+                Font style (e.g., "normal", "italic").
                 Defaults to None.
             fontfamily (str | None, optional): Font family (e.g., "sans-serif", "serif").
                 Defaults to None.
@@ -867,7 +879,7 @@ class GerryPlotBase(ABC):
         tickcolor: Color = "black",
         tickalpha: float | None = None,
         fontweight: str = "normal",
-        fontstyle: str = "normal",
+        fontstyle: Literal["normal", "italic", "oblique"] = "normal",
         fontfamily: str = "sans-serif",
         ticktype: TickType = "major",
     ) -> None:
@@ -885,8 +897,8 @@ class GerryPlotBase(ABC):
                 uses alpha from color if specified or will fall back to 1.0. Defaults to None.
             fontweight (str, optional): Font weight of tick labels (e.g., 'normal 'bold').
                 Defaults to "normal".
-            fontstyle (str, optional): Font style of tick labels (e.g., 'normal', 'italic').
-                Defaults to "normal".
+            fontstyle (Literal["normal", "italic", "oblique"], optional): Font style of tick
+                labels (e.g., 'normal', 'italic'). Defaults to "normal".
             fontfamily (str, optional): Font family of tick labels (e.g., 'serif', 'sans-serif').
                 Defaults to "sans-serif".
             ticktype (TickType, optional): Type of ticks to style ('major', 'minor', 'both').
@@ -918,7 +930,7 @@ class GerryPlotBase(ABC):
         tickcolor: Color = "black",
         tickalpha: float | None = None,
         fontweight: str = "normal",
-        fontstyle: str = "normal",
+        fontstyle: Literal["normal", "italic", "oblique"] = "normal",
         fontfamily: str = "sans-serif",
         ticktype: TickType = "major",
     ) -> None:
@@ -936,8 +948,8 @@ class GerryPlotBase(ABC):
                 uses alpha from color if specified or will fall back to 1.0. Defaults to None.
             fontweight (str, optional): Font weight of tick labels (e.g., 'normal 'bold').
                 Defaults to "normal".
-            fontstyle (str, optional): Font style of tick labels (e.g., 'normal', 'italic').
-                Defaults to "normal".
+            fontstyle (Literal["normal", "italic", "oblique"], optional): Font style of tick
+                labels (e.g., 'normal', 'italic'). Defaults to "normal".
             fontfamily (str, optional): Font family of tick labels (e.g., 'serif', 'sans-serif').
                 Defaults to "sans-serif".
             ticktype (TickType, optional): Type of ticks to style ('major', 'minor', 'both').
@@ -1178,13 +1190,13 @@ class GerryPlotBase(ABC):
                     zorder=ln.zorder,
                 )
 
-    def _get_named_line_legend_handles(self) -> list[Any]:
+    def _get_named_line_legend_handles(self) -> list[LegendHandle]:
         """Get legend handles for all named lines.
 
         Returns:
-            list[Any]: A list of legend handles.
+            list[LegendHandle]: A list of legend handles.
         """
-        handles = []
+        handles: list[LegendHandle] = []
         for line in self._vertical_lines + self._horizontal_lines:
             if line.name is not None:
                 handle = Line2D(
@@ -1203,13 +1215,13 @@ class GerryPlotBase(ABC):
 
         return handles
 
-    def _get_named_band_legend_handles(self) -> list[Any]:
+    def _get_named_band_legend_handles(self) -> list[LegendHandle]:
         """Get legend handles for all named bands.
 
         Returns:
-            list[Any]: A list of legend handles.
+            list[LegendHandle]: A list of legend handles.
         """
-        handles = []
+        handles: list[LegendHandle] = []
         for band in self._vertical_bands + self._horizontal_bands:
             if band.name is None:
                 continue
@@ -1307,7 +1319,7 @@ class GerryPlotBase(ABC):
         *,
         outer_padding: float = 0.07,
         dpi: int | None = None,
-        **legend_kwargs: Any,
+        **legend_kwargs: object,
     ) -> None:
         """Save legend handles to a standalone image.
 
@@ -1317,7 +1329,7 @@ class GerryPlotBase(ABC):
                 Defaults to ``0.07``.
             dpi (int | None, optional): Output DPI. If None, uses figure DPI.
                 Defaults to None.
-            **legend_kwargs (Any): Additional keyword arguments passed to
+            **legend_kwargs (object): Additional keyword arguments passed to
                 ``matplotlib.axes.Axes.legend``.
 
         Returns:
@@ -1380,12 +1392,12 @@ class GerryPlotBase(ABC):
             non_gui_prefix="GerryTools Plotting",
         )
 
-    def save(self, filepath: str, **kwargs) -> None:
+    def save(self, filepath: str, **kwargs: object) -> None:
         """Save the figure to a file.
 
         Args:
             filepath (str): The file path to save the figure to.
-            **kwargs (Any): Additional keyword arguments passed to ``Figure.savefig``.
+            **kwargs (object): Additional keyword arguments passed to ``Figure.savefig``.
 
         Returns:
             None
@@ -1400,10 +1412,10 @@ class GerryPlotBase(ABC):
 
     @property
     @abstractmethod
-    def _legend_handles(self) -> list[Any]:
+    def _legend_handles(self) -> list[LegendHandle]:
         """Get legend handles for all named elements in the plot.
 
         Returns:
-            list[Any]: A list of legend handles.
+            list[LegendHandle]: A list of legend handles.
         """
         return []

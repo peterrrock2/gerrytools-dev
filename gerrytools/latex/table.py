@@ -3,7 +3,7 @@ import logging
 import re
 import warnings
 from dataclasses import dataclass, field
-from typing import Any, Callable, Iterable, Optional, cast
+from typing import Callable, Iterable, Optional, cast
 
 import pandas as pd
 
@@ -16,23 +16,23 @@ from gerrytools.latex._text import latex_escape
 from gerrytools.latex.document import TexDocument
 from gerrytools.latex.formatters import round_decimals
 from gerrytools.logging import get_logger
-from gerrytools.typing import CellWrapper, Color
+from gerrytools.typing import CellWrapper, Color, TableCellValue
 
 logger = get_logger(__name__)
 
 
-def _latex_escape_wrapper(s: str, prev: str) -> tuple[str, str]:
+def _latex_escape_wrapper(value: TableCellValue, prev: str) -> tuple[TableCellValue, str]:
     """Wrapper function to escape LaTeX special characters in strings.
 
     Args:
-        s (str): The original string value.
+        value (TableCellValue): The original unformatted value.
         prev (str): The currently rendered string.
 
     Returns:
-        tuple[str, str]: The original string and the newly escaped version of the previously
-            rendered string.
+        tuple[TableCellValue, str]: The original value and the newly escaped version of the
+            previously rendered string.
     """
-    return s, latex_escape(prev)
+    return value, latex_escape(prev)
 
 
 @dataclass
@@ -229,9 +229,10 @@ class TableOptions:
 
             if self.include_index:
                 idx_align = self.index_alignment or "c"
-                parts.append(
-                    rf"\multicolumn{{1}}{{{_mc_colspec(gvr, gex, cell_i, idx_align, cell_i + 1, include_left=first_cell)}}}{{}}"
+                col_spec = _mc_colspec(
+                    gvr, gex, cell_i, idx_align, cell_i + 1, include_left=first_cell
                 )
+                parts.append(rf"\multicolumn{{1}}{{{col_spec}}}{{}}")
                 first_cell = False
                 cell_i += 1
 
@@ -246,9 +247,8 @@ class TableOptions:
                 if self.italic_group_headers and name:
                     name = rf"\textit{{{name}}}"
 
-                parts.append(
-                    rf"\multicolumn{{{span}}}{{{_mc_colspec(gvr, gex, cell_i, align, cell_i + 1, include_left=first_cell)}}}{{{name}}}"
-                )
+                col_spec = _mc_colspec(gvr, gex, cell_i, align, cell_i + 1, include_left=first_cell)
+                parts.append(rf"\multicolumn{{{span}}}{{{col_spec}}}{{{name}}}")
                 first_cell = False
                 cell_i += 1
 
@@ -263,9 +263,8 @@ class TableOptions:
 
         if self.include_index:
             idx_align = self.index_alignment or "c"
-            parts.append(
-                rf"\multicolumn{{1}}{{{_mc_colspec(dvr, dex, 0, idx_align, 1, include_left=first_cell)}}}{{}}"
-            )
+            col_spec = _mc_colspec(dvr, dex, 0, idx_align, 1, include_left=first_cell)
+            parts.append(rf"\multicolumn{{1}}{{{col_spec}}}{{}}")
             first_cell = False
 
         data_start = 1 if self.include_index else 0
@@ -287,9 +286,8 @@ class TableOptions:
             if self.italic_group_headers and name:
                 name = rf"\textit{{{name}}}"
 
-            parts.append(
-                rf"\multicolumn{{{span}}}{{{_mc_colspec(dvr, dex, left_b, align, right_b, include_left=first_cell)}}}{{{name}}}"
-            )
+            col_spec = _mc_colspec(dvr, dex, left_b, align, right_b, include_left=first_cell)
+            parts.append(rf"\multicolumn{{{span}}}{{{col_spec}}}{{{name}}}")
             first_cell = False
 
         return " & ".join(parts) + r" \\"
@@ -408,14 +406,15 @@ class TexTable:
             # expected current cols = data cols
             if len(self.__options.tabular_alignments) != n_data_cols:
                 raise ValueError(
-                    "Current tabular format does not match DataFrame columns. "
-                    f"Got {len(self.__options.tabular_alignments)} colspecs but expected {n_data_cols}."
+                    "Current tabular format does not match DataFrame columns. Got "
+                    f"{len(self.__options.tabular_alignments)} colspecs but expected {n_data_cols}."
                 )
 
             # Insert the new index column spec
             self.__options.tabular_alignments.insert(0, alignment)
 
-            # vrule_counts/extras: old length was n_data_cols+1, new length should be (n_data_cols+1)+1
+            # vrule_counts/extras: old length was n_data_cols+1, new length should be
+            # (n_data_cols+1)+1
             old_ncols = n_data_cols
             _ensure_extras(old_ncols)
 
@@ -431,8 +430,9 @@ class TexTable:
             # expected current cols = data cols + 1
             if len(self.__options.tabular_alignments) != n_data_cols + 1:
                 raise ValueError(
-                    "Current tabular format does not match DataFrame columns+index. "
-                    f"Got {len(self.__options.tabular_alignments)} colspecs but expected {n_data_cols + 1}."
+                    "Current tabular format does not match DataFrame columns+index. Got "
+                    f"{len(self.__options.tabular_alignments)} colspecs but expected "
+                    f"{n_data_cols + 1}."
                 )
 
             # Remove the index column spec
@@ -456,7 +456,8 @@ class TexTable:
         will appear below the header row in the LaTeX table.
 
         Args:
-            index (int | list[int]): Row index or list of row indices above which to add horizontal rules.
+            index (int | list[int]): Row index or list of row indices above which to add horizontal
+                rules.
             count (int, optional): Number of horizontal rules to add. Defaults to 1.
         """
         if isinstance(index, int):
@@ -531,7 +532,8 @@ class TexTable:
         the index column if include_index is set to True in options.
 
         Args:
-            col_idx (int | list[int]): Column index or list of column indices to the left of which to add vertical rules.
+            col_idx (int | list[int]): Column index or list of column indices to the left of which
+                to add vertical rules.
             count (int, optional): Number of vertical rules to add. Defaults to 1.
         """
         if isinstance(col_idx, int):
@@ -567,7 +569,8 @@ class TexTable:
         the index column if include_index is set to True in options.
 
         Args:
-            col_idx (int | list[int]): Column index or list of column indices to the right of which to add vertical rules.
+            col_idx (int | list[int]): Column index or list of column indices to the right of which
+                to add vertical rules.
             count (int, optional): Number of vertical rules to add. Defaults to 1.
         """
         if isinstance(col_idx, int):
@@ -870,28 +873,28 @@ class TexTable:
         self.__options.group_vrule_counts = None
         self.__options.group_boundary_extras = None
 
-    def set_index_formatter(self, fmt_fn: CellWrapper | Callable[[Any], str]) -> None:
+    def set_index_formatter(self, fmt_fn: CellWrapper | Callable[[TableCellValue], str]) -> None:
         """Set a formatter function for the index column.
 
         Args:
-            fmt_fn (CellWrapper | Callable[[Any], str]): Either a full two-argument
+            fmt_fn (CellWrapper | Callable[[TableCellValue], str]): Either a full two-argument
                 ``CellWrapper`` or a one-argument formatter over the raw value.
 
         Returns:
             None
         """
         if len(inspect.signature(fmt_fn).parameters) == 1:
-            one_arg = cast(Callable[[Any], str], fmt_fn)
+            one_arg = cast(Callable[[TableCellValue], str], fmt_fn)
 
-            def _wrapped(v: Any, s: str) -> tuple[Any, str]:
+            def _wrapped(v: TableCellValue, s: str) -> tuple[TableCellValue, str]:
                 """Adapt a one-argument value formatter to ``CellWrapper`` form.
 
                 Args:
-                    v (Any): Raw cell value.
+                    v (TableCellValue): Raw cell value.
                     s (str): Existing rendered string (ignored).
 
                 Returns:
-                    tuple[Any, str]: Original value and newly formatted string.
+                    tuple[TableCellValue, str]: Original value and newly formatted string.
                 """
                 return v, one_arg(v)
 
@@ -911,19 +914,21 @@ class TexTable:
             ValueError: If the provided formatter is not callable.
         """
         if len(inspect.signature(fmt_fn).parameters) == 1:
-            one_arg = cast(Callable[[int | float], str], fmt_fn)
+            one_arg = cast(Callable[[float], str], fmt_fn)
 
-            def _wrapped(v: int | float, s: str) -> tuple[int | float, str]:
+            def _wrapped(v: TableCellValue, s: str) -> tuple[TableCellValue, str]:
                 """Adapt a one-argument numeric formatter to ``CellWrapper`` form.
 
                 Args:
-                    v (int | float): Raw numeric cell value.
+                    v (TableCellValue): Raw numeric cell value.
                     s (str): Existing rendered string (ignored).
 
                 Returns:
-                    tuple[int | float, str]: Original value and newly formatted string.
+                    tuple[TableCellValue, str]: Original value and newly formatted string.
                 """
-                return v, one_arg(v)
+                if not isinstance(v, (int, float)):
+                    return v, s
+                return v, one_arg(float(v))
 
             new_fn: CellWrapper = _wrapped
         else:
@@ -942,18 +947,20 @@ class TexTable:
             ValueError: If the provided formatter is not callable.
         """
         if len(inspect.signature(fmt_fn).parameters) == 1:
-            one_arg = cast(Callable[[int | float], str], fmt_fn)
+            one_arg = cast(Callable[[str], str], fmt_fn)
 
-            def _wrapped(v: int | float, s: str) -> tuple[int | float, str]:
+            def _wrapped(v: TableCellValue, s: str) -> tuple[TableCellValue, str]:
                 """Adapt a one-argument string formatter to ``CellWrapper`` form.
 
                 Args:
-                    v (int | float): Raw cell value passed through formatter.
+                    v (TableCellValue): Raw cell value passed through formatter.
                     s (str): Existing rendered string (ignored).
 
                 Returns:
-                    tuple[int | float, str]: Original value and newly formatted string.
+                    tuple[TableCellValue, str]: Original value and newly formatted string.
                 """
+                if not isinstance(v, str):
+                    return v, s
                 return v, one_arg(v)
 
             new_fn: CellWrapper = _wrapped
@@ -963,7 +970,7 @@ class TexTable:
         self.__options.str_fmt_fn = new_fn
 
     def __set_single_col_formatter(
-        self, col: str, fmt_fn: CellWrapper | Callable[[Any], str]
+        self, col: str, fmt_fn: CellWrapper | Callable[[TableCellValue], str]
     ) -> None:
         """Set a specific column formatter function for the LaTeX table.
 
@@ -980,17 +987,17 @@ class TexTable:
             raise ValueError(f"Column '{col}' does not exist in DataFrame.")
 
         if len(inspect.signature(fmt_fn).parameters) == 1:
-            one_arg = cast(Callable[[int | float], str], fmt_fn)
+            one_arg = cast(Callable[[TableCellValue], str], fmt_fn)
 
-            def _wrapped(v: int | float, s: str) -> tuple[int | float, str]:
+            def _wrapped(v: TableCellValue, s: str) -> tuple[TableCellValue, str]:
                 """Adapt a one-argument column formatter to ``CellWrapper`` form.
 
                 Args:
-                    v (int | float): Raw cell value.
+                    v (TableCellValue): Raw cell value.
                     s (str): Existing rendered string (ignored).
 
                 Returns:
-                    tuple[int | float, str]: Original value and newly formatted string.
+                    tuple[TableCellValue, str]: Original value and newly formatted string.
                 """
                 return v, one_arg(v)
 
@@ -1020,7 +1027,7 @@ class TexTable:
         self.__set_single_col_formatter(col, fmt_fn)
 
     def __set_single_row_formatter(
-        self, row_idx: int, fmt_fn: CellWrapper | Callable[[Any], str]
+        self, row_idx: int, fmt_fn: CellWrapper | Callable[[TableCellValue], str]
     ) -> None:
         """Set a specific row formatter function for the LaTeX table.
 
@@ -1039,17 +1046,17 @@ class TexTable:
             )
 
         if len(inspect.signature(fmt_fn).parameters) == 1:
-            one_arg = cast(Callable[[int | float], str], fmt_fn)
+            one_arg = cast(Callable[[TableCellValue], str], fmt_fn)
 
-            def _wrapped(v: int | float, s: str) -> tuple[int | float, str]:
+            def _wrapped(v: TableCellValue, s: str) -> tuple[TableCellValue, str]:
                 """Adapt a one-argument row formatter to ``CellWrapper`` form.
 
                 Args:
-                    v (int | float): Raw cell value.
+                    v (TableCellValue): Raw cell value.
                     s (str): Existing rendered string (ignored).
 
                 Returns:
-                    tuple[int | float, str]: Original value and newly formatted string.
+                    tuple[TableCellValue, str]: Original value and newly formatted string.
                 """
                 return v, one_arg(v)
 

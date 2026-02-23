@@ -1,6 +1,5 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -25,7 +24,15 @@ from gerrytools.plotting.mpl.geoplot_options import (
     _ColorbarLayoutOptions,
 )
 from gerrytools.plotting.mpl.label_text_options import LabelBoxOptions, LabelFontOptions
-from gerrytools.typing import Color
+from gerrytools.typing import (
+    CategoryKey,
+    Color,
+    CRSLike,
+    GeoColorMap,
+    MplCompatibleColor,
+    MplKwargs,
+    ResolvedColor,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,10 +44,10 @@ class _ContinuousColorLayer(_GeoLayer):
         geometry_mask (pd.Series | None): Optional boolean mask to filter geometries.
             Default is None (no mask).
         datacolumn (str | None): Optional data column for color mapping. Default is None.
-        colormap (str | Color | Colormap | dict[Any, Color] | pd.Series): Color mapping
+        colormap (GeoColorMap | None): Color mapping
             specification. Can be a single color, a named colormap, a Colormap object, or
             a mapping from data values to colors. Defaults to "Purples".
-        missing_color (Any): Color to use for missing data.
+        missing_color (MplCompatibleColor | None): Color to use for missing data.
         facealpha (float | None): Alpha transparency for face colors. Default is None.
         edgecolor (Color): Color for geometry edges. Default is "none".
         edgealpha (float | None): Alpha transparency for edge colors. Default is None.
@@ -155,11 +162,11 @@ class _ContinuousColorLayer(_GeoLayer):
         rgba[:, 3] = float(alpha)
         return ListedColormap(rgba, name=f"{cmap.name}_a{alpha:g}")
 
-    def _mappable(self) -> tuple[ScalarMappable, dict[str, Any]]:
+    def _mappable(self) -> tuple[ScalarMappable, MplKwargs]:
         """Get a ScalarMappable and the colorbar kwargs for this layer.
 
         Returns:
-            tuple[ScalarMappable, dict[str, Any]]: The ScalarMappable and colorbar kwargs.
+            tuple[ScalarMappable, MplKwargs]: The ScalarMappable and colorbar kwargs.
         """
         s = self._data_series()
         lower, upper = self._effective_bounds(s)
@@ -201,8 +208,9 @@ class _ContinuousColorLayer(_GeoLayer):
         """
         data_series = self._data_series()
         lower_bound, upper_bound = self._effective_bounds(data_series)
+        missing_color = resolve_color_and_alpha(self.missing_color, alpha=self.facealpha)
 
-        colors: dict[Any, Any] = {}
+        colors: dict[CategoryKey, ResolvedColor] = {}
 
         if self.bins is not None:
             boundaries = self._bin_boundaries(lower_bound, upper_bound)
@@ -214,7 +222,7 @@ class _ContinuousColorLayer(_GeoLayer):
 
             for idx, value in data_series.items():
                 if pd.isna(value):
-                    colors[idx] = self.missing_color
+                    colors[idx] = missing_color
                     continue
 
                 # ensure upper bound gets last bin
@@ -233,7 +241,7 @@ class _ContinuousColorLayer(_GeoLayer):
                             interval_i = -1
 
                 if interval_i == -1:
-                    colors[idx] = self.missing_color
+                    colors[idx] = missing_color
                 else:
                     colors[idx] = resolve_color_and_alpha(
                         interval_to_hex[boundaries[interval_i]],
@@ -247,10 +255,10 @@ class _ContinuousColorLayer(_GeoLayer):
 
             for idx, value in data_series.items():
                 if pd.isna(value):
-                    color = self.missing_color
+                    color = missing_color
                 else:
                     normalized_value = norm(value)
-                    color: tuple[str, int | float] = resolve_color_and_alpha(
+                    color = resolve_color_and_alpha(
                         to_hex(cmap(normalized_value), keep_alpha=True),
                         alpha=self.facealpha,
                     )
@@ -258,14 +266,20 @@ class _ContinuousColorLayer(_GeoLayer):
 
         return pd.Series(colors).reindex(self.geometries.index)
 
-    def render(self, ax: Axes, *, target_crs=None, **kwargs) -> Axes:
+    def render(
+        self,
+        ax: Axes,
+        *,
+        target_crs: CRSLike | None = None,
+        **kwargs: object,
+    ) -> Axes:
         """Render this layer onto the given Axes.
 
         Args:
             ax (Axes): The Axes to render onto.
-            target_crs (Any, optional): The target CRS to reproject geometries to.
+            target_crs (CRSLike | None, optional): The target CRS to reproject geometries to.
                 Defaults to None.
-            **kwargs (Any): Additional keyword arguments (not used).
+            **kwargs (object): Additional keyword arguments (not used).
 
         Returns:
             Axes: The Axes with the layer rendered.
@@ -322,7 +336,7 @@ class ColoredGeoPlot(GeoPlot):
         *,
         dpi: int = 300,
         show_axis: bool = False,
-        target_crs=None,
+        target_crs: CRSLike | None = None,
         include_default_outline: bool = True,
         silent: bool = False,
     ) -> None:
@@ -332,8 +346,8 @@ class ColoredGeoPlot(GeoPlot):
             gdf (GeoDataFrame): The base GeoDataFrame for the plot.
             dpi (int): The DPI for the Matplotlib Figure. Default is 300.
             show_axis (bool): Whether to show axis ticks and labels. Default is False.
-            target_crs: The target CRS for reprojecting geometries. If None, uses the CRS of
-                `gdf`. Default is None.
+            target_crs (CRSLike | None): The target CRS for reprojecting geometries.
+                If None, uses the CRS of `gdf`. Default is None.
             include_default_outline (bool): Whether to include a default outline layer around
                 the geometries in `gdf`. Default is True.
             silent (bool): Whether to suppress informational output throughout the rendering
@@ -364,7 +378,7 @@ class ColoredGeoPlot(GeoPlot):
         geosource: GeoDataFrame | None = None,
         datacolumn: str,
         colormap: str | Colormap = "Purples",
-        missing_color: Any = "lightgrey",
+        missing_color: MplCompatibleColor | None = "lightgrey",
         facealpha: float | None = None,
         edgecolor: Color = "none",
         edgealpha: float | None = None,
@@ -384,7 +398,8 @@ class ColoredGeoPlot(GeoPlot):
                 If None, uses the base gdf of the GeoPlot. Default is None.
             datacolumn (str): The data column to use for color mapping.
             colormap (str | Colormap): The colormap to use for color mapping. Default is "Purples".
-            missing_color (Any): Color to use for missing data. Default is "lightgrey".
+            missing_color (MplCompatibleColor | None): Color to use for missing data.
+                Default is "lightgrey".
             facealpha (float | None): Alpha transparency for face colors. Default is None.
             edgecolor (Color): Color for geometry edges. Default is "none".
             edgealpha (float | None): Alpha transparency for edge colors. Default is None.
@@ -437,11 +452,11 @@ class ColoredGeoPlot(GeoPlot):
         plancolumn: str,
         dissolve: bool = False,
         show_labels: bool = False,
-        exclude_labels: list[Any] | None = None,
+        exclude_labels: Sequence[CategoryKey] | None = None,
         labelfont_options: LabelFontOptions | None = None,
         labelbox_options: LabelBoxOptions | None = None,
-        colormap: str | Colormap | dict[Any, Color] | pd.Series = "districtr",
-        missing_color: Any = "lightgrey",
+        colormap: GeoColorMap | None = "districtr",
+        missing_color: MplCompatibleColor | None = "lightgrey",
         facealpha: float | None = None,
         edgecolor: Color = "none",
         edgealpha: float | None = None,
@@ -456,17 +471,19 @@ class ColoredGeoPlot(GeoPlot):
             plancolumn (str): The column containing district identifiers.
             dissolve (bool): Whether to dissolve geometries by district. Default is False.
             show_labels (bool): Whether to show district labels. Default is False.
-            exclude_labels (list[Any] | None): List of district labels to exclude from labeling.
+            exclude_labels (Sequence[CategoryKey] | None): District labels to exclude from
+                labeling.
                 If None, no labels are excluded. Does not do anything if show_labels is False.
                 Default is None.
             labelfont_options (LabelFontOptions | None): Font options for district labels.
                 If None, uses default settings. Default is None.
             labelbox_options (LabelBoxOptions | None): Optional label box styling.
                 If None, label boxes are disabled. Defaults to None.
-            colormap (str | Colormap | dict[Any, Color] | pd.Series): Color mapping specification.
+            colormap (GeoColorMap | None): Color mapping specification.
                 Can be a single color, a named colormap, a Colormap object, or a mapping from
                 district identifiers to colors. Default is "districtr".
-            missing_color (Any): Color to use for missing data. Default is "lightgrey".
+            missing_color (MplCompatibleColor | None): Color to use for missing data.
+                Default is "lightgrey".
             facealpha (float | None): Alpha transparency for face colors. Default is None.
             edgecolor (Color): Color for geometry edges. Default is "none".
             edgealpha (float | None): Alpha transparency for edge colors. Default is None.
@@ -497,17 +514,17 @@ class ColoredGeoPlot(GeoPlot):
         if show_labels:
             dissolved_plan_gdf = plan_gdf.dissolve(by=plancolumn).reset_index()
 
-            def coerce_labels(x: Any) -> str:
+            def coerce_labels(x: CategoryKey) -> str:
                 """Normalize a district label value to a string.
 
                 Args:
-                    x (Any): Raw label value.
+                    x (CategoryKey): Raw label value.
 
                 Returns:
                     str: Normalized label text.
                 """
                 try:
-                    return str(int(x))
+                    return str(int(str(x)))
                 except Exception:
                     return str(x)
 
@@ -525,7 +542,7 @@ class ColoredGeoPlot(GeoPlot):
                     label_column=plancolumn,
                     labelfont_options=labelfont_options,
                     labelbox_options=labelbox_options,
-                    label_format_fn=lambda x: str(int(x)),
+                    label_format_fn=lambda x: str(int(str(x))),
                     zorder=zorder + 1,
                 )
             )
@@ -638,33 +655,37 @@ class ColoredGeoPlot(GeoPlot):
             self._colorbar_axes.append(cb_ax)
 
             mappable, layer_defaults = layer._mappable()
+            colorbar = self.fig.colorbar(
+                mappable=mappable,
+                cax=cb_ax,
+                orientation=cb_options.orientation,
+                extend=cb_options.extend,
+                format=cb_options.format,
+                fraction=cb_options.fraction,
+                shrink=cb_options.shrink,
+                aspect=cb_options.aspect,
+            )
 
-            cb_kwargs: dict[str, Any] = dict(layer_defaults)
-            cb_kwargs["orientation"] = cb_options.orientation
-            cb_kwargs["extend"] = cb_options.extend
-
-            if cb_options.format is not None:
-                cb_kwargs["format"] = cb_options.format
-            if cb_options.fraction is not None:
-                cb_kwargs["fraction"] = cb_options.fraction
-            if cb_options.shrink is not None:
-                cb_kwargs["shrink"] = cb_options.shrink
-            if cb_options.aspect is not None:
-                cb_kwargs["aspect"] = cb_options.aspect
-
-            colorbar = self.fig.colorbar(mappable, cax=cb_ax, **cb_kwargs)
+            layer_ticks = layer_defaults.get("ticks")
+            if isinstance(layer_ticks, list):
+                colorbar.set_ticks(layer_ticks)
 
             # label: request override > datacolumn > none
             label_text = cb_request.label if cb_request.label is not None else layer.datacolumn
             if label_text is not None:
-                label_kwargs: dict[str, Any] = {}
-                if cb_options.label_fontsize is not None:
-                    label_kwargs["fontsize"] = cb_options.label_fontsize
-                if cb_options.label_rotation is not None:
-                    label_kwargs["rotation"] = cb_options.label_rotation
-                if cb_options.label_pad is not None:
-                    label_kwargs["labelpad"] = cb_options.label_pad
-                colorbar.set_label(str(label_text), **label_kwargs)
+                if (
+                    cb_options.label_fontsize is None
+                    and cb_options.label_rotation is None
+                    and cb_options.label_pad is None
+                ):
+                    colorbar.set_label(str(label_text))
+                else:
+                    colorbar.set_label(
+                        str(label_text),
+                        fontsize=cb_options.label_fontsize,
+                        rotation=cb_options.label_rotation,
+                        labelpad=cb_options.label_pad,
+                    )
 
             cb_ax.tick_params(labelsize=cb_options.tick_fontsize, pad=cb_options.tick_pad)
 

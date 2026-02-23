@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass, field
-from typing import Any
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -13,7 +13,7 @@ from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
 from gerrytools.plotting.data._categorical_distribution_base import CategoricalDistributionPlotBase
 from gerrytools.plotting.mpl.marker_options import PointMarkerOptions
-from gerrytools.typing import Color
+from gerrytools.typing import Color, LegendHandle
 
 logger = get_logger(__name__)
 
@@ -282,7 +282,12 @@ class BoxPlot(CategoricalDistributionPlotBase):
                 patch_artist=True,
                 showfliers=boxplot_data.showfliers,
                 whis=boxplot_data.percentiles,
-                flierprops=boxplot_data.flier_options.to_mpl_settings_dict(),
+                # Cast to satisfy the type-checker: Matplotlib stubs expect
+                # a plain ``dict[str, object]`` for ``flierprops``.
+                flierprops=cast(
+                    dict[str, object],
+                    boxplot_data.flier_options.to_mpl_settings_dict(),
+                ),
             )
 
             edgecolor = self._resolved_rgba(
@@ -325,9 +330,9 @@ class BoxPlot(CategoricalDistributionPlotBase):
         if self._include_group_vlines:
             self._draw_boxplot_group_vlines()
 
-    def _get_boxplot_legend_handles(self) -> list[Any]:
+    def _get_boxplot_legend_handles(self) -> list[LegendHandle]:
         """Generate legend handles for boxplot sets."""
-        handles: list[Any] = []
+        handles: list[LegendHandle] = []
 
         for boxplot_data in self._boxplot_data_list:
             handles.append(
@@ -349,9 +354,9 @@ class BoxPlot(CategoricalDistributionPlotBase):
         return handles
 
     @property
-    def _legend_handles(self) -> list[Any]:
+    def _legend_handles(self) -> list[LegendHandle]:
         """Generated legend handles for boxplot and point sets."""
-        handles: list[Any] = []
+        handles: list[LegendHandle] = []
 
         handles.extend(self._get_boxplot_legend_handles())
         handles.extend(self._get_pointset_legend_handles())

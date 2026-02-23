@@ -1,5 +1,3 @@
-from typing import List, Tuple, Union
-
 import matplotlib.pyplot as plt
 import networkx as nx
 from matplotlib.axes import Axes
@@ -7,8 +5,14 @@ from matplotlib.figure import Figure
 
 
 def drawgraph(
-    G, ax=None, x="INTPTLON20", y="INTPTLAT20", components=False, node_size=1, **kwargs
-) -> Union[Axes, List[Tuple[Figure, Axes]]]:
+    G: nx.Graph,
+    ax: Axes | None = None,
+    x: str = "INTPTLON20",
+    y: str = "INTPTLAT20",
+    components: bool = False,
+    node_size: float = 1,
+    **kwargs: object,
+) -> Axes | list[tuple[Figure, Axes]]:
     """
     Draws a gerrychain Graph object. Returns a single Axes object (for dual
     graphs drawn whole) and lists of `(Figure, Axes)` pairs for graphs drawn
@@ -26,7 +30,7 @@ def drawgraph(
             a list of `(Figure, Axes)` pairs. If something is passed to `ax`, the
             same Axes instance is used for each new Figure.
         node_size (float, optional): Specifies the default size of a vertex.
-        **kwargs (Any): Additional keyword arguments passed to ``networkx.draw``.
+        **kwargs (object): Additional keyword arguments passed to ``networkx.draw``.
 
     Returns:
         A tuple of `matplotlib` `(Figure, Axes)` objects, or if `components` is
@@ -41,7 +45,7 @@ def drawgraph(
     properties = {"pos": positions, "node_size": node_size}
 
     # Initialize `pairs` to None.
-    pairs = None
+    pairs: list[tuple[Figure, Axes]] | None = None
 
     if not components:
         if not ax:

@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
+from collections.abc import Callable, Hashable, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Callable, Literal
+from typing import Literal
 
 import geopandas as gpd
 import matplotlib.patheffects as patheffects
@@ -17,7 +17,16 @@ from gerrytools.colors import districtr, resolve_color_and_alpha
 from gerrytools.plotting._figure_io import save_figure, show_figure
 from gerrytools.plotting.mpl.label_text_options import LabelBoxOptions, LabelFontOptions
 from gerrytools.plotting.mpl.marker_options import PointMarkerOptions
-from gerrytools.typing import Color, GeoSource
+from gerrytools.typing import (
+    CategoryColorMap,
+    CategoryKey,
+    Color,
+    CRSLike,
+    GeoColorMap,
+    GeoSource,
+    MplCompatibleColor,
+    ResolvedColor,
+)
 
 
 def _as_geoseries(source: GeoSource) -> gpd.GeoSeries:
@@ -41,10 +50,10 @@ class _GeoLayer(ABC):
         geometry_mask (pd.Series | None): Optional boolean mask to filter geometries.
             Default is None (no mask).
         datacolumn (str | None): Optional data column for color mapping. Default is None.
-        colormap (str | Color | Colormap | dict[Any, Color] | pd.Series): Color mapping
+        colormap (GeoColorMap | None): Color mapping
             specification. Can be a single color, a named colormap, a Colormap object, or
             a mapping from data values to colors. Defaults to "Purples".
-        missing_color (Any): Color to use for missing data.
+        missing_color (MplCompatibleColor | None): Color to use for missing data.
         facealpha (float | None): Alpha transparency for face colors. Default is None.
         edgecolor (Color): Color for geometry edges. Default is "none".
         edgealpha (float | None): Alpha transparency for edge colors. Default is None.
@@ -56,19 +65,19 @@ class _GeoLayer(ABC):
     geometry_source: GeoSource
     geometry_mask: pd.Series | None = None
     datacolumn: str | None = None
-    colormap: str | Color | Colormap | dict[Any, Color] | pd.Series = "Purples"
-    missing_color: Any = "lightgrey"
+    colormap: GeoColorMap | None = "Purples"
+    missing_color: MplCompatibleColor | None = "lightgrey"
     facealpha: float | None = None
     edgecolor: Color = "none"
     edgealpha: float | None = None
     edgewidth: float = 0.5
     zorder: int = 1
 
-    def _geometries_in_crs(self, target_crs) -> gpd.GeoSeries:
+    def _geometries_in_crs(self, target_crs: CRSLike | None) -> gpd.GeoSeries:
         """Return this layer's geometries (respecting mask) reprojected to target_crs.
 
         Args:
-            target_crs (Any): Target CRS to reproject to.
+            target_crs (CRSLike | None): Target CRS to reproject to.
 
         Returns:
             gpd.GeoSeries: The geometries in the target CRS.
@@ -118,12 +127,12 @@ class _GeoLayer(ABC):
         return self.geometry_source
 
     @abstractmethod
-    def render(self, ax: Axes, **kwargs) -> Axes:
+    def render(self, ax: Axes, **kwargs: object) -> Axes:
         """Render this layer onto the given Axes.
 
         Args:
             ax (Axes): Target axes.
-            **kwargs (Any): Layer-specific keyword arguments.
+            **kwargs (object): Layer-specific keyword arguments.
 
         Returns:
             Axes: Axes with the layer rendered.
@@ -140,21 +149,21 @@ class _CategoricalColorLayer(_GeoLayer):
         geometry_mask (pd.Series | None): Optional boolean mask to filter geometries.
             Default is None (no mask).
         datacolumn (str | None): Optional data column for color mapping. Default is None.
-        colormap (str | Color | Colormap | dict[Any, Color] | pd.Series): Color mapping
+        colormap (GeoColorMap | None): Color mapping
             specification. Can be a single color, a named colormap, a Colormap object, or
             a mapping from data values to colors. Defaults to "Purples".
-        missing_color (Any): Color to use for missing data.
+        missing_color (MplCompatibleColor | None): Color to use for missing data.
         facealpha (float | None): Alpha transparency for face colors. Default is None.
         edgecolor (Color): Color for geometry edges. Default is "none".
         edgealpha (float | None): Alpha transparency for edge colors. Default is None.
         edgewidth (float): Width of geometry edges. Default is 0.5.
         zorder (int): Z-order for rendering. Default is 1.
-        colormap (str | Color | Colormap | dict[Any, Color] | pd.Series): Color mapping
+        colormap (GeoColorMap | None): Color mapping
             specification. Can be a single color, a named colormap, a Colormap object, or
             a mapping from data values to colors. Defaults to "districtr".
     """
 
-    colormap: str | Color | Colormap | dict[Any, Color] | pd.Series = "districtr"
+    colormap: GeoColorMap | None = "districtr"
 
     def __post_init__(self) -> None:
         super(_CategoricalColorLayer, self).__post_init__()
@@ -188,7 +197,7 @@ class _CategoricalColorLayer(_GeoLayer):
     def __map_unique_values_to_colors(
         unique_values: pd.Index,
         color_list: list[Color],
-    ) -> dict[Any, Color]:
+    ) -> CategoryColorMap:
         """Map unique values in the data to colors from the provided list. Filters out NaN values.
 
         Args:
@@ -196,7 +205,15 @@ class _CategoricalColorLayer(_GeoLayer):
             color_list (list[Color]): The list of colors to use for mapping.
         """
         n_colors = len(color_list)
-        non_na_values = list(filter(pd.notna, unique_values))
+        non_na_values: list[CategoryKey] = []
+        for value in unique_values:
+            if pd.notna(value):
+                if not isinstance(value, Hashable):
+                    raise TypeError(
+                        f"Category value {value!r} is not hashable and cannot be mapped to a color",
+                    )
+                non_na_values.append(value)
+
         if len(non_na_values) > n_colors:
             raise ValueError(
                 "Not enough colors provided to map all unique values; "
@@ -207,11 +224,11 @@ class _CategoricalColorLayer(_GeoLayer):
         # Just in case the values are something like ["1", "2", "10"]
         # which would incorrectly sort to ["1", "10", "2"] as strings
         try:
-            key_int_pairs = [(key, int(key)) for key in non_na_values]
+            key_int_pairs = [(key, int(str(key))) for key in non_na_values]
             sorted_keys = sorted(key_int_pairs, key=lambda x: x[1])
             keys_in_order = [k for (k, _) in sorted_keys]
         except (ValueError, TypeError):
-            keys_in_order = sorted(non_na_values)
+            keys_in_order = sorted(non_na_values, key=lambda value: str(value))
 
         return {k: color_list[i] for i, k in enumerate(keys_in_order)}
 
@@ -268,7 +285,7 @@ class _CategoricalColorLayer(_GeoLayer):
             ret_colors_series = pd.Series(new_entries, index=self.geometry_source.index)
 
         elif isinstance(self.colormap, dict):
-            new_entries: list[tuple[str, int | float]] = []
+            new_entries: list[ResolvedColor] = []
             for val in self.geometry_source[self.datacolumn]:
                 color = self.colormap.get(val, self.missing_color)
                 color_tup = resolve_color_and_alpha(color, alpha=self.facealpha)
@@ -283,14 +300,20 @@ class _CategoricalColorLayer(_GeoLayer):
 
         return ret_colors_series.reindex(self.geometries.index)
 
-    def render(self, ax: Axes, *, target_crs=None, **kwargs) -> Axes:
+    def render(
+        self,
+        ax: Axes,
+        *,
+        target_crs: CRSLike | None = None,
+        **kwargs: object,
+    ) -> Axes:
         """Render this layer onto the given Axes.
 
         Args:
             ax (Axes): The Axes to render onto.
-            target_crs (Any, optional): The target CRS to reproject geometries to.
+            target_crs (CRSLike | None, optional): The target CRS to reproject geometries to.
                 Defaults to None.
-            **kwargs (Any): Additional keyword arguments (not used but included to satisfy
+            **kwargs (object): Additional keyword arguments (not used but included to satisfy
                 render function signature contract).
 
         Returns:
@@ -376,14 +399,20 @@ class _MarkerLayer:
         # required by _GeoLayer, unused for markers
         return pd.Series(dtype=object)
 
-    def render(self, ax: Axes, *, target_crs=None, **kwargs) -> Axes:
+    def render(
+        self,
+        ax: Axes,
+        *,
+        target_crs: CRSLike | None = None,
+        **kwargs: object,
+    ) -> Axes:
         """Render this layer onto the given Axes.
 
         Args:
             ax (Axes): The Axes to render onto.
-            target_crs (Any, optional): The target CRS to reproject geometries to.
+            target_crs (CRSLike | None, optional): The target CRS to reproject geometries to.
                 Defaults to None.
-            **kwargs (Any): Additional keyword arguments (not used).
+            **kwargs (object): Additional keyword arguments (not used).
 
         Returns:
             Axes: The Axes with the layer rendered.
@@ -433,7 +462,6 @@ class _MarkerLayer:
             )
 
             for x_value, y_value, label_text in zip(x_coordinates, y_coordinates, self.labels):
-
                 ax.plot(
                     x_value,
                     y_value,
@@ -465,7 +493,7 @@ class _LabelRequest:
     label_column: str
     labelfont_options: LabelFontOptions | None
     labelbox_options: LabelBoxOptions | None
-    label_format_fn: Callable[[Any], str] | None = None
+    label_format_fn: Callable[[CategoryKey], str] | None = None
     zorder: int = 100
 
 
@@ -486,7 +514,7 @@ class GeoPlot(ABC):
         *,
         dpi: int = 300,
         show_axis: bool = False,
-        target_crs=None,
+        target_crs: CRSLike | None = None,
         include_default_outline: bool = True,
         silent: bool = False,
     ) -> None:
@@ -496,8 +524,8 @@ class GeoPlot(ABC):
             gdf (GeoDataFrame): The base GeoDataFrame for the plot.
             dpi (int): The DPI for the Matplotlib Figure. Default is 300.
             show_axis (bool): Whether to show axis ticks and labels. Default is False.
-            target_crs: The target CRS for reprojecting geometries. If None, uses the CRS of
-                `gdf`. Default is None.
+            target_crs (CRSLike | None): The target CRS for reprojecting geometries.
+                If None, uses the CRS of `gdf`. Default is None.
             include_default_outline (bool): Whether to include a default outline layer around
                 the geometries in `gdf`. Default is True.
             silent (bool): Whether to suppress informational output throughout the rendering
@@ -521,7 +549,9 @@ class GeoPlot(ABC):
         self._canvas = self.fig.canvas  # renderer/manager handled by backend
 
         self.show_axis = show_axis
-        self.target_crs = target_crs if target_crs is not None else getattr(gdf, "crs", None)
+        self.target_crs: CRSLike | None = (
+            target_crs if target_crs is not None else getattr(gdf, "crs", None)
+        )
 
         self._xlim: tuple[float, float] | None = None
         self._ylim: tuple[float, float] | None = None
@@ -541,7 +571,8 @@ class GeoPlot(ABC):
                 edgewidth=0.5,
             )
 
-        # NOTE: Do we want to focus axes here? So if you add more layers later it keeps the same view?
+        # NOTE: Do we want to focus axes here? So if you add more layers later it keeps the same
+        # view?
 
     def add_outline_layer(
         self,
@@ -553,7 +584,7 @@ class GeoPlot(ABC):
         edgealpha: float | None = None,
         edgewidth: float = 0.5,
         show_labels: bool = False,
-        exclude_labels: list[Any] | None = None,
+        exclude_labels: Sequence[CategoryKey] | None = None,
         labelfont_options: LabelFontOptions | None = None,
         labelbox_options: LabelBoxOptions | None = None,
         zorder: int = 3,
@@ -571,7 +602,7 @@ class GeoPlot(ABC):
             edgealpha (float | None): Alpha transparency for edge colors. Default is None.
             edgewidth (float): Width of geometry edges. Default is 0.5.
             show_labels (bool): Whether to show labels on the outlined geometries. Default is False.
-            exclude_labels (list[Any] | None): List of labels to exclude from labeling.
+            exclude_labels (Sequence[CategoryKey] | None): Labels to exclude from labeling.
                 If None, no labels are excluded. Does not do anything if show_labels is False.
                 Default is None.
             labelfont_options (LabelFontOptions | None): Font options for labels.
@@ -623,7 +654,7 @@ class GeoPlot(ABC):
                     "'dissolve_column' must be set to add labels to an outline layer",
                 )
 
-            new_exclude_labels = exclude_labels if exclude_labels is not None else []
+            new_exclude_labels = list(exclude_labels) if exclude_labels is not None else []
             labeled_gdf = GeoDataFrame(
                 processed_geosource.query(f"`{dissolve_column}` not in {new_exclude_labels}")
             )
@@ -656,7 +687,7 @@ class GeoPlot(ABC):
         facecolor: Color = "gray",
         facealpha: float | None = 0.5,
         show_labels: bool = False,
-        exclude_labels: list[Any] | None = None,
+        exclude_labels: Sequence[CategoryKey] | None = None,
         labelfont_options: LabelFontOptions | None = None,
         labelbox_options: LabelBoxOptions | None = None,
         zorder: int = 10,
@@ -674,7 +705,7 @@ class GeoPlot(ABC):
             facealpha (float | None): Alpha transparency for face colors. Default is 0.5.
             show_labels (bool): Whether to show labels on the highlighted geometries. Default is
                 False.
-            exclude_labels (list[Any] | None): List of labels to exclude from labeling.
+            exclude_labels (Sequence[CategoryKey] | None): Labels to exclude from labeling.
                 If None, no labels are excluded. Does not do anything if show_labels is False.
                 Default is None.
             labelfont_options (LabelFontOptions | None): Font options for labels.
@@ -743,7 +774,7 @@ class GeoPlot(ABC):
             if geometry_mask is not None:
                 label_gdf = GeoDataFrame(label_gdf.loc[geometry_mask])
 
-            new_exclude_labels = exclude_labels if exclude_labels is not None else []
+            new_exclude_labels = list(exclude_labels) if exclude_labels is not None else []
             labeled_gdf = GeoDataFrame(
                 label_gdf.query(f"`{label_column}` not in {new_exclude_labels}")
             )
@@ -780,7 +811,7 @@ class GeoPlot(ABC):
         *,
         points_geoseries: gpd.GeoSeries | None = None,
         latitude_longitude_list: Sequence[tuple[float, float]] | None = None,
-        input_crs=None,
+        input_crs: CRSLike | None = None,
         marker_options: PointMarkerOptions | None = None,
         show_labels: bool = True,
         labels: Sequence[str] | None = None,
@@ -796,7 +827,7 @@ class GeoPlot(ABC):
             latitude_longitude_list (Sequence[tuple[float, float]] | None): A sequence of
                 (latitude, longitude) tuples for the marker locations. If None, `points_geoseries`
                 must be provided. Default is None.
-            input_crs (Any, optional): The CRS of the input points if using
+            input_crs (CRSLike | None, optional): The CRS of the input points if using
                 ``latitude_longitude_list``.
                 If None, assumes EPSG:4326 (lat/lon). Default is None.
             marker_options (PointMarkerOptions | None): Marker style settings.
@@ -836,8 +867,7 @@ class GeoPlot(ABC):
             raise ValueError("Either `points_geoseries` or `latitude_longitude_list` must be set.")
         if points_geoseries is not None and latitude_longitude_list is not None:
             raise ValueError(
-                "Only one of `points_geoseries` or `latitude_longitude_list` "
-                "may be set at a time.",
+                "Only one of `points_geoseries` or `latitude_longitude_list` may be set at a time.",
             )
 
         if latitude_longitude_list is not None:
@@ -880,7 +910,7 @@ class GeoPlot(ABC):
         *,
         points_geoseries: gpd.GeoSeries | None = None,
         latitude_longitude_list: Sequence[tuple[float, float]] | None = None,
-        input_crs=None,
+        input_crs: CRSLike | None = None,
         labels: Sequence[str] | None = None,
         labelfont_options: LabelFontOptions | None = None,
         labelbox_options: LabelBoxOptions | None = None,
@@ -894,7 +924,7 @@ class GeoPlot(ABC):
             latitude_longitude_list (Sequence[tuple[float, float]] | None): A sequence of
                 (latitude, longitude) tuples for the marker locations. If None, `points_geoseries`
                 must be provided. Default is None.
-            input_crs (Any, optional): The CRS of the input points if using
+            input_crs (CRSLike | None, optional): The CRS of the input points if using
                 ``latitude_longitude_list``.
                 If None, assumes EPSG:4326 (lat/lon). Default is None.
             labels (Sequence[str] | None): Optional labels for each marker. Default is None which
@@ -914,8 +944,7 @@ class GeoPlot(ABC):
             raise ValueError("Either `points_geoseries` or `latitude_longitude_list` must be set.")
         if points_geoseries is not None and latitude_longitude_list is not None:
             raise ValueError(
-                "Only one of `points_geoseries` or `latitude_longitude_list` "
-                "may be set at a time.",
+                "Only one of `points_geoseries` or `latitude_longitude_list` may be set at a time.",
             )
         if points_geoseries is None and latitude_longitude_list is not None:
             n_labels = len(list(latitude_longitude_list))
@@ -1109,7 +1138,6 @@ class GeoPlot(ABC):
 
         start_idx_to_layer_type: dict[int, tuple[str, int]] = {}
         if not self.silent:
-
             layer_order = [
                 ("marker", len(self._marker_layers)),
                 ("outline", len(self._outline_layers)),
@@ -1256,12 +1284,12 @@ class GeoPlot(ABC):
         self._build_and_apply_settings()
         show_figure(self.fig, non_gui_filename="geoplot.png", non_gui_prefix="GeoPlot")
 
-    def save(self, filepath: str, **kwargs: Any) -> None:
+    def save(self, filepath: str, **kwargs: object) -> None:
         """Save the plot to a file.
 
         Args:
             filepath (str): Output file path.
-            **kwargs (Any): Additional keyword arguments passed to ``Figure.savefig``.
+            **kwargs (object): Additional keyword arguments passed to ``Figure.savefig``.
 
         Returns:
             None

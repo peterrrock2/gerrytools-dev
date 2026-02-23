@@ -1,6 +1,6 @@
 import math
 from dataclasses import dataclass
-from typing import Any, Literal, Sequence
+from typing import Literal, Sequence, TypedDict
 
 import numpy as np
 from matplotlib.lines import Line2D
@@ -8,9 +8,28 @@ from matplotlib.lines import Line2D
 from gerrytools.logging import get_logger
 from gerrytools.plotting.data._geometry import line_segment_through_unit_square
 from gerrytools.plotting.data.gerryplot import GerryPlotBase
-from gerrytools.typing import Color
+from gerrytools.typing import Color, LegendHandle
 
 logger = get_logger(__name__)
+
+
+class _CrosshairXSettings(TypedDict):
+    xmin: float
+    xmax: float
+    color: tuple[float, float, float, float]
+    zorder: int
+
+
+class _CrosshairYSettings(TypedDict):
+    ymin: float
+    ymax: float
+    color: tuple[float, float, float, float]
+    zorder: int
+
+
+class _CrosshairSettings(TypedDict):
+    x: _CrosshairXSettings
+    y: _CrosshairYSettings
 
 
 @dataclass(slots=True, frozen=True)
@@ -244,7 +263,7 @@ class SeatsVotes(GerryPlotBase):
         self._sv_data_list: list[SeatsVotesData] = []
         self._line_data_list: list[SVPlotLine] = []
 
-        self._crosshair_settings: dict[str, dict[str, Any]] | None = None
+        self._crosshair_settings: _CrosshairSettings | None = None
         self.update_crosshair_settings()
 
         self._display_election_markers = True
@@ -380,20 +399,21 @@ class SeatsVotes(GerryPlotBase):
         """
         dx = x_width / 2
         dy = y_width / 2
-        self._crosshair_settings = dict(
-            x=dict(
-                xmin=0.5 - dx,
-                xmax=0.5 + dx,
-                color=self._resolved_rgba(color=color, field="crosshair_color", alpha=alpha),
-                zorder=-2,
-            ),
-            y=dict(
-                ymin=0.5 - dy,
-                ymax=0.5 + dy,
-                color=self._resolved_rgba(color=color, field="crosshair_color", alpha=alpha),
-                zorder=-2,
-            ),
-        )
+        crosshair_settings: _CrosshairSettings = {
+            "x": {
+                "xmin": 0.5 - dx,
+                "xmax": 0.5 + dx,
+                "color": self._resolved_rgba(color=color, field="crosshair_color", alpha=alpha),
+                "zorder": -2,
+            },
+            "y": {
+                "ymin": 0.5 - dy,
+                "ymax": 0.5 + dy,
+                "color": self._resolved_rgba(color=color, field="crosshair_color", alpha=alpha),
+                "zorder": -2,
+            },
+        }
+        self._crosshair_settings = crosshair_settings
 
     def remove_crosshairs(self) -> None:
         """Remove crosshairs from the plot."""
@@ -698,16 +718,28 @@ class SeatsVotes(GerryPlotBase):
             self._draw_sv_markers()
 
         if self._crosshair_settings is not None:
-            self._ax.axvspan(**self._crosshair_settings["x"])
-            self._ax.axhspan(**self._crosshair_settings["y"])
+            x_settings = self._crosshair_settings["x"]
+            y_settings = self._crosshair_settings["y"]
+            self._ax.axvspan(
+                xmin=x_settings["xmin"],
+                xmax=x_settings["xmax"],
+                color=x_settings["color"],
+                zorder=x_settings["zorder"],
+            )
+            self._ax.axhspan(
+                ymin=y_settings["ymin"],
+                ymax=y_settings["ymax"],
+                color=y_settings["color"],
+                zorder=y_settings["zorder"],
+            )
 
-    def _get_sv_curve_legend_handles(self) -> list[Any]:
+    def _get_sv_curve_legend_handles(self) -> list[LegendHandle]:
         """Generate legend handles for seats-votes curves.
 
         Returns:
-            list[Any]: A list of legend handles for the seats-votes curves.
+            list[LegendHandle]: A list of legend handles for the seats-votes curves.
         """
-        handles: list[Any] = []
+        handles: list[LegendHandle] = []
 
         line_style_name_tuples = dict.fromkeys(
             (
@@ -738,13 +770,13 @@ class SeatsVotes(GerryPlotBase):
 
         return handles
 
-    def _get_sv_marker_legend_handles(self) -> list[Any]:
+    def _get_sv_marker_legend_handles(self) -> list[LegendHandle]:
         """Generate legend handles for election-result markers.
 
         Returns:
-            list[Any]: A list of legend handles for election-result markers.
+            list[LegendHandle]: A list of legend handles for election-result markers.
         """
-        handles: list[Any] = []
+        handles: list[LegendHandle] = []
 
         marker_style_label_tuples = dict.fromkeys(
             (
@@ -793,13 +825,13 @@ class SeatsVotes(GerryPlotBase):
 
         return handles
 
-    def _get_line_legend_handles(self) -> list[Any]:
+    def _get_line_legend_handles(self) -> list[LegendHandle]:
         """Generate legend handles for custom lines.
 
         Returns:
-            list[Any]: A list of legend handles for the custom lines.
+            list[LegendHandle]: A list of legend handles for the custom lines.
         """
-        handles: list[Any] = []
+        handles: list[LegendHandle] = []
 
         for line in self._line_data_list:
             if line.label is not None:
@@ -822,9 +854,9 @@ class SeatsVotes(GerryPlotBase):
         return handles
 
     @property
-    def _legend_handles(self) -> list[Any]:
+    def _legend_handles(self) -> list[LegendHandle]:
         """Generate legend handles for seats-votes curves, markers, and guide lines."""
-        handles: list[Any] = []
+        handles: list[LegendHandle] = []
 
         handles.extend(self._get_sv_curve_legend_handles())
         if self._display_election_markers:

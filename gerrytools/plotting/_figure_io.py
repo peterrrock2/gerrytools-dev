@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from io import BytesIO
-from typing import Any
+from typing import Any, cast
 
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib import rcsetup
 from matplotlib.figure import Figure
+
+from gerrytools.typing import MplKwargs
 
 
 def show_figure(
@@ -51,15 +53,18 @@ def show_figure(
     plt.show(block=True)
 
 
-def save_figure(fig: Figure, filepath: str, **kwargs: Any) -> None:
+def save_figure(fig: Figure, filepath: str, **kwargs: object) -> None:
     """Save a Matplotlib figure with consistent defaults.
 
     Args:
         fig (Figure): Matplotlib figure to save.
         filepath (str): Output file path.
-        **kwargs (Any): Additional ``Figure.savefig`` keyword arguments. If omitted,
+        **kwargs (object): Additional ``Figure.savefig`` keyword arguments. If omitted,
             defaults are ``bbox_inches="tight"`` and ``dpi=fig.dpi``.
     """
-    kwargs.setdefault("bbox_inches", "tight")
-    kwargs.setdefault("dpi", fig.dpi)
-    fig.savefig(filepath, **kwargs)
+    savefig_kwargs: MplKwargs = dict(kwargs)
+    savefig_kwargs.setdefault("bbox_inches", "tight")
+    savefig_kwargs.setdefault("dpi", fig.dpi)
+    # Cast to satisfy the type-checker: Matplotlib accepts a broad dynamic kwargs
+    # surface here, but static stubs are narrower.
+    fig.savefig(filepath, **cast(dict[str, Any], savefig_kwargs))

@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Sequence
+from typing import Sequence
 
 import numpy as np
 from matplotlib.lines import Line2D
@@ -7,7 +7,7 @@ from matplotlib.lines import Line2D
 from gerrytools.logging import get_logger
 from gerrytools.plotting.data.gerryplot import GerryPlotBase
 from gerrytools.plotting.mpl.marker_options import PointMarkerOptions
-from gerrytools.typing import Color
+from gerrytools.typing import Color, LegendHandle
 
 logger = get_logger(__name__)
 
@@ -97,7 +97,8 @@ class ScatterPlot(GerryPlotBase):
                 Defaults to None.
             marker (str, optional): The marker style. Defaults to "o".
             markersize (float, optional): The size of the markers. Defaults to 6.0.
-            markeredgecolor (Color | None, optional): The edge color of the markers. Defaults to None.
+            markeredgecolor (Color | None, optional): The edge color of the markers. Defaults to
+                None.
             markeredgealpha (float | None, optional): The alpha value for the marker edge color.
                 Defaults to None.
             markeredgewidth (float, optional): The width of the marker edges. Defaults to 0.0.
@@ -157,7 +158,8 @@ class ScatterPlot(GerryPlotBase):
                 Defaults to None.
             marker (str, optional): The marker style. Defaults to "o".
             markersize (float, optional): The size of the marker. Defaults to 6.0.
-            markeredgecolor (Color | None, optional): The edge color of the marker. Defaults to None.
+            markeredgecolor (Color | None, optional): The edge color of the marker. Defaults to
+                None.
             markeredgealpha (float | None, optional): The alpha value for the marker edge color.
                 Defaults to None.
             markeredgewidth (float, optional): The width of the marker edge. Defaults to 0.0.
@@ -200,13 +202,13 @@ class ScatterPlot(GerryPlotBase):
         """Build the scatterplot by drawing point sets."""
         self._draw_points()
 
-    def _get_scatter_legend_handles(self) -> list[Any]:
+    def _get_scatter_legend_handles(self) -> list[LegendHandle]:
         """Generate legend handles for point sets.
 
         Returns:
-            list[Any]: A list of legend handles for the point sets.
+            list[LegendHandle]: A list of legend handles for the point sets.
         """
-        handles: list[Any] = []
+        handles: list[LegendHandle] = []
 
         for sdata in self._scatter_data_list:
             if sdata.label is None:
@@ -224,9 +226,9 @@ class ScatterPlot(GerryPlotBase):
         return handles
 
     @property
-    def _legend_handles(self) -> list[Any]:
+    def _legend_handles(self) -> list[LegendHandle]:
         """Generated legend handles for boxplot and point sets."""
-        handles: list[Any] = []
+        handles: list[LegendHandle] = []
 
         handles.extend(self._get_scatter_legend_handles())
         return handles

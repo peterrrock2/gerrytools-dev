@@ -3,16 +3,17 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import cast
 
 import numpy as np
 import pandas as pd
+from matplotlib.collections import PolyCollection
 from matplotlib.patches import Patch
 
 from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
 from gerrytools.plotting.data._categorical_distribution_base import CategoricalDistributionPlotBase
-from gerrytools.typing import Color
+from gerrytools.typing import Color, LegendHandle
 
 logger = get_logger(__name__)
 
@@ -258,7 +259,7 @@ class ViolinPlot(CategoricalDistributionPlotBase):
                 showextrema=False,
             )
 
-            bodies = cast(list[Any], vp.get("bodies", []))
+            bodies = cast(list[PolyCollection], vp.get("bodies", []))
             for patch in bodies:
                 patch.set_alpha(None)
                 patch.set_facecolor(
@@ -291,9 +292,9 @@ class ViolinPlot(CategoricalDistributionPlotBase):
         if self._include_group_vlines:
             self._draw_violinplot_group_vlines()
 
-    def _get_violinplot_legend_handles(self) -> list[Any]:
+    def _get_violinplot_legend_handles(self) -> list[LegendHandle]:
         """Generate legend handles for violinplot sets."""
-        handles: list[Any] = []
+        handles: list[LegendHandle] = []
 
         for violinplot_data in self._violinplot_data_list:
             handles.append(
@@ -315,9 +316,9 @@ class ViolinPlot(CategoricalDistributionPlotBase):
         return handles
 
     @property
-    def _legend_handles(self) -> list[Any]:
+    def _legend_handles(self) -> list[LegendHandle]:
         """Generated legend handles for violinplot and point sets."""
-        handles: list[Any] = []
+        handles: list[LegendHandle] = []
 
         handles.extend(self._get_violinplot_legend_handles())
         handles.extend(self._get_pointset_legend_handles())

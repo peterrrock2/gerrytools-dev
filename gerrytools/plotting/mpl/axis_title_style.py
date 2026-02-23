@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Literal
 
 import matplotlib.colors as mcolors
 
 from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
-from gerrytools.typing import Color
+from gerrytools.typing import AxisLabelKwargs, Color, TitleKwargs
 
 logger = get_logger(__name__)
 
@@ -19,7 +19,7 @@ class AxisLabelStyle:
 
     fontsize: float | int | None = None
     fontweight: str | None = None
-    fontstyle: str | None = None
+    fontstyle: Literal["normal", "italic", "oblique"] | None = None
     fontfamily: str | None = None
 
     fontcolor: Color = "black"
@@ -59,9 +59,9 @@ class AxisLabelStyle:
         object.__setattr__(self, "fontcolor", resolved_c)
         object.__setattr__(self, "fontalpha", resolved_a)
 
-    def to_mpl_settings_dict(self) -> dict[str, Any]:
+    def to_mpl_settings_dict(self) -> AxisLabelKwargs:
         """Convert to Matplotlib kwargs for ``Axes.set_xlabel``/``Axes.set_ylabel``."""
-        settings_dict: dict[str, Any] = {
+        settings_dict: AxisLabelKwargs = {
             "color": mcolors.to_rgba(self.fontcolor, alpha=self.fontalpha),
         }
         if self.fontsize is not None:
@@ -83,7 +83,7 @@ class TitleStyle:
 
     fontsize: float | int | None = None
     fontweight: str | None = None
-    fontstyle: str | None = None
+    fontstyle: Literal["normal", "italic", "oblique"] | None = None
     fontfamily: str | None = None
 
     fontcolor: Color = "black"
@@ -127,9 +127,9 @@ class TitleStyle:
         object.__setattr__(self, "fontcolor", resolved_c)
         object.__setattr__(self, "fontalpha", resolved_a)
 
-    def to_mpl_settings_dict(self) -> dict[str, Any]:
+    def to_mpl_settings_dict(self) -> TitleKwargs:
         """Convert to Matplotlib kwargs for ``Axes.set_title``."""
-        settings_dict: dict[str, Any] = {
+        settings_dict: TitleKwargs = {
             "color": mcolors.to_rgba(self.fontcolor, alpha=self.fontalpha),
         }
         if self.fontsize is not None:

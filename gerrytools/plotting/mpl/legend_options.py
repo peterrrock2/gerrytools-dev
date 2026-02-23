@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Literal
 
-from gerrytools.typing import Color
+from gerrytools.typing import Color, MplKwargs
 
 
 @dataclass
@@ -25,9 +25,9 @@ class LegendOptions:
     labelspacing: float = 0.5
     columnspacing: float = 2.0
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> MplKwargs:
         """Convert to kwargs accepted by Matplotlib's ``Axes.legend``."""
-        output: dict[str, Any] = {}
+        output: MplKwargs = {}
         for field_name, field_value in self.__dict__.items():
             if field_value is not None:
                 output[field_name] = field_value
