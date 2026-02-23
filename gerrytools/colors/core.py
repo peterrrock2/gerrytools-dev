@@ -10,7 +10,7 @@ from gerrytools.colors.districtr import DISTRICTR_COLOR_DICT
 from gerrytools.colors.latex import get_color_from_latex_string
 from gerrytools.colors.latex_full import LATEX_COLOR_DICT
 from gerrytools.logging import get_logger
-from gerrytools.typing import Color, MplCompatibleColor
+from gerrytools.typing import MplCompatibleColor
 
 gt_logger = get_logger(__name__)
 
@@ -89,14 +89,14 @@ def get_all_supported_colors_dict() -> dict[str, Any]:
     )
 
 
-def get_named_color(name: str) -> Color:
+def get_named_color(name: str) -> str:
     """Get a color value from the supported color names.
 
     Args:
         name (str): The name of the color.
 
     Returns:
-        Color: The corresponding color value.
+        str: The corresponding hex color value.
 
     Raises:
         KeyError: If the color name is not recognized.
@@ -107,16 +107,21 @@ def get_named_color(name: str) -> Color:
         return "#00ff00"
 
     # try “as-is” and lowercased in each mapping
-    for d in (
-        GERRYTOOLS_EXTRA_COLORS_DICT,
-        DISTRICTR_COLOR_DICT,
-        LATEX_COLOR_DICT,
-        mcolors.get_named_colors_mapping(),
-    ):
-        if name in d:
-            return d[name]  # type: ignore[index]
-        if key in d:
-            return d[key]
+    for color_map in (GERRYTOOLS_EXTRA_COLORS_DICT, DISTRICTR_COLOR_DICT, LATEX_COLOR_DICT):
+        value = color_map.get(name)
+        if value is not None:
+            return value
+        value = color_map.get(key)
+        if value is not None:
+            return value
+
+    mpl_named_colors = mcolors.get_named_colors_mapping()
+    value = mpl_named_colors.get(name)
+    if value is not None:
+        return mcolors.to_hex(value)
+    value = mpl_named_colors.get(key)
+    if value is not None:
+        return mcolors.to_hex(value)
 
     raise KeyError(f"Unknown color name: {name!r}")
 
@@ -160,16 +165,18 @@ def convert_color_to_hexa_or_none(color: Any) -> str:
             log_string += f"Color {color!r} is not a known Matplotlib named color string: {e}"
 
         # LaTeX/xcolor string support
-        try:
-            resolved_color = get_color_from_latex_string(color)
-        except Exception as e:
-            log_string += f" | Color {color!r} is not parsable as a LaTeX color string: {e}"
+        if resolved_color is None:
+            try:
+                resolved_color = get_color_from_latex_string(color)
+            except Exception as e:
+                log_string += f" | Color {color!r} is not parsable as a LaTeX color string: {e}"
 
         # Generic matplotlib parsing (also covers '#RRGGBB' and '#RRGGBBAA')
-        try:
-            resolved_color = mcolors.to_rgba(color)
-        except Exception as e:
-            log_string += f" | Color {color!r} not parseable by Matplotlib: {e}"
+        if resolved_color is None:
+            try:
+                resolved_color = mcolors.to_rgba(color)
+            except Exception as e:
+                log_string += f" | Color {color!r} not parseable by Matplotlib: {e}"
 
         if resolved_color is None:
             gt_logger.debug(log_string)

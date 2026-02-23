@@ -63,6 +63,19 @@ def _validate_subway_settings(
 ):
     """Validate settings for subway sign plotting.
 
+    Args:
+        colors (list[Color]): Sign face colors.
+        labels (list[str]): Sign text labels.
+        orientation (Literal["vertical", "horizontal"]): Layout orientation.
+        n_bands (int | None): Number of rows/columns, depending on orientation.
+            Defaults to None.
+        max_items_per_band (int | None): Max items per row/column, depending on orientation.
+            Defaults to None.
+        sign_options (SubwaySignOptions): Rendering and spacing options.
+
+    Returns:
+        None
+
     Raises:
         ValueError: If any settings are invalid.
     """
@@ -115,6 +128,21 @@ def _determine_offsets_and_counts(
     max_items_per_band: int | None = None,
     sign_options: SubwaySignOptions,
 ) -> _SubwayPlotLayout:
+    """Determine grid dimensions and spacing for subway-sign layout.
+
+    Args:
+        labels (list[str]): Sign labels to render.
+        orientation (Literal["vertical", "horizontal"], optional): Primary layout direction.
+            Defaults to ``"horizontal"``.
+        n_bands (int | None, optional): Number of bands (rows for horizontal, columns for
+            vertical). Defaults to None.
+        max_items_per_band (int | None, optional): Maximum items per band (columns for
+            horizontal, rows for vertical). Defaults to None.
+        sign_options (SubwaySignOptions): Rendering and spacing options.
+
+    Returns:
+        _SubwayPlotLayout: Derived layout geometry and spacing values.
+    """
     item_count = len(labels)
     radius = float(sign_options.radius)
     diameter = 2.0 * radius
@@ -175,10 +203,14 @@ def _determine_grid_position(
 
     Args:
         linear_index (int): The linear index of the sign.
+        sign_options (SubwaySignOptions): Rendering/layout options containing ragged-edge mode.
         orientation (Literal["vertical", "horizontal"]): The layout orientation.
         item_count (int): Total number of signs.
         row_count (int): Number of rows in the layout.
         column_count (int): Number of columns in the layout.
+
+    Returns:
+        tuple[int, int]: Row and column position for ``linear_index``.
     """
     raggededge = getattr(sign_options, "raggededge", "last")
     if raggededge not in ("first", "last"):

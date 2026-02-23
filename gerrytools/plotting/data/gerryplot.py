@@ -1,25 +1,21 @@
 import weakref
 from abc import ABC, abstractmethod
-from io import BytesIO
 from numbers import Real
 from typing import Any, Iterable, Literal, Sequence
 
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
-from matplotlib import get_backend, rcsetup
 from matplotlib.axes import Axes
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 
 from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
-from gerrytools.plotting._gerryplot_dataclasses import BandData, LineData
-from gerrytools.plotting._gerryplot_to_mpl_option_dataclasses import (
-    AxisLabelStyle,
-    LegendOptions,
-    TickStyle,
-    TitleStyle,
-)
+from gerrytools.plotting._figure_io import save_figure, show_figure
+from gerrytools.plotting._legend_utils import build_legend_options, save_legend_handles
+from gerrytools.plotting.data._gerryplot_dataclasses import BandData, LineData
+from gerrytools.plotting.mpl.axis_title_style import AxisLabelStyle, TitleStyle
+from gerrytools.plotting.mpl.tick_style import TickStyle
 from gerrytools.plotting.utils import _coerce_real_iter
 from gerrytools.typing import Color, TickType
 
@@ -65,7 +61,7 @@ class GerryPlotBase(ABC):
             pass
 
         self.include_legend = include_legend
-        self._legend_options = LegendOptions(loc="center left", bbox_to_anchor=(1.01, 0.5))
+        self._legend_options = build_legend_options()
 
         self.xlabel = xlabel
         self.ylabel = ylabel
@@ -312,10 +308,23 @@ class GerryPlotBase(ABC):
         self._horizontal_bands.clear()
 
     def _default_x_tick_locations(self) -> list[float] | None:
+        """Get subclass-provided default x-tick locations.
+
+        Returns:
+            list[float] | None: Default x-tick locations, or None to keep Matplotlib defaults.
+        """
         return None
 
     def _default_x_tick_labels(self, tick_locations: list[float]) -> list[str] | None:
-        """Get default x-tick labels for the categorical data."""
+        """Get subclass-provided default x-tick labels.
+
+        Args:
+            tick_locations (list[float]): Final x-tick locations selected for the axes.
+
+        Returns:
+            list[str] | None: Tick labels aligned to ``tick_locations``, or None to keep current
+                labels.
+        """
         return None
 
     def _set_x_axis(self) -> None:
@@ -542,7 +551,7 @@ class GerryPlotBase(ABC):
         """Apply text properties to tick labels.
 
         Args:
-            labels: List of tick label objects.
+            labels (Any): Iterable of Matplotlib ``Text`` tick-label objects.
             fontweight (str | None, optional): Font weight to apply. Defaults to None.
             fontstyle (str | None, optional): Font style to apply. Defaults to None.
             fontfamily (str | None, optional): Font family to apply. Defaults to None.
@@ -566,7 +575,17 @@ class GerryPlotBase(ABC):
         *,
         field: str = "color",
     ) -> tuple[float, float, float, float]:
-        """Resolve GerryTools/Matplotlib color inputs to an RGBA tuple."""
+        """Resolve a ``Color`` plus optional alpha override to an RGBA tuple.
+
+        Args:
+            color (Color): GerryTools color input.
+            alpha (float | None, optional): Optional alpha override. Defaults to None.
+            field (str, optional): Field name used in validation and warning messages.
+                Defaults to ``"color"``.
+
+        Returns:
+            tuple[float, float, float, float]: Resolved RGBA values in ``[0, 1]``.
+        """
         resolved_color, resolved_alpha = resolve_color_and_alpha(
             color,
             alpha=alpha,
@@ -800,15 +819,36 @@ class GerryPlotBase(ABC):
         )
 
     def set_xlabel(self, text: str | None) -> None:
-        """Set the x-axis label text (deferred until build)."""
+        """Set deferred x-axis label text.
+
+        Args:
+            text (str | None): Label text, or None to clear.
+
+        Returns:
+            None
+        """
         self.xlabel = text
 
     def set_ylabel(self, text: str | None) -> None:
-        """Set the y-axis label text (deferred until build)."""
+        """Set deferred y-axis label text.
+
+        Args:
+            text (str | None): Label text, or None to clear.
+
+        Returns:
+            None
+        """
         self.ylabel = text
 
     def set_title(self, text: str | None) -> None:
-        """Set the axes title text (deferred until build)."""
+        """Set deferred axes title text.
+
+        Args:
+            text (str | None): Title text, or None to clear.
+
+        Returns:
+            None
+        """
         self.title = text
 
     def clear_xlabel_ylabel_and_title_styles(self) -> None:
@@ -981,25 +1021,49 @@ class GerryPlotBase(ABC):
         """Set x-axis limits.
 
         Args:
-            lower (float): The lower x-axis limit.
-            upper (float): The upper x-axis limit.
+            lower (float): Left x-axis limit.
+            upper (float): Right x-axis limit.
 
         Returns:
             None
         """
-        self._x_limits = (lower, upper)
+        self._x_limits = (float(lower), float(upper))
 
     def set_ylimits(self, lower: float, upper: float) -> None:
         """Set y-axis limits.
 
         Args:
-            lower (float): The lower y-axis limit.
-            upper (float): The upper y-axis limit.
+            lower (float): Bottom y-axis limit.
+            upper (float): Top y-axis limit.
 
         Returns:
             None
         """
-        self._y_limits = (lower, upper)
+        self._y_limits = (float(lower), float(upper))
+
+    def set_xlim(self, left: float, right: float) -> None:
+        """Alias for :meth:`set_xlimits`.
+
+        Args:
+            left (float): Left x-axis limit.
+            right (float): Right x-axis limit.
+
+        Returns:
+            None
+        """
+        self.set_xlimits(left, right)
+
+    def set_ylim(self, bottom: float, top: float) -> None:
+        """Alias for :meth:`set_ylimits`.
+
+        Args:
+            bottom (float): Bottom y-axis limit.
+            top (float): Top y-axis limit.
+
+        Returns:
+            None
+        """
+        self.set_ylimits(bottom, top)
 
     def show_or_hide_frame(
         self,
@@ -1194,75 +1258,33 @@ class GerryPlotBase(ABC):
         labelspacing: float = 0.5,
         columnspacing: float = 2.0,
     ) -> None:
-        """Set legend options for the figure.
-
-        This method stores legend placement and styling settings which are later passed to
-        Matplotlib's ``Axes.legend(...)`` call when the plot is built. The defaults are chosen
-        to place the legend just outside the axes on the right-hand side (useful for avoiding
-        occluding plotted data).
-
-        Notes:
-            - Legend positioning is controlled by the interaction between ``loc`` and
-              ``bbox_to_anchor``. Roughly: ``bbox_to_anchor`` specifies an anchor point/box,
-              and ``loc`` specifies *which point on the legend* is aligned to that anchor.
-            - The default ``loc="center_left"`` with ``bbox_to_anchor=(1.01, 0.5)`` anchors
-              the legend's left edge slightly to the right of the axes (x=1.01) and vertically
-              centers it (y=0.5).
-            - ``bbox_to_anchor`` accepts either:
-                * a 2-tuple ``(x, y)`` (anchor point), or
-                * a 4-tuple ``(x, y, width, height)`` (anchor box).
-              If ``bbox_to_anchor`` is ``None``, Matplotlib positions the legend using only ``loc``.
-            - Spacing parameters such as ``labelspacing`` and ``columnspacing`` are interpreted
-              by Matplotlib in *font-size units*, not pixels.
+        """Set legend options used by ``Axes.legend`` during plot build.
 
         Args:
-            loc (str | int, optional): The legend location. May be a Matplotlib string location
-                (e.g., ``"best"``, ``"upper right"``) or an integer code. Defaults to
-                ``"center_left"``.
-            bbox_to_anchor (tuple[float, float] | tuple[float, float, float, float] | None, optional):
-                The bounding box used to anchor the legend. A 2-tuple anchors to a single point;
-                a 4-tuple anchors to a box. Defaults to ``(1.01, 0.5)``, which places the legend
-                outside the axes to the right.
-            ncols (int, optional): The number of columns in the legend. Increase this to make a
-                tall legend more compact. Defaults to 1.
-            fontsize (float | str | None, optional): The font size of the legend text. Accepts a
-                numeric size (e.g. 10) or a Matplotlib size string (e.g. ``"small"``). If ``None``,
-                Matplotlib's default is used. Defaults to None.
-            frameon (bool, optional): Whether to draw a frame (background patch) around the legend.
-                Defaults to True.
-            fancybox (bool, optional): Whether to draw the legend frame with rounded corners.
-                Defaults to False.
-            shadow (bool, optional): Whether to draw a shadow behind the legend frame.
-                Defaults to False.
-            framealpha (float | None, optional): The alpha transparency of the legend frame. If ``None``,
-                Matplotlib uses its default frame alpha. Defaults to None.
-            facecolor (Color | None, optional): The face color of the legend frame. If ``None``,
-                Matplotlib chooses a default. Defaults to None.
-            edgecolor (Color | None, optional): The edge color of the legend frame. If ``None``,
-                Matplotlib chooses a default. Defaults to None.
-            title (str | None, optional): The title text displayed above legend entries. Defaults to None.
-            alignment (Literal["center", "left", "right"], optional): The alignment of the legend title.
-                Defaults to "center".
-            labelspacing (float, optional): The vertical space between legend entries (in font-size units).
-                Defaults to 0.5.
-            columnspacing (float, optional): The horizontal space between columns (in font-size units).
-                Defaults to 2.0.
+            loc (str | int, optional): Matplotlib legend location. Defaults to
+                ``"center left"``.
+            bbox_to_anchor (tuple[float, float] | tuple[float, float, float, float] | None,
+                optional): Legend anchor box. Defaults to ``(1.01, 0.5)``.
+            ncols (int, optional): Number of legend columns. Defaults to ``1``.
+            fontsize (float | str | None, optional): Legend text size. Defaults to None.
+            frameon (bool, optional): Whether to draw the legend frame. Defaults to True.
+            fancybox (bool, optional): Whether to use a rounded frame. Defaults to False.
+            shadow (bool, optional): Whether to draw a shadow. Defaults to False.
+            framealpha (float | None, optional): Frame alpha override. Defaults to None.
+            facecolor (Color | None, optional): Frame face color. Defaults to None.
+            edgecolor (Color | None, optional): Frame edge color. Defaults to None.
+            title (str | None, optional): Legend title. Defaults to None.
+            alignment (Literal["center", "left", "right"], optional): Legend content
+                alignment. Defaults to ``"center"``.
+            labelspacing (float, optional): Vertical spacing between entries.
+                Defaults to ``0.5``.
+            columnspacing (float, optional): Horizontal spacing between columns.
+                Defaults to ``2.0``.
 
-        Examples:
-            Place the legend inside the axes in the upper-right corner::
-
-                plot.set_legend_options(loc="upper right", bbox_to_anchor=None)
-
-            Place the legend below the axes, centered, with two columns::
-
-                plot.set_legend_options(
-                    loc="upper center",
-                    bbox_to_anchor=(0.5, -0.05),
-                    ncols=2,
-                    frameon=False,
-                )
+        Returns:
+            None
         """
-        self._legend_options = LegendOptions(
+        self._legend_options = build_legend_options(
             loc=loc,
             bbox_to_anchor=bbox_to_anchor,
             ncols=ncols,
@@ -1287,48 +1309,28 @@ class GerryPlotBase(ABC):
         dpi: int | None = None,
         **legend_kwargs: Any,
     ) -> None:
-        """Save the legend to a separate file.
+        """Save legend handles to a standalone image.
 
         Args:
-            filepath (str): The file path to save the legend to.
-            outer_padding (float, optional): The outer padding around the legend.
-                Defaults to 0.07.
-
-            Additional keyword arguments to pass to ``ax.legend()``.
+            filepath (str): Output file path.
+            outer_padding (float, optional): Fractional padding around the legend bounding box.
+                Defaults to ``0.07``.
+            dpi (int | None, optional): Output DPI. If None, uses figure DPI.
+                Defaults to None.
+            **legend_kwargs (Any): Additional keyword arguments passed to
+                ``matplotlib.axes.Axes.legend``.
 
         Returns:
             None
         """
-        if not self._legend_handles:
-            raise ValueError("No legend handles to save.")
-
-        legend_fig = plt.figure(dpi=dpi or self.fig.dpi)
-        legend_ax = legend_fig.add_subplot(111)
-        legend_ax.axis("off")
-
-        legend_options = self._legend_options.to_dict() | legend_kwargs
-
-        leg = legend_ax.legend(
+        save_legend_handles(
             handles=self._legend_handles,
-            **legend_options,
+            legend_options=self._legend_options,
+            filepath=filepath,
+            outer_padding=outer_padding,
+            dpi=dpi or self.fig.dpi,
+            **legend_kwargs,
         )
-
-        # Make layout as tight as possible
-        legend_fig.subplots_adjust(0, 0, 1, 1)
-
-        legend_fig.canvas.draw()
-        renderer = legend_fig.canvas.get_renderer()  # type: ignore[attr-defined]
-
-        bbox = leg.get_window_extent(renderer=renderer)
-        bbox_inches = bbox.transformed(legend_fig.dpi_scale_trans.inverted())
-        bbox_inches = bbox_inches.expanded(1.0 + outer_padding, 1.0 + outer_padding)
-
-        legend_fig.savefig(
-            filepath,
-            bbox_inches=bbox_inches,
-            pad_inches=0.0,
-        )
-        plt.close(legend_fig)
 
     def _update_legend(self) -> None:
         """Update the legend on the plot."""
@@ -1372,51 +1374,24 @@ class GerryPlotBase(ABC):
     def show(self) -> None:
         """Display the figure."""
         self._build_and_apply_settings()
-
-        # Notebook: display PNG inline
-        try:
-            from IPython import get_ipython
-
-            ip = get_ipython()
-            if ip is not None and getattr(ip, "kernel", None) is not None:
-                from IPython.display import Image, display
-
-                buf = BytesIO()
-                self.fig.savefig(buf, format="png", bbox_inches="tight", dpi=self.fig.dpi)
-                buf.seek(0)
-                display(Image(data=buf.getvalue()))
-                return
-        except Exception:
-            pass
-
-        # Script/terminal: must be on an interactive backend
-        backend = get_backend()
-        if backend not in rcsetup.interactive_bk:
-            out = "gerrytools_plot.png"
-            self.fig.savefig(out, bbox_inches="tight", dpi=self.fig.dpi)
-            print(f"[GerryTools Plotting] Non-GUI backend ({backend}); saved to {out}")
-            return
-
-        # Ensure this figure becomes the active one and show it
-        plt.figure(self.fig.number)
-        plt.show(block=True)
+        show_figure(
+            self.fig,
+            non_gui_filename="gerrytools_plot.png",
+            non_gui_prefix="GerryTools Plotting",
+        )
 
     def save(self, filepath: str, **kwargs) -> None:
         """Save the figure to a file.
 
         Args:
             filepath (str): The file path to save the figure to.
-            Additional keyword arguments to pass to ``fig.savefig()``.
+            **kwargs (Any): Additional keyword arguments passed to ``Figure.savefig``.
 
         Returns:
             None
         """
         self._build_and_apply_settings()
-
-        kwargs["bbox_inches"] = kwargs.get("bbox_inches", "tight")
-        kwargs["dpi"] = kwargs.get("dpi", self.fig.dpi)
-
-        self.fig.savefig(filepath, **kwargs)
+        save_figure(self.fig, filepath, **kwargs)
 
     @abstractmethod
     def _build_plot(self) -> None:

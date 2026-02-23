@@ -13,21 +13,18 @@ from numpy import linspace
 from shapely.geometry import Point
 
 from gerrytools.colors import resolve_color_and_alpha
-from gerrytools.plotting._geoplot_to_mpl_option_dataclasses import (
-    ColorbarOptions,
-    _ColorbarLayoutOptions,
-)
-from gerrytools.plotting._gerryplot_to_mpl_option_dataclasses import (
-    LabelBoxOptions,
-    LabelFontOptions,
-)
-from gerrytools.plotting.geoplot import (
+from gerrytools.plotting.geometry.geoplot import (
     GeoPlot,
     _CategoricalColorLayer,
     _GeoLayer,
     _LabelRequest,
     _MarkerLayer,
 )
+from gerrytools.plotting.mpl.geoplot_options import (
+    ColorbarOptions,
+    _ColorbarLayoutOptions,
+)
+from gerrytools.plotting.mpl.label_text_options import LabelBoxOptions, LabelFontOptions
 from gerrytools.typing import Color
 
 
@@ -266,8 +263,9 @@ class _ContinuousColorLayer(_GeoLayer):
 
         Args:
             ax (Axes): The Axes to render onto.
-            target_crs: The target CRS to reproject geometries to.
-            **kwargs: Additional keyword arguments (not used).
+            target_crs (Any, optional): The target CRS to reproject geometries to.
+                Defaults to None.
+            **kwargs (Any): Additional keyword arguments (not used).
 
         Returns:
             Axes: The Axes with the layer rendered.
@@ -461,8 +459,10 @@ class ColoredGeoPlot(GeoPlot):
             exclude_labels (list[Any] | None): List of district labels to exclude from labeling.
                 If None, no labels are excluded. Does not do anything if show_labels is False.
                 Default is None.
-            labelfontoptions (LabelFontOptions | None): Font options for district labels.
+            labelfont_options (LabelFontOptions | None): Font options for district labels.
                 If None, uses default settings. Default is None.
+            labelbox_options (LabelBoxOptions | None): Optional label box styling.
+                If None, label boxes are disabled. Defaults to None.
             colormap (str | Colormap | dict[Any, Color] | pd.Series): Color mapping specification.
                 Can be a single color, a named colormap, a Colormap object, or a mapping from
                 district identifiers to colors. Default is "districtr".
@@ -498,6 +498,14 @@ class ColoredGeoPlot(GeoPlot):
             dissolved_plan_gdf = plan_gdf.dissolve(by=plancolumn).reset_index()
 
             def coerce_labels(x: Any) -> str:
+                """Normalize a district label value to a string.
+
+                Args:
+                    x (Any): Raw label value.
+
+                Returns:
+                    str: Normalized label text.
+                """
                 try:
                     return str(int(x))
                 except Exception:
@@ -558,6 +566,14 @@ class ColoredGeoPlot(GeoPlot):
         """Iterate over all layers in the order they should be drawn."""
 
         def _sorted(layers: Sequence[_GeoLayer | _MarkerLayer]) -> list[_GeoLayer | _MarkerLayer]:
+            """Sort layers by integer z-order.
+
+            Args:
+                layers (Sequence[_GeoLayer | _MarkerLayer]): Layers to sort.
+
+            Returns:
+                list[_GeoLayer | _MarkerLayer]: Layers sorted ascending by ``zorder``.
+            """
             return sorted(layers, key=lambda L: int(L.zorder))
 
         return (

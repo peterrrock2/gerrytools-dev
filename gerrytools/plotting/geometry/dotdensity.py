@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any, Literal
 from warnings import warn
 
-import matplotlib.pyplot as plt
 import numpy as np
 import shapely
 from geopandas import GeoDataFrame
@@ -17,13 +16,10 @@ from shapely.geometry import Point
 
 from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
-from gerrytools.plotting._gerryplot_to_mpl_option_dataclasses import (
-    LabelBoxOptions,
-    LabelFontOptions,
-    LegendOptions,
-    PointMarkerOptions,
-)
-from gerrytools.plotting.geoplot import GeoPlot
+from gerrytools.plotting._legend_utils import build_legend_options, save_legend_handles
+from gerrytools.plotting.geometry.geoplot import GeoPlot
+from gerrytools.plotting.mpl.label_text_options import LabelBoxOptions, LabelFontOptions
+from gerrytools.plotting.mpl.marker_options import PointMarkerOptions
 from gerrytools.typing import Color, MplCompatibleColor
 
 logger = get_logger(__name__)
@@ -126,6 +122,15 @@ def _make_random_points(
     ]
 
     def process_chunk(chunk: GeoDataFrame):
+        """Generate random dot coordinates for one GeoDataFrame chunk.
+
+        Args:
+            chunk (GeoDataFrame): Subset of polygons with density values.
+
+        Returns:
+            tuple[NDArray, NDArray, NDArray]: X coordinates, Y coordinates, and polygon ids
+                for generated dots.
+        """
         x_parts = []
         y_parts = []
         pid_parts = []
@@ -296,7 +301,7 @@ class DotDensityPlot(GeoPlot):
         self.__column_to_color_dict: dict[str, Color] = {}
         atexit.register(self._close)
 
-        self._legend_options = LegendOptions(loc="center left", bbox_to_anchor=(1.01, 0.5))
+        self._legend_options = build_legend_options()
         self.show_legend = show_legend
 
     def _close(self):
@@ -368,6 +373,8 @@ class DotDensityPlot(GeoPlot):
                 Defaults to False.
             n_cores_for_processing (int, optional): Number of CPU cores to use for processing when
                 generating dots. Defaults to -1 which will use all available cores minus two.
+            n_chunks (int, optional): Number of chunks used to split polygon processing work.
+                Defaults to ``10``.
         """
         if column_name not in self.gdf.columns:
             raise ValueError(f"Column '{column_name}' not found in GeoDataFrame.")
@@ -429,11 +436,16 @@ class DotDensityPlot(GeoPlot):
         layer_colors: list[MplCompatibleColor],
         block=200_000,
     ):
-        """
-        layers_xy: list of (x, y) arrays, one per layer, already shuffled within-layer.
-        layer_colors: list/array of colors (strings or RGBA) length L
-        scatter_kwargs: kwargs for ax.scatter (marker, s, linewidths, etc)
-        block: number of points per scatter call
+        """Draw dots from all layers in interleaved blocks for visual mixing.
+
+        Args:
+            layers_xy_polyid (list[tuple[NDArray, NDArray, NDArray]]): Per-layer dot data as
+                ``(x, y, polygon_id)`` arrays.
+            layer_colors (list[MplCompatibleColor]): Per-layer marker colors.
+            block (int, optional): Number of points per ``scatter`` call. Defaults to ``200_000``.
+
+        Returns:
+            None
         """
         # Build one big table of points with polygon id and a layer id
         xs_all = np.concatenate([x for (x, _, _) in layers_xy_polyid])
@@ -496,6 +508,15 @@ class DotDensityPlot(GeoPlot):
         )
 
     def _draw_legend(self, **legend_kwargs) -> None:
+        """Draw the in-axes legend for currently configured dot-density layers.
+
+        Args:
+            **legend_kwargs (Any): Extra keyword arguments forwarded to
+                ``matplotlib.axes.Axes.legend``.
+
+        Returns:
+            None
+        """
         if not self.show_legend or not self.__column_to_color_dict:
             return
 
@@ -504,7 +525,7 @@ class DotDensityPlot(GeoPlot):
         settings["markeredgecolor"] = self.__global_marker_settings_dict.get("edgecolor", "none")
         settings["markeredgewidth"] = self.__global_marker_settings_dict.get("linewidths", 0.0)
         if getattr(settings["markeredgewidth"], "__len__", None) is not None:
-            settings["markeredgewidth"] = settings["markeredgewith"][0]
+            settings["markeredgewidth"] = settings["markeredgewidth"][0]
 
         handles = [
             Line2D(
@@ -555,75 +576,33 @@ class DotDensityPlot(GeoPlot):
         labelspacing: float = 0.5,
         columnspacing: float = 2.0,
     ) -> None:
-        """Set legend options for the figure.
-
-        This method stores legend placement and styling settings which are later passed to
-        Matplotlib's ``Axes.legend(...)`` call when the plot is built. The defaults are chosen
-        to place the legend just outside the axes on the right-hand side (useful for avoiding
-        occluding plotted data).
-
-        Notes:
-            - Legend positioning is controlled by the interaction between ``loc`` and
-              ``bbox_to_anchor``. Roughly: ``bbox_to_anchor`` specifies an anchor point/box,
-              and ``loc`` specifies *which point on the legend* is aligned to that anchor.
-            - The default ``loc="center_left"`` with ``bbox_to_anchor=(1.01, 0.5)`` anchors
-              the legend's left edge slightly to the right of the axes (x=1.01) and vertically
-              centers it (y=0.5).
-            - ``bbox_to_anchor`` accepts either:
-                * a 2-tuple ``(x, y)`` (anchor point), or
-                * a 4-tuple ``(x, y, width, height)`` (anchor box).
-              If ``bbox_to_anchor`` is ``None``, Matplotlib positions the legend using only ``loc``.
-            - Spacing parameters such as ``labelspacing`` and ``columnspacing`` are interpreted
-              by Matplotlib in *font-size units*, not pixels.
+        """Set legend options used by ``Axes.legend`` during plot build.
 
         Args:
-            loc (str | int, optional): The legend location. May be a Matplotlib string location
-                (e.g., ``"best"``, ``"upper right"``) or an integer code. Defaults to
-                ``"center_left"``.
-            bbox_to_anchor (tuple[float, float] | tuple[float, float, float, float] | None, optional):
-                The bounding box used to anchor the legend. A 2-tuple anchors to a single point;
-                a 4-tuple anchors to a box. Defaults to ``(1.01, 0.5)``, which places the legend
-                outside the axes to the right.
-            ncols (int, optional): The number of columns in the legend. Increase this to make a
-                tall legend more compact. Defaults to 1.
-            fontsize (float | str | None, optional): The font size of the legend text. Accepts a
-                numeric size (e.g. 10) or a Matplotlib size string (e.g. ``"small"``). If ``None``,
-                Matplotlib's default is used. Defaults to None.
-            frameon (bool, optional): Whether to draw a frame (background patch) around the legend.
-                Defaults to True.
-            fancybox (bool, optional): Whether to draw the legend frame with rounded corners.
-                Defaults to False.
-            shadow (bool, optional): Whether to draw a shadow behind the legend frame.
-                Defaults to False.
-            framealpha (float | None, optional): The alpha transparency of the legend frame. If ``None``,
-                Matplotlib uses its default frame alpha. Defaults to None.
-            facecolor (Color | None, optional): The face color of the legend frame. If ``None``,
-                Matplotlib chooses a default. Defaults to None.
-            edgecolor (Color | None, optional): The edge color of the legend frame. If ``None``,
-                Matplotlib chooses a default. Defaults to None.
-            title (str | None, optional): The title text displayed above legend entries. Defaults to None.
-            alignment (Literal["center", "left", "right"], optional): The alignment of the legend title.
-                Defaults to "center".
-            labelspacing (float, optional): The vertical space between legend entries (in font-size units).
-                Defaults to 0.5.
-            columnspacing (float, optional): The horizontal space between columns (in font-size units).
-                Defaults to 2.0.
+            loc (str | int, optional): Matplotlib legend location. Defaults to
+                ``"center left"``.
+            bbox_to_anchor (tuple[float, float] | tuple[float, float, float, float] | None,
+                optional): Legend anchor box. Defaults to ``(1.01, 0.5)``.
+            ncols (int, optional): Number of legend columns. Defaults to ``1``.
+            fontsize (float | str | None, optional): Legend text size. Defaults to None.
+            frameon (bool, optional): Whether to draw the legend frame. Defaults to True.
+            fancybox (bool, optional): Whether to use a rounded frame. Defaults to False.
+            shadow (bool, optional): Whether to draw a shadow. Defaults to False.
+            framealpha (float | None, optional): Frame alpha override. Defaults to None.
+            facecolor (Color | None, optional): Frame face color. Defaults to None.
+            edgecolor (Color | None, optional): Frame edge color. Defaults to None.
+            title (str | None, optional): Legend title. Defaults to None.
+            alignment (Literal["center", "left", "right"], optional): Legend content
+                alignment. Defaults to ``"center"``.
+            labelspacing (float, optional): Vertical spacing between entries.
+                Defaults to ``0.5``.
+            columnspacing (float, optional): Horizontal spacing between columns.
+                Defaults to ``2.0``.
 
-        Examples:
-            Place the legend inside the axes in the upper-right corner::
-
-                plot.set_legend_options(loc="upper right", bbox_to_anchor=None)
-
-            Place the legend below the axes, centered, with two columns::
-
-                plot.set_legend_options(
-                    loc="upper center",
-                    bbox_to_anchor=(0.5, -0.05),
-                    ncols=2,
-                    frameon=False,
-                )
+        Returns:
+            None
         """
-        self._legend_options = LegendOptions(
+        self._legend_options = build_legend_options(
             loc=loc,
             bbox_to_anchor=bbox_to_anchor,
             ncols=ncols,
@@ -660,8 +639,8 @@ class DotDensityPlot(GeoPlot):
                 same DPI as the main figure. Defaults to None.
             outer_padding (float, optional): The outer padding around the legend.
                 Defaults to 0.07.
-
-            Additional keyword arguments to pass to ``ax.legend()``.
+            **legend_kwargs (Any): Additional keyword arguments passed to
+                ``matplotlib.axes.Axes.legend``.
 
         Returns:
             None
@@ -676,7 +655,7 @@ class DotDensityPlot(GeoPlot):
         settings["markeredgecolor"] = self.__global_marker_settings_dict.get("edgecolor", "none")
         settings["markeredgewidth"] = self.__global_marker_settings_dict.get("linewidths", 0.0)
         if getattr(settings["markeredgewidth"], "__len__", None) is not None:
-            settings["markeredgewidth"] = settings["markeredgewith"][0]
+            settings["markeredgewidth"] = settings["markeredgewidth"][0]
 
         column_to_color_dict = self.__column_to_color_dict
         if column_to_display_name is not None:
@@ -697,30 +676,11 @@ class DotDensityPlot(GeoPlot):
             for label, color in column_to_color_dict.items()
         ]
 
-        legend_fig = plt.figure(dpi=dpi or self.fig.dpi)
-        legend_ax = legend_fig.add_subplot(111)
-        legend_ax.axis("off")
-
-        legend_options = self._legend_options.to_dict() | legend_kwargs
-
-        leg = legend_ax.legend(
+        save_legend_handles(
             handles=handles,
-            **legend_options,
+            legend_options=self._legend_options,
+            filepath=filepath,
+            outer_padding=outer_padding,
+            dpi=dpi or self.fig.dpi,
+            **legend_kwargs,
         )
-
-        # Make layout as tight as possible
-        legend_fig.subplots_adjust(0, 0, 1, 1)
-
-        legend_fig.canvas.draw()
-        renderer = legend_fig.canvas.get_renderer()  # type: ignore[attr-defined]
-
-        bbox = leg.get_window_extent(renderer=renderer)
-        bbox_inches = bbox.transformed(legend_fig.dpi_scale_trans.inverted())
-        bbox_inches = bbox_inches.expanded(1.0 + outer_padding, 1.0 + outer_padding)
-
-        legend_fig.savefig(
-            filepath,
-            bbox_inches=bbox_inches,
-            pad_inches=0.0,
-        )
-        plt.close(legend_fig)

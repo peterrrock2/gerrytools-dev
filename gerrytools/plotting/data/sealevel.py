@@ -11,8 +11,8 @@ from matplotlib.lines import Line2D
 
 from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
-from gerrytools.plotting._gerryplot_to_mpl_option_dataclasses import PointMarkerOptions
-from gerrytools.plotting.gerryplot import GerryPlotBase
+from gerrytools.plotting.data.gerryplot import GerryPlotBase
+from gerrytools.plotting.mpl.marker_options import PointMarkerOptions
 from gerrytools.typing import Color
 
 logger = get_logger(__name__)
@@ -51,7 +51,6 @@ class SeaLevelSetData:
 
 
 class SeaLevel(GerryPlotBase):
-
     def __init__(
         self,
         figure_size: tuple[float, float] = (10, 6),
@@ -96,10 +95,26 @@ class SeaLevel(GerryPlotBase):
 
     @property
     def jitter_rng_seed(self) -> int | None:
+        """Get the RNG seed used for deterministic jitter placement.
+
+        Returns:
+            int | None: Current jitter RNG seed, or None for nondeterministic behavior.
+        """
         return self._jitter_rng_seed
 
     @jitter_rng_seed.setter
     def jitter_rng_seed(self, seed: int | None) -> None:
+        """Set the RNG seed used for deterministic jitter placement.
+
+        Args:
+            seed (int | None): Integer seed value, or None to use nondeterministic randomness.
+
+        Returns:
+            None
+
+        Raises:
+            TypeError: If ``seed`` is neither ``int`` nor ``None``.
+        """
         if seed is not None and not isinstance(seed, int):
             raise TypeError("jitter_rng_seed must be an integer or None.")
         self._jitter_rng_seed = seed
@@ -147,19 +162,16 @@ class SeaLevel(GerryPlotBase):
         self,
         max_jitter: float,
     ) -> None:
-        """Set the maximum jitter per category.
-
-        Any points in a given category will be jittered randomly within the range
-        [-jitter, +jitter], where jitter is the maximum jitter value for that category
-
-        Any category not specified in the dictionary will have no jitter applied.
+        """Set the same maximum vertical jitter for every category.
 
         Args:
-            jitter_per_category (dict[str, float]): A dictionary mapping category labels
-                to maximum jitter values.
+            max_jitter (float): Maximum absolute vertical offset applied per category.
 
         Returns:
             None
+
+        Raises:
+            ValueError: If labels are undefined or ``max_jitter`` is negative/non-finite.
         """
         if len(self._labels or []) == 0:
             raise ValueError("No labels defined yet; cannot set jitter per category.")
@@ -212,19 +224,16 @@ class SeaLevel(GerryPlotBase):
         self,
         max_jitter: float,
     ) -> None:
-        """Set the maximum horizontal jitter per category.
-
-        Any points in a given category will be jittered randomly within the range
-        [-jitter, +jitter], where jitter is the maximum jitter value for that category
-
-        Any category not specified in the dictionary will have no jitter applied.
+        """Set the same maximum horizontal jitter for every category.
 
         Args:
-            jitter_per_category (dict[str, float]): A dictionary mapping category labels
-                to maximum jitter values.
+            max_jitter (float): Maximum absolute horizontal offset applied per category.
 
         Returns:
             None
+
+        Raises:
+            ValueError: If labels are undefined or ``max_jitter`` is negative/non-finite.
         """
         if len(self._labels or []) == 0:
             raise ValueError("No labels defined yet; cannot set jitter per category.")
@@ -240,7 +249,22 @@ class SeaLevel(GerryPlotBase):
         scores_labels: list[str] | None = None,
         df_row_index: Any | None = None,
     ) -> dict[str, float]:
-        """Convert incoming score data to a dictionary."""
+        """Convert supported score inputs into a label-to-value dictionary.
+
+        Args:
+            scores (dict[str, int | float] | list[int | float] | pd.Series | pd.DataFrame):
+                Input scores. Lists require ``scores_labels``; DataFrames require ``df_row_index``.
+            scores_labels (list[str] | None, optional): Labels for list input. Defaults to None.
+            df_row_index (Any | None, optional): Row selector for DataFrame input.
+                Defaults to None.
+
+        Returns:
+            dict[str, float]: Mapping from category label to numeric value.
+
+        Raises:
+            ValueError: If conversion fails, inputs are empty, or values are non-finite.
+            TypeError: If ``scores`` uses an unsupported input type.
+        """
         out_dict: dict[str, float] = {}
         if isinstance(scores, dict):
             out_dict = {str(k): float(v) for k, v in scores.items()}
@@ -276,8 +300,7 @@ class SeaLevel(GerryPlotBase):
 
         if isinstance(scores, (dict, list, pd.Series, pd.DataFrame)):
             raise ValueError(
-                "Could not convert scores to dictionary. Please check that the "
-                "input is not empty."
+                "Could not convert scores to dictionary. Please check that the input is not empty."
             )
 
         raise TypeError(
@@ -402,7 +425,14 @@ class SeaLevel(GerryPlotBase):
         return list(self._sealevel_centers)
 
     def _default_x_tick_labels(self, tick_locations: list[float]) -> list[str] | None:
-        """Get default x-tick labels for the sealevel categories."""
+        """Get default x-tick labels for sealevel categories.
+
+        Args:
+            tick_locations (list[float]): Candidate x-tick positions.
+
+        Returns:
+            list[str] | None: Category labels when the lengths match; otherwise ``None``.
+        """
         if self._labels is None:
             return None
         # Only apply category labels when lengths match; if the user overrides locations to

@@ -22,6 +22,14 @@ def _infer_group_cell_align_from_data(colspecs: list[str], start: int, end: int)
     """
 
     def base_align(spec: str) -> str:
+        """Extract a base alignment token from a column spec.
+
+        Args:
+            spec (str): One parsed column spec token.
+
+        Returns:
+            str: ``"l"``, ``"c"``, or ``"r"`` if explicitly present; otherwise ``"c"``.
+        """
         spec = spec.strip()
         if spec in ("l", "c", "r"):
             return spec
@@ -84,6 +92,14 @@ def _parse_tabular_preamble(fmt: str) -> tuple[list[str], list[int], list[str]]:
     extras: list[str] = [""]
 
     def skip_ws(i: int) -> int:
+        """Advance an index past whitespace in the preamble string.
+
+        Args:
+            i (int): Starting index in ``fmt``.
+
+        Returns:
+            int: First index at or after ``i`` that is not whitespace.
+        """
         while i < n and fmt[i].isspace():
             i += 1
         return i

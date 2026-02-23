@@ -7,7 +7,7 @@ from typing import Any, Callable, Iterable, Optional, cast
 
 import pandas as pd
 
-from gerrytools.latex._colors import to_latex_color_spec
+from gerrytools.latex._colors import to_latex_xcolor_or_html_spec
 from gerrytools.latex._table_preamble import (
     _infer_group_cell_align_from_data,
     _parse_tabular_preamble,
@@ -152,6 +152,19 @@ class TableOptions:
         def _normalize_preamble(
             cols: list[str], vr: list[int], ex: list[str]
         ) -> tuple[list[str], list[int], list[str]]:
+            """Validate preamble vector lengths for one header row.
+
+            Args:
+                cols (list[str]): Column alignment specifications.
+                vr (list[int]): Vertical-rule counts with one boundary slot per column edge.
+                ex (list[str]): Boundary-extra token strings for each column edge.
+
+            Returns:
+                tuple[list[str], list[int], list[str]]: The original inputs when lengths match.
+
+            Raises:
+                ValueError: If ``vr`` or ``ex`` lengths do not equal ``len(cols) + 1``.
+            """
             n = len(cols)
             if len(vr) != n + 1:
                 raise ValueError("vrule_counts must have length ncols+1")
@@ -168,6 +181,19 @@ class TableOptions:
             *,
             include_left: bool,
         ) -> str:
+            """Build one ``\\multicolumn`` colspec from parsed boundary tokens.
+
+            Args:
+                vr (list[int]): Vertical-rule counts at boundaries.
+                ex (list[str]): Boundary-extra token strings at boundaries.
+                left_b (int): Left boundary index.
+                align (str): Cell alignment token.
+                right_b (int): Right boundary index.
+                include_left (bool): Whether to include the left boundary tokens.
+
+            Returns:
+                str: A ``\\multicolumn`` colspec string.
+            """
             left = (("|" * vr[left_b]) + ex[left_b]) if include_left else ""
             right = ("|" * vr[right_b]) + ex[right_b]
             return left + align + right
@@ -328,6 +354,11 @@ class TexTable:
         )
 
     def preview(self) -> None:  # pragma: no cover
+        """Render and preview the table through its ``TexDocument``.
+
+        Returns:
+            None
+        """
         self.document.preview()
 
     # ====================
@@ -357,6 +388,14 @@ class TexTable:
 
         # Ensure boundary_extras exists and has correct length when in parsed-mode
         def _ensure_extras(ncols: int) -> None:
+            """Ensure ``boundary_extras`` exists with ``ncols + 1`` boundary slots.
+
+            Args:
+                ncols (int): Number of columns currently represented in tabular alignments.
+
+            Returns:
+                None
+            """
             if not getattr(self.__options, "boundary_extras", None):
                 self.__options.boundary_extras = [""] * (ncols + 1)
             if len(self.__options.boundary_extras) != ncols + 1:
@@ -569,10 +608,11 @@ class TexTable:
         """Highlight specified rows in the LaTeX table.
 
         Args:
-            row (int | Iterable[int]): Row index or iterable of row indices to highlight.
-            color (Color, optional): Color to use for highlighting. Can be a LaTeX color name
-                (str), a hex color code (str), or an RGB tuple (tuple[float, float, float]).
-                Defaults to "yellow".
+            rows (int | Iterable[int]): Row index or iterable of row indices to highlight.
+            color (Color, optional): Color to use for highlighting. Supports valid xcolor
+                expressions (for example ``"amber!80!gray"``), hex color strings, RGB tuples,
+                and other names parseable by GerryTools/Matplotlib (which are converted to
+                HTML color form). Defaults to ``"yellow"``.
         """
         row_indices: list[int]
 
@@ -582,7 +622,7 @@ class TexTable:
             row_indices = list(rows)
 
         try:
-            color_type, color_value = to_latex_color_spec(color)
+            color_type, color_value = to_latex_xcolor_or_html_spec(color)
         except ValueError as exc:
             if isinstance(color, tuple) and len(color) == 3:
                 raise
@@ -629,12 +669,28 @@ class TexTable:
     # ==================
 
     def set_column_headers_text_format(self, bold: bool = True, italic: bool = False) -> None:
-        """Set whether to bold and/or italicize column headers."""
+        """Set column-header emphasis styling.
+
+        Args:
+            bold (bool, optional): Whether to apply bold styling. Defaults to True.
+            italic (bool, optional): Whether to apply italic styling. Defaults to False.
+
+        Returns:
+            None
+        """
         self.__options.bold_column_headers = bold
         self.__options.italic_column_headers = italic
 
     def set_group_headers_text_format(self, bold: bool = True, italic: bool = False) -> None:
-        """Set whether to bold or italicize the group headers in the LaTeX table."""
+        """Set group-header emphasis styling.
+
+        Args:
+            bold (bool, optional): Whether to apply bold styling. Defaults to True.
+            italic (bool, optional): Whether to apply italic styling. Defaults to False.
+
+        Returns:
+            None
+        """
         self.__options.bold_group_headers = bold
         self.__options.italic_group_headers = italic
 
@@ -698,11 +754,20 @@ class TexTable:
         self.__options.nan_string = nan_str
 
     def set_tabular_format(self, fmt: str) -> None:
-        """
-        Set the tabular preamble. Supports l/c/r plus richer specs like:
-        |l|p{2cm}||S[table-format=1.3]|>{...}p{..}<{...}|
+        """Set the table-row tabular preamble.
 
-        Keeps literal top-level '|' for fancy multicolumn bar formatting.
+        Supports simple and rich specifications (for example
+        ``"|l|p{2cm}||S[table-format=1.3]|>{...}p{..}<{...}|"``) and preserves
+        top-level boundary tokens for multicolumn rendering.
+
+        Args:
+            fmt (str): Raw LaTeX tabular preamble string.
+
+        Returns:
+            None
+
+        Raises:
+            ValueError: If the parsed column count does not match the table width.
         """
         colspecs, vrules, extras = _parse_tabular_preamble(fmt)
 
@@ -718,7 +783,17 @@ class TexTable:
         self.__options.boundary_extras = extras
 
     def set_group_tabular_format(self, fmt: str) -> None:
-        """Set the *group header row* formatting, like a normal tabular preamble."""
+        """Set the group-header-row tabular preamble.
+
+        Args:
+            fmt (str): Raw LaTeX tabular preamble for group-header cells.
+
+        Returns:
+            None
+
+        Raises:
+            ValueError: If parsed group-header cell count is incompatible with current grouping.
+        """
         colspecs, vrules, extras = _parse_tabular_preamble(fmt)
 
         # group header has one cell per group-header block (+ index cell if include_index)
@@ -769,7 +844,7 @@ class TexTable:
         df_cols = list(map(str, self.df.columns))
 
         retyped_group_to_cols: dict[str, list[str]] = {
-            str(grp): list(map(str, cols)) for grp, cols in groups_to_columns.items()
+            str(grp): [str(col) for col in cols] for grp, cols in groups_to_columns.items()
         }
 
         all_listed: list[str] = []
@@ -796,11 +871,28 @@ class TexTable:
         self.__options.group_boundary_extras = None
 
     def set_index_formatter(self, fmt_fn: CellWrapper | Callable[[Any], str]) -> None:
-        """Set a formatter function for the index column (if included)."""
+        """Set a formatter function for the index column.
+
+        Args:
+            fmt_fn (CellWrapper | Callable[[Any], str]): Either a full two-argument
+                ``CellWrapper`` or a one-argument formatter over the raw value.
+
+        Returns:
+            None
+        """
         if len(inspect.signature(fmt_fn).parameters) == 1:
             one_arg = cast(Callable[[Any], str], fmt_fn)
 
             def _wrapped(v: Any, s: str) -> tuple[Any, str]:
+                """Adapt a one-argument value formatter to ``CellWrapper`` form.
+
+                Args:
+                    v (Any): Raw cell value.
+                    s (str): Existing rendered string (ignored).
+
+                Returns:
+                    tuple[Any, str]: Original value and newly formatted string.
+                """
                 return v, one_arg(v)
 
             self.__options.index_fmt_fn = _wrapped
@@ -822,6 +914,15 @@ class TexTable:
             one_arg = cast(Callable[[int | float], str], fmt_fn)
 
             def _wrapped(v: int | float, s: str) -> tuple[int | float, str]:
+                """Adapt a one-argument numeric formatter to ``CellWrapper`` form.
+
+                Args:
+                    v (int | float): Raw numeric cell value.
+                    s (str): Existing rendered string (ignored).
+
+                Returns:
+                    tuple[int | float, str]: Original value and newly formatted string.
+                """
                 return v, one_arg(v)
 
             new_fn: CellWrapper = _wrapped
@@ -844,6 +945,15 @@ class TexTable:
             one_arg = cast(Callable[[int | float], str], fmt_fn)
 
             def _wrapped(v: int | float, s: str) -> tuple[int | float, str]:
+                """Adapt a one-argument string formatter to ``CellWrapper`` form.
+
+                Args:
+                    v (int | float): Raw cell value passed through formatter.
+                    s (str): Existing rendered string (ignored).
+
+                Returns:
+                    tuple[int | float, str]: Original value and newly formatted string.
+                """
                 return v, one_arg(v)
 
             new_fn: CellWrapper = _wrapped
@@ -873,6 +983,15 @@ class TexTable:
             one_arg = cast(Callable[[int | float], str], fmt_fn)
 
             def _wrapped(v: int | float, s: str) -> tuple[int | float, str]:
+                """Adapt a one-argument column formatter to ``CellWrapper`` form.
+
+                Args:
+                    v (int | float): Raw cell value.
+                    s (str): Existing rendered string (ignored).
+
+                Returns:
+                    tuple[int | float, str]: Original value and newly formatted string.
+                """
                 return v, one_arg(v)
 
             new_fn: CellWrapper = _wrapped
@@ -923,6 +1042,15 @@ class TexTable:
             one_arg = cast(Callable[[int | float], str], fmt_fn)
 
             def _wrapped(v: int | float, s: str) -> tuple[int | float, str]:
+                """Adapt a one-argument row formatter to ``CellWrapper`` form.
+
+                Args:
+                    v (int | float): Raw cell value.
+                    s (str): Existing rendered string (ignored).
+
+                Returns:
+                    tuple[int | float, str]: Original value and newly formatted string.
+                """
                 return v, one_arg(v)
 
             new_fn: CellWrapper = _wrapped

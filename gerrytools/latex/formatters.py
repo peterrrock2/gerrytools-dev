@@ -26,6 +26,15 @@ def boxed_center(width: int, height: int | None = None, unit: str = "mm") -> Cel
         height = width
 
     def _inner_boxed_center(v: Any, s: str) -> tuple[Any, str]:
+        """Format one cell value into a centered fixed-size ``\\parbox``.
+
+        Args:
+            v (Any): Original unformatted cell value.
+            s (str): Current rendered cell string.
+
+        Returns:
+            tuple[Any, str]: Original value and wrapped LaTeX string.
+        """
         return v, rf"\parbox[c][{height}{unit}][c]{{{width}}}{{\centering\strut {s}}}"
 
     return _inner_boxed_center
@@ -43,6 +52,15 @@ def wrap_with_tex_command(cmd_str: str) -> CellWrapper:
     validate_command_name(cmd_str)
 
     def _inner(cell_value: Any, rendered_str: str) -> tuple[Any, str]:
+        """Wrap one rendered string in the configured TeX command.
+
+        Args:
+            cell_value (Any): Original unformatted cell value.
+            rendered_str (str): Current rendered cell string.
+
+        Returns:
+            tuple[Any, str]: Original value and wrapped LaTeX string.
+        """
         return cell_value, rf"\{cmd_str}{{{rendered_str}}}"
 
     return _inner
@@ -60,6 +78,15 @@ def compose_formatters(*funcs: CellWrapper) -> CellWrapper:
 
     # compose(f, g, h)(v, s) == f(g(h(v, s)))
     def run(v: Any, s: str) -> tuple[Any, str]:
+        """Run composed formatters over a single value/string pair.
+
+        Args:
+            v (Any): Original unformatted cell value.
+            s (str): Current rendered cell string.
+
+        Returns:
+            tuple[Any, str]: Updated value/string pair after all formatters.
+        """
         for formatter in reversed(funcs):
             v, s = formatter(v, s)
         return v, s
@@ -78,6 +105,15 @@ def round_decimals(decimal_places: int) -> CellWrapper:
     """
 
     def _inner_round_decimals(v: Any, s: str) -> tuple[Any, str]:
+        """Render one numeric value with the configured decimal precision.
+
+        Args:
+            v (Any): Original unformatted cell value.
+            s (str): Current rendered cell string.
+
+        Returns:
+            tuple[Any, str]: Original value and precision-formatted output string.
+        """
         if isinstance(v, Real):
             return v, f"{v:.{decimal_places}f}"
         return v, s
@@ -125,6 +161,15 @@ def _make_numeric_highlighter(
     prefix = cellcolor_prefix(color)
 
     def _inner(v: Any, s: str) -> tuple[Any, str]:
+        """Apply conditional cell highlighting to one value/string pair.
+
+        Args:
+            v (Any): Original unformatted cell value.
+            s (str): Current rendered cell string.
+
+        Returns:
+            tuple[Any, str]: Original value and highlighted (or unchanged) output string.
+        """
         if isinstance(v, Real) and predicate(float(_safe_round(v, round_to))):
             return v, f"{prefix}{s}"
         return v, s

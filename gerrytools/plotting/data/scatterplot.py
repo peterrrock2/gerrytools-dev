@@ -5,8 +5,8 @@ import numpy as np
 from matplotlib.lines import Line2D
 
 from gerrytools.logging import get_logger
-from gerrytools.plotting._gerryplot_to_mpl_option_dataclasses import PointMarkerOptions
-from gerrytools.plotting.gerryplot import GerryPlotBase
+from gerrytools.plotting.data.gerryplot import GerryPlotBase
+from gerrytools.plotting.mpl.marker_options import PointMarkerOptions
 from gerrytools.typing import Color
 
 logger = get_logger(__name__)

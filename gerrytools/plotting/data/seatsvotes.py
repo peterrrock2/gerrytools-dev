@@ -6,7 +6,8 @@ import numpy as np
 from matplotlib.lines import Line2D
 
 from gerrytools.logging import get_logger
-from gerrytools.plotting.gerryplot import GerryPlotBase
+from gerrytools.plotting.data._geometry import line_segment_through_unit_square
+from gerrytools.plotting.data.gerryplot import GerryPlotBase
 from gerrytools.typing import Color
 
 logger = get_logger(__name__)
@@ -103,11 +104,25 @@ class SeatsVotesData:
         object.__setattr__(self, "markerzorder", int(self.markerzorder))
 
     def resolved_linewidth(self, default_linewidth: float) -> float:
-        """Return per-series curve width, falling back to plot default."""
+        """Return per-series curve width, falling back to plot default.
+
+        Args:
+            default_linewidth (float): Plot-level default line width.
+
+        Returns:
+            float: Effective curve width for this series.
+        """
         return float(default_linewidth) if self.linewidth is None else float(self.linewidth)
 
     def resolved_markersize(self, default_markersize: float) -> float:
-        """Return per-series marker size, falling back to plot default."""
+        """Return per-series marker size, falling back to plot default.
+
+        Args:
+            default_markersize (float): Plot-level default marker size.
+
+        Returns:
+            float: Effective marker size for this series.
+        """
         return float(default_markersize) if self.markersize is None else float(self.markersize)
 
     def resolved_markeredgecolor(self) -> Color:
@@ -243,8 +258,8 @@ class SeatsVotes(GerryPlotBase):
 
         # Seats-votes plots are always drawn in the unit square.
         # Use GerryPlotBase deferred axis-limit setters so limits survive rebuilds.
-        self.set_xlimits(0.0, 1.0)
-        self.set_ylimits(0.0, 1.0)
+        self.set_xlim(0.0, 1.0)
+        self.set_ylim(0.0, 1.0)
 
         self.__fontsize = 16.0
         self._legend_options.fontsize = self.__fontsize
@@ -519,7 +534,15 @@ class SeatsVotes(GerryPlotBase):
         axis: Literal["x", "y"],
         fontsize: float,
     ) -> None:
-        """Apply fontsize while preserving any existing tick-style settings."""
+        """Apply tick font size while preserving other configured tick-style fields.
+
+        Args:
+            axis (Literal["x", "y"]): Axis to update.
+            fontsize (float): New tick font size in points.
+
+        Returns:
+            None
+        """
         if axis == "x":
             style = self._x_tick_style
             style_setter = self.set_xaxis_tick_style
@@ -594,43 +617,7 @@ class SeatsVotes(GerryPlotBase):
             tuple[float, float, float, float]: The starting and ending points of the line
                 in the format (starting_x, starting_y, ending_x, ending_y).
         """
-        if slope == 0:
-            starting_x = 0.0
-            ending_x = 1.0
-            starting_y = 0.5
-            ending_y = 0.5
-        elif slope == float("inf") or slope == float("-inf"):
-            starting_x = 0.5
-            ending_x = 0.5
-            starting_y = 0.0
-            ending_y = 1.0
-        elif slope >= 1:
-            starting_x = 0.5 - (0.5 / slope)
-            starting_y = 0.0
-            ending_x = 0.5 + (0.5 / slope)
-            ending_y = 1.0
-        elif 0 < slope < 1:
-            starting_x = 0.0
-            starting_y = 0.5 - (0.5 * slope)
-            ending_x = 1.0
-            ending_y = 0.5 + (0.5 * slope)
-        elif -1 < slope < 0:
-            starting_x = 0.0
-            starting_y = 0.5 - (0.5 * slope)
-            ending_x = 1.0
-            ending_y = 0.5 + (0.5 * slope)
-        else:
-            starting_x = 0.5 - (0.5 / slope)
-            starting_y = 0.0
-            ending_x = 0.5 + (0.5 / slope)
-            ending_y = 1.0
-
-        starting_x = round(starting_x, 4)
-        starting_y = round(starting_y, 4)
-        ending_x = round(ending_x, 4)
-        ending_y = round(ending_y, 4)
-
-        return starting_x, starting_y, ending_x, ending_y
+        return line_segment_through_unit_square(slope)
 
     def _draw_lines(self) -> None:
         """Draw all custom lines on the plot."""

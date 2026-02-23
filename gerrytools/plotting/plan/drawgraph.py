@@ -26,7 +26,7 @@ def drawgraph(
             a list of `(Figure, Axes)` pairs. If something is passed to `ax`, the
             same Axes instance is used for each new Figure.
         node_size (float, optional): Specifies the default size of a vertex.
-        kwargs (dict, optional): Arguments to be passed to `nx.draw()`.
+        **kwargs (Any): Additional keyword arguments passed to ``networkx.draw``.
 
     Returns:
         A tuple of `matplotlib` `(Figure, Axes)` objects, or if `components` is

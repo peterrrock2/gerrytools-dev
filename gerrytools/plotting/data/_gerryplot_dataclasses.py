@@ -5,7 +5,7 @@ from typing import Iterable
 
 from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
-from gerrytools.plotting._gerryplot_to_mpl_option_dataclasses import PointMarkerOptions
+from gerrytools.plotting.mpl.marker_options import PointMarkerOptions
 from gerrytools.typing import Color
 
 logger = get_logger(__name__)

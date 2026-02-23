@@ -15,8 +15,8 @@ from numpy.typing import NDArray
 
 from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
-from gerrytools.plotting._gerryplot_to_mpl_option_dataclasses import PointMarkerOptions
-from gerrytools.plotting.gerryplot import GerryPlotBase
+from gerrytools.plotting.data.gerryplot import GerryPlotBase
+from gerrytools.plotting.mpl.marker_options import PointMarkerOptions
 from gerrytools.typing import BinsType, Color, HistType
 
 logger = get_logger(__name__)
@@ -28,12 +28,14 @@ def _coerce_to_1d_float_array(
     """Coerce various inputs into a 1D float ndarray (no finite-filtering).
 
     Args:
-        values: Input values; can be an iterable, numpy array, pandas Series, or pandas
-        column: If ``values`` is a DataFrame, the column name to extract.
-        field: Name of the field for error messages.
+        values (Any): Input values. Supported forms include scalar numerics, iterables,
+            numpy arrays, pandas Series, and pandas DataFrames.
+        column (str | None, optional): DataFrame column name to extract when ``values``
+            is a DataFrame. Defaults to None.
+        field (str): Field name used in validation error messages.
 
     Returns:
-        1D ndarray of float values.
+        NDArray[np.float64]: One-dimensional float array.
     """
     if values is None:
         raise ValueError(f"{field}: cannot be None.")
@@ -72,9 +74,19 @@ def _coerce_values_and_weights(
     weights: Any | None,
     column: str | None,
 ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
-    """
-    Coerce values and weights together, applying the SAME finite-mask
-    to preserve alignment.
+    """Coerce values and weights while preserving alignment through shared masking.
+
+    Args:
+        values (Any): Histogram values input.
+        weights (Any | None): Optional weights input aligned to ``values``.
+        column (str | None): DataFrame column name for ``values`` when applicable.
+
+    Returns:
+        tuple[NDArray[np.float64], NDArray[np.float64]]: Finite values and matching
+            weights arrays.
+
+    Raises:
+        ValueError: If values are empty/non-finite or weights are length-incompatible.
     """
     vals_raw = _coerce_to_1d_float_array(values, column=column, field="values")
     if vals_raw.size == 0:
@@ -106,9 +118,11 @@ def _coerce_to_1d_finite_float_array(
     """Coerce various inputs into a finite 1D float ndarray.
 
     Args:
-        values: Input values; can be an iterable, numpy array, pandas Series, or pandas
-        column: If ``values`` is a DataFrame, the column name to extract.
-        field: Name of the field for error messages.
+        values (Any): Input values. Supported forms include scalar numerics, iterables,
+            numpy arrays, pandas Series, and pandas DataFrames.
+        column (str | None, optional): DataFrame column name to extract when ``values``
+            is a DataFrame. Defaults to None.
+        field (str): Field name used in validation error messages.
 
     Returns:
         1D ndarray of finite float values.
@@ -388,8 +402,8 @@ class Histogram(GerryPlotBase):
 
 
         Args:
-            values: Iterable of float values, numpy array, pandas Series, or pandas DataFrame
-                containing the data to be turned into a histogram.
+            values (Iterable[float] | NDArray | pd.Series | pd.DataFrame): Values used to
+                build the histogram.
             weights (Iterable[float] | NDArray | None, optional): Optional weights for
                 the histogram values. Defaults to None.
             column (str | None, optional): The column name to use if values is a DataFrame.
@@ -641,6 +655,19 @@ class Histogram(GerryPlotBase):
         max_heights = np.zeros(len(bin_edges) - 1)
 
         def marker_clearance(y_top, markersize_pt, markeredgewidth_pt, marker, pad_pt=0.0):
+            """Compute data-space clearance above a bar for one marker glyph.
+
+            Args:
+                y_top (float): Histogram bar top in data coordinates.
+                markersize_pt (float): Marker size in points.
+                markeredgewidth_pt (float): Marker edge width in points.
+                marker (str): Marker symbol passed to Matplotlib.
+                pad_pt (float, optional): Extra clearance padding in points.
+                    Defaults to ``0.0``.
+
+            Returns:
+                float: Clearance in y-data units above ``y_top``.
+            """
             ms = MarkerStyle(marker)
             path = ms.get_path().transformed(ms.get_transform())
 

@@ -7,7 +7,7 @@ import weakref
 from pathlib import Path
 from typing import Iterable, Optional
 
-from gerrytools.latex._colors import to_latex_color_spec
+from gerrytools.latex._colors import to_latex_xcolor_or_html_spec
 from gerrytools.logging import get_logger
 from gerrytools.typing import Color
 
@@ -15,14 +15,24 @@ logger = get_logger(__name__)
 
 
 def _render_pdf_to_png(pdf_path: Path, png_path: Path, dpi: int = 250) -> None:
-    """
-    Render the first page of a PDF to a PNG without PyMuPDF.
+    """Render the first page of a PDF to a PNG without PyMuPDF.
 
     Preference order:
       1) pdftocairo (poppler)
       2) pdftoppm   (poppler)
       3) gs         (ghostscript)
       4) magick/convert (imagemagick)  [least preferred]
+
+    Args:
+        pdf_path (Path): Input PDF path.
+        png_path (Path): Output PNG path.
+        dpi (int, optional): Render resolution in dots-per-inch. Defaults to ``250``.
+
+    Returns:
+        None
+
+    Raises:
+        RuntimeError: If no supported renderer is available or rendering fails.
     """
     renderer = _which_any(["pdftocairo", "pdftoppm", "gs", "magick", "convert"])
     if renderer is None:
@@ -261,30 +271,34 @@ class TexDocument:
 
         Examples:
             tex_preview.add_color("myblue", (0.0, 0.0, 1.0))
+            tex_preview.add_color("brand", "tab:blue")
+            tex_preview.add_color("accent", "red!60!black")
 
         Args:
             color_name (str): The name of the color to define.
-            color (Color): HEX string or RGB tuple. RGB tuple values must all be in
-                ``[0, 1]`` or all be in ``[0, 255]``.
+            color (Color): xcolor expression, HEX string, parseable named color, or RGB
+                tuple. RGB tuple values must all be in ``[0, 1]`` or all be in
+                ``[0, 255]``.
 
         Returns:
             None
 
         Raises:
-            ValueError: If ``color`` is not a valid HEX string or RGB tuple.
+            ValueError: If ``color`` is not a valid xcolor expression/HEX/RGB value.
         """
         try:
-            color_type, color_value = to_latex_color_spec(color)
+            color_type, color_value = to_latex_xcolor_or_html_spec(color)
         except ValueError as exc:
-            if not isinstance(color, tuple) or len(color) != 3:
-                raise ValueError("Color must be a HEX string or an RGB tuple of length 3.") from exc
             raise ValueError(
-                "Color values must be in the range [0, 1] or in the range [0, 255]."
+                "Color must be an xcolor expression, HEX string, parseable color name, "
+                "or RGB tuple of length 3 with components in [0, 1] or [0, 255]."
             ) from exc
         if color_type == "NAME":
-            raise ValueError(
-                "Color string must be a HEX string in the format '#RRGGBB' or 'RRGGBB'."
-            )
+            assert isinstance(color_value, str)
+            if color_value.lower() == "none":
+                raise ValueError("Color value 'none' cannot be registered in the document.")
+            self.color_dict[color_name] = ("NAME", color_value)
+            return
         if color_type == "HTML":
             assert isinstance(color_value, str)
             self.color_dict[color_name] = ("HTML", color_value)
@@ -318,13 +332,14 @@ class TexDocument:
         """Resolve a ``Color`` value to a LaTeX-usable color name.
 
         Args:
-            color (Color): Color value represented as a name, HEX string, or RGB tuple.
+            color (Color): Color value represented as an xcolor expression, HEX string,
+                parseable named color, or RGB tuple.
             prefix (str): Prefix used when defining new auto-generated color names.
 
         Returns:
             str: Existing or newly-defined LaTeX color name.
         """
-        color_type, color_value = to_latex_color_spec(color)
+        color_type, color_value = to_latex_xcolor_or_html_spec(color)
         if color_type == "NAME":
             assert isinstance(color_value, str)
             return color_value
@@ -354,11 +369,19 @@ class TexDocument:
 
     @property
     def preamble(self) -> str:
+        """Build the LaTeX preamble for this document.
+
+        Returns:
+            str: LaTeX preamble string including document class, packages, and color
+                definitions.
+        """
         lines = [r"\documentclass[border=2pt]{standalone}"]
         lines += [rf"\usepackage{{{pkg}}}" for pkg in self.package_list]
         lines.extend(self.extra_package_commands)
         for color_name, (color_type, color_val) in self.color_dict.items():
             match color_type:
+                case "NAME":
+                    lines.append(rf"\colorlet{{{color_name}}}{{{color_val}}}")
                 case "rgb":
                     assert isinstance(color_val, tuple), "Invalid color value for rgb."
                     lines.append(
@@ -378,7 +401,7 @@ class TexDocument:
                 case _:  # pragma: no cover
                     raise ValueError(
                         f"Unsupported color type: {color_type} found in color dictionary. "
-                        "Only 'rgb', 'RGB', and 'HTML' are supported."
+                        "Only 'NAME', 'rgb', 'RGB', and 'HTML' are supported."
                     )
         return "\n".join(lines)
 
@@ -392,7 +415,20 @@ class TexDocument:
         return output_string
 
     def _render_to_temp_png(self, preferred_engine: Optional[str] = None, dpi: int = 250) -> None:
-        """Renders the LaTeX document to a temporary PNG file."""
+        """Render the current document body to a temporary PNG file.
+
+        Args:
+            preferred_engine (Optional[str], optional): Preferred TeX engine name. If None,
+                uses the first available engine from ``engine_preference_order``. Defaults to
+                ``None``.
+            dpi (int, optional): PNG render resolution in dots-per-inch. Defaults to ``250``.
+
+        Returns:
+            None
+
+        Raises:
+            RuntimeError: If no TeX engine is found or LaTeX compilation fails.
+        """
         if preferred_engine is None:
             engine = _which_any(self.engine_preference_order)
         else:  # pragma: no cover
@@ -436,7 +472,19 @@ class TexDocument:
     def _show_png_qt(
         self, *, title: str = "LaTeX Preview", max_size=(1200, 800)
     ) -> None:  # pragma: no cover
-        """Displays the rendered PNG in a Qt window."""
+        """Display the rendered PNG in a Qt window.
+
+        Args:
+            title (str, optional): Window title text. Defaults to ``"LaTeX Preview"``.
+            max_size (tuple[int, int], optional): Maximum ``(width, height)`` in pixels for
+                the preview window. Defaults to ``(1200, 800)``.
+
+        Returns:
+            None
+
+        Raises:
+            RuntimeError: If ``PyQt6`` is unavailable or the PNG cannot be loaded.
+        """
         try:
             from PyQt6 import QtCore, QtGui, QtWidgets
         except ImportError as exc:

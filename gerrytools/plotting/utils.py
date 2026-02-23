@@ -4,6 +4,18 @@ from typing import Any
 
 
 def _coerce_real_iter(values: Any, *, field: str) -> list[float]:
+    """Normalize scalar/iterable numeric input to a list of floats.
+
+    Args:
+        values (Any): Scalar real value or iterable of real values.
+        field (str): Field name used in validation error messages.
+
+    Returns:
+        list[float]: Parsed numeric values as Python floats.
+
+    Raises:
+        TypeError: If ``values`` is not numeric or contains non-numeric entries.
+    """
     if isinstance(values, (str, bytes)):
         raise TypeError(f"{field} must be a number or an iterable of numbers, not a string.")
     # exclude bool (since bool is a Real)
@@ -22,9 +34,15 @@ def _coerce_real_iter(values: Any, *, field: str) -> list[float]:
 
 
 def sort_elections(elec_list):
-    """
-    Helper function to sort elections chronologically for plotting. Assumes the last two characters
-    in the election name are the year, e.g. "SEN18"
+    """Sort election identifiers by two-digit year suffix.
+
+    Assumes each identifier ends with a two-character year token such as ``"SEN18"``.
+
+    Args:
+        elec_list (Iterable[str]): Election identifier strings to sort.
+
+    Returns:
+        list[str]: Election identifiers sorted by year suffix.
     """
     tuplified_elecs = list(map(lambda x: (x[:-2], x[-2:]), sorted(elec_list)))
     sorted_tuples = sorted(tuplified_elecs, key=lambda x: x[1])

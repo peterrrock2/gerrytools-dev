@@ -1,31 +1,34 @@
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from io import BytesIO
 from typing import Any, Callable, Literal
 
 import geopandas as gpd
-import matplotlib
 import matplotlib.patheffects as patheffects
 import matplotlib.pyplot as plt
 import pandas as pd
 from geopandas import GeoDataFrame, GeoSeries
-from matplotlib import rcsetup
 from matplotlib.axes import Axes
 from matplotlib.colors import Colormap, to_hex
 from matplotlib.pyplot import get_cmap
 from shapely.geometry import Point, box
 
 from gerrytools.colors import districtr, resolve_color_and_alpha
-from gerrytools.plotting._gerryplot_to_mpl_option_dataclasses import (
-    LabelBoxOptions,
-    LabelFontOptions,
-    PointMarkerOptions,
-)
+from gerrytools.plotting._figure_io import save_figure, show_figure
+from gerrytools.plotting.mpl.label_text_options import LabelBoxOptions, LabelFontOptions
+from gerrytools.plotting.mpl.marker_options import PointMarkerOptions
 from gerrytools.typing import Color, GeoSource
 
 
 def _as_geoseries(source: GeoSource) -> gpd.GeoSeries:
+    """Return geometry column as a ``GeoSeries`` for a GeoDataFrame/GeoSeries input.
+
+    Args:
+        source (GeoSource): GeoDataFrame or GeoSeries source object.
+
+    Returns:
+        gpd.GeoSeries: Geometry series extracted from ``source``.
+    """
     return source.geometry if isinstance(source, gpd.GeoDataFrame) else source
 
 
@@ -65,7 +68,7 @@ class _GeoLayer(ABC):
         """Return this layer's geometries (respecting mask) reprojected to target_crs.
 
         Args:
-            target_crs: The target CRS to reproject to.
+            target_crs (Any): Target CRS to reproject to.
 
         Returns:
             gpd.GeoSeries: The geometries in the target CRS.
@@ -116,7 +119,15 @@ class _GeoLayer(ABC):
 
     @abstractmethod
     def render(self, ax: Axes, **kwargs) -> Axes:
-        """Render this layer onto the given Axes."""
+        """Render this layer onto the given Axes.
+
+        Args:
+            ax (Axes): Target axes.
+            **kwargs (Any): Layer-specific keyword arguments.
+
+        Returns:
+            Axes: Axes with the layer rendered.
+        """
         raise NotImplementedError
 
 
@@ -277,8 +288,9 @@ class _CategoricalColorLayer(_GeoLayer):
 
         Args:
             ax (Axes): The Axes to render onto.
-            target_crs: The target CRS to reproject geometries to.
-            **kwargs: Additional keyword arguments (not used but included to satisfy
+            target_crs (Any, optional): The target CRS to reproject geometries to.
+                Defaults to None.
+            **kwargs (Any): Additional keyword arguments (not used but included to satisfy
                 render function signature contract).
 
         Returns:
@@ -369,8 +381,12 @@ class _MarkerLayer:
 
         Args:
             ax (Axes): The Axes to render onto.
-            target_crs: The target CRS to reproject geometries to.
-            **kwargs: Additional keyword arguments (not used).
+            target_crs (Any, optional): The target CRS to reproject geometries to.
+                Defaults to None.
+            **kwargs (Any): Additional keyword arguments (not used).
+
+        Returns:
+            Axes: The Axes with the layer rendered.
         """
         if kwargs:
             unknown = ", ".join(kwargs.keys())
@@ -662,13 +678,8 @@ class GeoPlot(ABC):
                 If None, no labels are excluded. Does not do anything if show_labels is False.
                 Default is None.
             labelfont_options (LabelFontOptions | None): Font options for labels.
-                If None uses the following defaults:
-                    - fontcolor="black",
-                    - fontsize=4,
-                    - fontweight="roman",
-                    - outlinecolor="grey",
-                    - outlinewidth=0.2.
-                Default is None.
+                When None, defaults to fontcolor="black", fontsize=4, fontweight="roman",
+                outlinecolor="grey", and outlinewidth=0.2.
             labelbox_options (LabelBoxOptions | None): Box options for labels. If None the box
                 is disabled. Default is None.
             zorder (int): Z-order for rendering. Default is 10.
@@ -785,7 +796,8 @@ class GeoPlot(ABC):
             latitude_longitude_list (Sequence[tuple[float, float]] | None): A sequence of
                 (latitude, longitude) tuples for the marker locations. If None, `points_geoseries`
                 must be provided. Default is None.
-            input_crs: The CRS of the input points if using `latitude_longitude_list`.
+            input_crs (Any, optional): The CRS of the input points if using
+                ``latitude_longitude_list``.
                 If None, assumes EPSG:4326 (lat/lon). Default is None.
             marker_options (PointMarkerOptions | None): Marker style settings.
                 If None, uses the following defaults:
@@ -803,7 +815,7 @@ class GeoPlot(ABC):
                 default LabelFontOptions().
             labelbox_options (LabelBoxOptions | None): Box options for the labels. If None the
                 box is disabled. Default is None.
-            zorder (int) Z-order for rendering. Default is 2.
+            zorder (int, optional): Z-order for rendering. Defaults to ``2``.
         """
         if marker_options is None:
             marker_options = PointMarkerOptions(
@@ -882,7 +894,8 @@ class GeoPlot(ABC):
             latitude_longitude_list (Sequence[tuple[float, float]] | None): A sequence of
                 (latitude, longitude) tuples for the marker locations. If None, `points_geoseries`
                 must be provided. Default is None.
-            input_crs: The CRS of the input points if using `latitude_longitude_list`.
+            input_crs (Any, optional): The CRS of the input points if using
+                ``latitude_longitude_list``.
                 If None, assumes EPSG:4326 (lat/lon). Default is None.
             labels (Sequence[str] | None): Optional labels for each marker. Default is None which
                 results numerical labels.
@@ -895,7 +908,7 @@ class GeoPlot(ABC):
                     - outlinewidth=0.2.
             labelbox_options (LabelBoxOptions | None): Box options for the labels. If None the
                 box is disabled. Default is None.
-            zorder (int) Z-order for rendering. Default is 2.
+            zorder (int, optional): Z-order for rendering. Defaults to ``2``.
         """
         if points_geoseries is None and latitude_longitude_list is None:
             raise ValueError("Either `points_geoseries` or `latitude_longitude_list` must be set.")
@@ -949,38 +962,44 @@ class GeoPlot(ABC):
         )
 
     def set_xlimits(self, lower: float, upper: float) -> None:
-        """Set the x-axis limits to apply when the plot is built.
+        """Set x-axis limits to apply when the plot is built.
 
         Args:
-            lower (float): The lower x-axis limit.
-            upper (float): The upper x-axis limit.
+            lower (float): The left x-axis limit.
+            upper (float): The right x-axis limit.
         """
         self._xlim = (float(lower), float(upper))
 
     def set_ylimits(self, lower: float, upper: float) -> None:
-        """Set the y-axis limits to apply when the plot is built.
+        """Set y-axis limits to apply when the plot is built.
 
         Args:
-            lower (float): The lower y-axis limit.
-            upper (float): The upper y-axis limit.
+            lower (float): The bottom y-axis limit.
+            upper (float): The top y-axis limit.
         """
         self._ylim = (float(lower), float(upper))
 
     def set_xlim(self, left: float, right: float) -> None:
-        """Alias for ``set_xlimits``.
+        """Alias for :meth:`set_xlimits`.
 
         Args:
-            left (float): The left x-axis limit.
-            right (float): The right x-axis limit.
+            left (float): Left x-axis limit.
+            right (float): Right x-axis limit.
+
+        Returns:
+            None
         """
         self.set_xlimits(lower=left, upper=right)
 
     def set_ylim(self, bottom: float, top: float) -> None:
-        """Alias for ``set_ylimits``.
+        """Alias for :meth:`set_ylimits`.
 
         Args:
-            bottom (float): The bottom y-axis limit.
-            top (float): The top y-axis limit.
+            bottom (float): Bottom y-axis limit.
+            top (float): Top y-axis limit.
+
+        Returns:
+            None
         """
         self.set_ylimits(lower=bottom, upper=top)
 
@@ -1000,7 +1019,8 @@ class GeoPlot(ABC):
         """Set x/y limits to the (padded) bounding box of a geosource.
 
         Args:
-            geosource: GeoDataFrame or GeoSeries to focus on. Defaults to this plot's gdf.
+            geosource (GeoSource | None, optional): GeoDataFrame or GeoSeries to focus on.
+                Defaults to this plot's gdf.
                 If None, will use the base gdf used to initialize GeoPlot. Defaults to None.
             geometry_mask (pd.Series | None): Optional boolean mask aligned to geosource index.
                 If None, will use all geometries in geosouce. Defaults to None.
@@ -1063,6 +1083,14 @@ class GeoPlot(ABC):
         """Iterate over all layers in the order they should be drawn."""
 
         def _sorted(layers: Sequence[_GeoLayer | _MarkerLayer]) -> list[_GeoLayer | _MarkerLayer]:
+            """Sort layers by integer z-order.
+
+            Args:
+                layers (Sequence[_GeoLayer | _MarkerLayer]): Layers to sort.
+
+            Returns:
+                list[_GeoLayer | _MarkerLayer]: Layers sorted ascending by ``zorder``.
+            """
             return sorted(layers, key=lambda L: int(L.zorder))
 
         return (
@@ -1206,7 +1234,15 @@ class GeoPlot(ABC):
         return self._ax
 
     def get_label_positions(self, *, as_lat_long: bool = False) -> tuple[str, dict[str, Point]]:
-        """A dictionary mapping label text to Point objects for all labels in the plot."""
+        """Get computed label positions from the current plot build.
+
+        Args:
+            as_lat_long (bool, optional): Whether to convert points to ``EPSG:4326``.
+                Defaults to False.
+
+        Returns:
+            tuple[str, dict[str, Point]]: CRS string and label-to-point mapping.
+        """
         label_points = GeoSeries(self._build_and_apply_settings(), crs=self.target_crs)
         if as_lat_long:
             label_points = label_points.to_crs("EPSG:4326")
@@ -1218,38 +1254,17 @@ class GeoPlot(ABC):
     def show(self) -> None:
         """Display inline in notebooks, or open a GUI window in scripts."""
         self._build_and_apply_settings()
-
-        # Notebook: display PNG inline
-        try:
-            from IPython import get_ipython
-
-            ip = get_ipython()
-            if ip is not None and getattr(ip, "kernel", None) is not None:
-                from IPython.display import Image, display
-
-                buf = BytesIO()
-                self.fig.savefig(buf, format="png", bbox_inches="tight", dpi=self.fig.dpi)
-                buf.seek(0)
-                display(Image(data=buf.getvalue()))
-                return
-        except Exception:
-            pass
-
-        # Script/terminal: must be on an interactive backend
-        backend = matplotlib.get_backend()
-        if backend not in rcsetup.interactive_bk:
-            out = "geoplot.png"
-            self.fig.savefig(out, bbox_inches="tight", dpi=self.fig.dpi)
-            print(f"[GeoPlot] Non-GUI backend ({backend}); saved to {out}")
-            return
-
-        # Ensure this figure becomes the active one and show it
-        plt.figure(self.fig.number)
-        plt.show(block=True)
+        show_figure(self.fig, non_gui_filename="geoplot.png", non_gui_prefix="GeoPlot")
 
     def save(self, filepath: str, **kwargs: Any) -> None:
-        """Save the plot to a file."""
+        """Save the plot to a file.
+
+        Args:
+            filepath (str): Output file path.
+            **kwargs (Any): Additional keyword arguments passed to ``Figure.savefig``.
+
+        Returns:
+            None
+        """
         self._build_and_apply_settings()
-        kwargs.setdefault("bbox_inches", "tight")
-        kwargs.setdefault("dpi", self.fig.dpi)
-        self.fig.savefig(filepath, **kwargs)
+        save_figure(self.fig, filepath, **kwargs)

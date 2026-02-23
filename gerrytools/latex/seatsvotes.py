@@ -6,6 +6,8 @@ from typing import Literal, Sequence, TypedDict
 
 import numpy as np
 
+from gerrytools.colors import convert_color_to_hexa_or_none
+from gerrytools.latex._colors import is_latex_color_expression
 from gerrytools.latex._geometry import line_segment_through_unit_square
 from gerrytools.latex._text import latex_escape
 from gerrytools.latex.document import TexDocument
@@ -138,6 +140,21 @@ class _CrosshairSettings(TypedDict):
     y: _CrosshairYSettings
 
 
+@dataclass(slots=True, frozen=True)
+class _TikzColorToken:
+    """Internal representation of a color token for TikZ emission.
+
+    Attributes:
+        kind (Literal["xcolor", "html", "none"]): Output encoding category.
+        value (str): Color payload. For ``kind="xcolor"``, this is an xcolor expression
+            such as ``"denim!20!amber"``. For ``kind="html"``, this is an uppercase
+            6-digit hex token such as ``"1560BD"``. For ``kind="none"``, this is ``"none"``.
+    """
+
+    kind: Literal["xcolor", "html", "none"]
+    value: str
+
+
 @dataclass(slots=True)
 class SeatsVotesOptions:
     """Configuration for LaTeX seats-votes rendering."""
@@ -150,7 +167,7 @@ class SeatsVotesOptions:
     ylim: tuple[float, float] = (0.0, 1.0)
     xscale: float = 10.0
     yscale: float = 10.0
-    linewidth: float = 2.5
+    linewidth: float = 1.5
     markersize: float = 8.0
     fontsize: float = 16.0
     legend_fontsize: float = 16.0
@@ -203,7 +220,7 @@ class SeatsVotes:
         figure_size: tuple[float, float] = (10, 10),
         dpi: int = 300,
         *,
-        include_legend: bool = True,
+        include_legend: bool = False,
         xlabel: str | None = None,
         ylabel: str | None = None,
         title: str | None = None,
@@ -400,7 +417,7 @@ class SeatsVotes:
         *,
         color: Color = "grey",
         linestyle: str = "--",
-        linewidth: float = 2.0,
+        linewidth: float = 1.0,
         name: str | None = None,
     ) -> None:
         """Add a proportionality line (y=x) to the plot.
@@ -408,7 +425,7 @@ class SeatsVotes:
         Args:
             color (Color, optional): Line color. Defaults to "grey".
             linestyle (str, optional): Line style. Defaults to "--".
-            linewidth (float, optional): Line width. Defaults to 2.0.
+            linewidth (float, optional): Line width. Defaults to 1.0.
             name (str | None, optional): Legend label. Defaults to "Proportionality".
         """
         self._line_data_list.append(
@@ -426,7 +443,7 @@ class SeatsVotes:
         *,
         color: Color = "grey",
         linestyle: str = "-",
-        linewidth: float = 2.0,
+        linewidth: float = 1.0,
         name: str | None = None,
     ) -> None:
         """Add an efficiency-gap line (y=2x-0.5) to the plot.
@@ -434,7 +451,7 @@ class SeatsVotes:
         Args:
             color (Color, optional): Line color. Defaults to "grey".
             linestyle (str, optional): Line style. Defaults to "-".
-            linewidth (float, optional): Line width. Defaults to 2.0.
+            linewidth (float, optional): Line width. Defaults to 1.0.
             name (str | None, optional): Legend label. Defaults to "Efficiency Gap".
         """
         self._line_data_list.append(
@@ -615,7 +632,15 @@ class SeatsVotes:
     def _compute_starting_ending_points_for_line_with_slope(
         slope: float,
     ) -> tuple[float, float, float, float]:
-        """Compute line endpoints inside the unit square for a slope through (0.5, 0.5)."""
+        """Compute line endpoints inside the unit square for a slope through ``(0.5, 0.5)``.
+
+        Args:
+            slope (float): Line slope.
+
+        Returns:
+            tuple[float, float, float, float]: ``(x_start, y_start, x_end, y_end)`` inside
+                the unit square.
+        """
         return line_segment_through_unit_square(slope, round_to=4)
 
     @staticmethod
@@ -645,16 +670,33 @@ class SeatsVotes:
         return " -- ".join(f"({x:0.4f}, {y:0.4f})" for x, y in path_points)
 
     def _curve_legend_entries(self) -> list[tuple[Color, str]]:
+        """Collect unique seats-votes curve legend entries.
+
+        Returns:
+            list[tuple[Color, str]]: Unique ``(linecolor, name)`` pairs in insertion order.
+        """
         unique_pairs = dict.fromkeys((sdata.linecolor, sdata.name) for sdata in self._sv_data_list)
         return list(unique_pairs.keys())
 
     def _marker_legend_entries(self) -> list[tuple[Color, str]]:
+        """Collect unique election-marker legend entries.
+
+        Returns:
+            list[tuple[Color, str]]: Unique ``(markercolor, markerlabel)`` pairs in insertion
+                order.
+        """
         unique_pairs = dict.fromkeys(
             (sdata.markercolor, sdata.markerlabel) for sdata in self._sv_data_list
         )
         return list(unique_pairs.keys())
 
     def _line_legend_entries(self) -> list[tuple[Color, str, str]]:
+        """Collect legend entries for additional guide lines.
+
+        Returns:
+            list[tuple[Color, str, str]]: ``(linecolor, linestyle, label)`` entries for
+                lines with non-None labels.
+        """
         entries: list[tuple[Color, str, str]] = []
         for line in self._line_data_list:
             if line.label is None:
@@ -662,7 +704,163 @@ class SeatsVotes:
             entries.append((line.linecolor, line.linestyle, line.label))
         return entries
 
+    def _to_latex_color(self, color: Color, *, prefix: str) -> _TikzColorToken:
+        """Convert a color token into an internal TikZ color representation.
+
+        Args:
+            color (Color): Input color token.
+            prefix (str): Unused; kept for API consistency with related classes.
+
+        Returns:
+            _TikzColorToken: Color token encoded as one of:
+                ``kind="xcolor"`` for valid xcolor expressions,
+                ``kind="html"`` for HTML hex colors used with ``\\color[HTML]{...}``,
+                ``kind="none"`` for transparent/no-color tokens.
+        """
+        if isinstance(color, str):
+            color_expr = color.strip()
+            if color_expr.lower() == "none":
+                return _TikzColorToken(kind="none", value="none")
+            if is_latex_color_expression(color_expr):
+                return _TikzColorToken(kind="xcolor", value=color_expr)
+
+        hex8_or_none = convert_color_to_hexa_or_none(color)
+        if hex8_or_none.lower() == "none":
+            return _TikzColorToken(kind="none", value="none")
+
+        hex6 = hex8_or_none.lstrip("#")[:6]
+        return _TikzColorToken(kind="html", value=hex6.upper())
+
+    @staticmethod
+    def _color_prefix(color: _TikzColorToken) -> str:
+        """Build a color prefix command for a TikZ command scope.
+
+        Args:
+            color (_TikzColorToken): Internal color token.
+
+        Returns:
+            str: Color-setting prefix command or empty string for ``none``.
+        """
+        if color.kind == "html":
+            return rf"\color[HTML]{{{color.value}}}"
+        if color.kind == "xcolor":
+            return rf"\color{{{color.value}}}"
+        return ""
+
+    @staticmethod
+    def _wrap_with_color_scope(command: str, color: _TikzColorToken) -> str:
+        """Wrap a TikZ command in a local color scope when needed.
+
+        Args:
+            command (str): TikZ command ending in ``;``.
+            color (_TikzColorToken): Internal color token.
+
+        Returns:
+            str: Scoped TikZ command with color prefix, or ``command`` unchanged.
+        """
+        color_prefix = SeatsVotes._color_prefix(color)
+        if len(color_prefix) == 0:
+            return command
+        return "{" + color_prefix + command + "}"
+
+    def _draw_path_command(
+        self,
+        *,
+        path: str,
+        color: _TikzColorToken,
+        linewidth: float,
+        linestyle: str | None = None,
+    ) -> str:
+        """Build a ``\\draw`` command with the provided styling and color token.
+
+        Args:
+            path (str): TikZ path expression without trailing semicolon.
+            color (_TikzColorToken): Internal color token.
+            linewidth (float): Line width in points.
+            linestyle (str | None, optional): TikZ line-style token. Defaults to None.
+
+        Returns:
+            str: Fully formed TikZ ``\\draw`` command.
+        """
+        options = [f"line width={linewidth:0.2f}pt"]
+        if linestyle is not None:
+            options.append(linestyle)
+        if color.kind == "none":
+            options.append("draw=none")
+
+        command = rf"\draw [{', '.join(options)}] {path};"
+        return self._wrap_with_color_scope(command, color)
+
+    def _fill_rectangle_command(
+        self,
+        *,
+        xmin: float,
+        ymin: float,
+        xmax: float,
+        ymax: float,
+        color: _TikzColorToken,
+        fill_opacity: float,
+    ) -> str:
+        """Build a ``\\fill`` rectangle command with color and opacity.
+
+        Args:
+            xmin (float): Left x-coordinate.
+            ymin (float): Bottom y-coordinate.
+            xmax (float): Right x-coordinate.
+            ymax (float): Top y-coordinate.
+            color (_TikzColorToken): Internal color token.
+            fill_opacity (float): Fill opacity in ``[0, 1]``.
+
+        Returns:
+            str: Fully formed TikZ ``\\fill`` command.
+        """
+        options = [f"fill opacity={fill_opacity:0.4f}"]
+        if color.kind == "none":
+            options.append("fill=none")
+
+        command = (
+            rf"\fill [{', '.join(options)}] ({xmin:0.4f}, {ymin:0.4f}) rectangle "
+            rf"({xmax:0.4f}, {ymax:0.4f});"
+        )
+        return self._wrap_with_color_scope(command, color)
+
+    def _marker_node_command(
+        self,
+        *,
+        x: float,
+        y: float,
+        color: _TikzColorToken,
+        size_pt: float,
+    ) -> str:
+        """Build a circular marker node command.
+
+        Args:
+            x (float): Marker x-coordinate.
+            y (float): Marker y-coordinate.
+            color (_TikzColorToken): Internal color token.
+            size_pt (float): Marker diameter in points.
+
+        Returns:
+            str: Fully formed TikZ ``\\node`` command.
+        """
+        options = ["circle", "inner sep=0pt", f"minimum size={size_pt:0.2f}pt"]
+        if color.kind == "none":
+            options.extend(["fill=none", "draw=none"])
+        else:
+            options.extend(["fill", "draw"])
+
+        command = rf"\node [{', '.join(options)}] at ({x:0.4f}, {y:0.4f}) {{}};"
+        return self._wrap_with_color_scope(command, color)
+
     def _add_labels(self, lines: list[str]) -> None:
+        """Append title/xlabel/ylabel TikZ nodes to the output line list.
+
+        Args:
+            lines (list[str]): Mutable list of TikZ lines under construction.
+
+        Returns:
+            None
+        """
         if self.title is None and self.xlabel is None and self.ylabel is None:
             return
 
@@ -693,6 +891,14 @@ class SeatsVotes:
         lines.append(r"\end{scope}")
 
     def _add_legend(self, lines: list[str]) -> None:
+        """Append legend glyph and text nodes to the output line list.
+
+        Args:
+            lines (list[str]): Mutable list of TikZ lines under construction.
+
+        Returns:
+            None
+        """
         if not self.include_legend:
             return
 
@@ -716,8 +922,9 @@ class SeatsVotes:
         legend_font_cmd = self._fontsize_command(self.options.legend_fontsize)
 
         x_start = self.options.xlim[1] + 0.03
-        y_start = self.options.ylim[1] - 0.02
         y_step = 0.06
+        y_center = (self.options.ylim[0] + self.options.ylim[1]) / 2
+        y_start = y_center + 0.5 * (len(legend_rows) - 1) * y_step
         line_length = 0.06
         label_offset = 0.08
 
@@ -726,19 +933,29 @@ class SeatsVotes:
         )
         for idx, (row_type, color, linestyle, label) in enumerate(legend_rows):
             y_pos = y_start - idx * y_step
-            color_str = self._document.resolve_color(color, prefix="svleg")
+            color_token = self._to_latex_color(color, prefix="svleg")
 
             if row_type == "line":
                 tikz_style = _to_tikz_linestyle(linestyle)
                 lines.append(
-                    rf"\draw [color={color_str}, line width=1.2pt, {tikz_style}] "
-                    rf"({x_start:0.4f}, {y_pos:0.4f}) -- ({x_start + line_length:0.4f}, {y_pos:0.4f});"
+                    self._draw_path_command(
+                        path=(
+                            rf"({x_start:0.4f}, {y_pos:0.4f}) -- "
+                            rf"({x_start + line_length:0.4f}, {y_pos:0.4f})"
+                        ),
+                        color=color_token,
+                        linewidth=1.2,
+                        linestyle=tikz_style,
+                    )
                 )
             else:
                 lines.append(
-                    rf"\node [circle, fill={color_str}, draw={color_str}, inner sep=0pt, "
-                    rf"minimum size={self.options.markersize:0.2f}pt] "
-                    rf"at ({x_start + line_length / 2:0.4f}, {y_pos:0.4f}) {{}};"
+                    self._marker_node_command(
+                        x=x_start + line_length / 2,
+                        y=y_pos,
+                        color=color_token,
+                        size_pt=self.options.markersize,
+                    )
                 )
 
             lines.append(
@@ -768,52 +985,67 @@ class SeatsVotes:
             x_settings = self._crosshair_settings["x"]
             y_settings = self._crosshair_settings["y"]
 
-            x_color = self._document.resolve_color(x_settings["color"], prefix="svcross")
-            y_color = self._document.resolve_color(y_settings["color"], prefix="svcross")
+            x_color = self._to_latex_color(x_settings["color"], prefix="svcross")
+            y_color = self._to_latex_color(y_settings["color"], prefix="svcross")
 
             lines.append(
-                rf"\fill [color={x_color}, fill opacity={float(x_settings['alpha']):0.4f}] "
-                rf"({float(x_settings['xmin']):0.4f}, {self.options.ylim[0]:0.4f}) rectangle "
-                rf"({float(x_settings['xmax']):0.4f}, {self.options.ylim[1]:0.4f});"
+                self._fill_rectangle_command(
+                    xmin=float(x_settings["xmin"]),
+                    ymin=self.options.ylim[0],
+                    xmax=float(x_settings["xmax"]),
+                    ymax=self.options.ylim[1],
+                    color=x_color,
+                    fill_opacity=float(x_settings["alpha"]),
+                )
             )
             lines.append(
-                rf"\fill [color={y_color}, fill opacity={float(y_settings['alpha']):0.4f}] "
-                rf"({self.options.xlim[0]:0.4f}, {float(y_settings['ymin']):0.4f}) rectangle "
-                rf"({self.options.xlim[1]:0.4f}, {float(y_settings['ymax']):0.4f});"
+                self._fill_rectangle_command(
+                    xmin=self.options.xlim[0],
+                    ymin=float(y_settings["ymin"]),
+                    xmax=self.options.xlim[1],
+                    ymax=float(y_settings["ymax"]),
+                    color=y_color,
+                    fill_opacity=float(y_settings["alpha"]),
+                )
             )
-            lines.append("")
-
-        for sv_series in self._sv_data_list:
-            vote_shares, seat_shares = sv_series.seats_votes_curve_values()
-            curve_color = self._document.resolve_color(sv_series.linecolor, prefix="svcurve")
-            curve_path = self._step_path(vote_shares, seat_shares)
-            lines.append(
-                rf"\draw [color={curve_color}, line width={self.options.linewidth:0.2f}pt] "
-                rf"{curve_path};"
-            )
-
-        if len(self._sv_data_list) > 0:
             lines.append("")
 
         for line in self._line_data_list:
             x_start, y_start, x_end, y_end = (
                 self._compute_starting_ending_points_for_line_with_slope(line.slope)
             )
-            line_color = self._document.resolve_color(line.linecolor, prefix="svline")
+            line_color = self._to_latex_color(line.linecolor, prefix="svline")
             tikz_style = _to_tikz_linestyle(line.linestyle)
             lines.append(
-                rf"\draw [color={line_color}, line width={line.linewidth:0.2f}pt, {tikz_style}] "
-                rf"({x_start:0.4f}, {y_start:0.4f}) -- ({x_end:0.4f}, {y_end:0.4f});"
+                self._draw_path_command(
+                    path=rf"({x_start:0.4f}, {y_start:0.4f}) -- ({x_end:0.4f}, {y_end:0.4f})",
+                    color=line_color,
+                    linewidth=line.linewidth,
+                    linestyle=tikz_style,
+                )
             )
 
         if len(self._line_data_list) > 0:
             lines.append("")
 
+        for sv_series in self._sv_data_list:
+            vote_shares, seat_shares = sv_series.seats_votes_curve_values()
+            curve_color = self._to_latex_color(sv_series.linecolor, prefix="svcurve")
+            curve_path = self._step_path(vote_shares, seat_shares)
+            lines.append(
+                self._draw_path_command(
+                    path=curve_path,
+                    color=curve_color,
+                    linewidth=self.options.linewidth,
+                )
+            )
+
+        if len(self._sv_data_list) > 0:
+            lines.append("")
+
         if self._display_election_markers:
             for sv_series in self._sv_data_list:
-                marker_color = self._document.resolve_color(
-                    sv_series.markercolor, prefix="svmarker"
-                )
+                marker_color = self._to_latex_color(sv_series.markercolor, prefix="svmarker")
                 total_vote_share = float(
                     sv_series.pov_party_vote_counts.sum() / sv_series.total_vote_counts.sum()
                 )
@@ -821,9 +1053,12 @@ class SeatsVotes:
                 total_seat_share = float(np.mean(district_vote_shares > 0.5))
 
                 lines.append(
-                    rf"\node [circle, fill={marker_color}, draw={marker_color}, inner sep=0pt, "
-                    rf"minimum size={self.options.markersize:0.2f}pt] "
-                    rf"at ({total_vote_share:0.4f}, {total_seat_share:0.4f}) {{}};"
+                    self._marker_node_command(
+                        x=total_vote_share,
+                        y=total_seat_share,
+                        color=marker_color,
+                        size_pt=self.options.markersize,
+                    )
                 )
 
         lines.append(r"\end{scope}")

@@ -10,7 +10,8 @@ from matplotlib.patches import Patch
 
 from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
-from gerrytools.plotting.gerryplot import GerryPlotBase
+from gerrytools.plotting.data._geometry import line_segment_through_unit_square
+from gerrytools.plotting.data.gerryplot import GerryPlotBase
 from gerrytools.typing import Color
 
 logger = get_logger(__name__)
@@ -171,8 +172,8 @@ class PaintBall(GerryPlotBase):
         self.xscale = 10.0
         self.yscale = 10.0
 
-        self.set_xlimits(0.0, 1.0)
-        self.set_ylimits(0.0, 1.0)
+        self.set_xlim(0.0, 1.0)
+        self.set_ylim(0.0, 1.0)
         self.set_xticks(locations=[])
         self.set_yticks(locations=[])
 
@@ -191,6 +192,19 @@ class PaintBall(GerryPlotBase):
         ``seats_data`` is either interpreted directly as seat share values in [0, 1]
         (when ``maximum_seats`` is None), or as seat counts normalized by ``maximum_seats``
         (when ``maximum_seats`` is provided), and the resulting shares must also lie in [0, 1].
+
+        Args:
+            voteshare_data (list[float]): Vote-share values in ``[0, 1]``.
+            seats_data (list[float]): Seat-share values in ``[0, 1]`` or raw seat counts.
+            maximum_seats (int | None, optional): Total seats used to normalize raw seat counts.
+                Defaults to None.
+
+        Returns:
+            tuple[list[float], list[float]]: Normalized vote-share and seat-share vectors.
+
+        Raises:
+            ValueError: If lengths mismatch, inputs are empty, or normalized values are out of
+                range.
         """
         if len(voteshare_data) != len(seats_data):
             raise ValueError("voteshare_data and seats_data must have the same length.")
@@ -285,37 +299,29 @@ class PaintBall(GerryPlotBase):
     # ==================
     #   OPTION SETTERS
     # ==================
-    def set_xlim(self, xmin: float, xmax: float, rescale: bool = False) -> None:
+    def set_xlim(self, left: float, right: float) -> None:
         """Set x-axis limits for the paintball plot.
 
         Args:
-            xmin (float): Lower x-axis limit.
-            xmax (float): Upper x-axis limit.
-            rescale (bool, optional): Whether to adjust x-scale so the rendered width remains
-                normalized to the new x-range. Defaults to False.
+            left (float): Lower x-axis limit.
+            right (float): Upper x-axis limit.
         """
-        if not (xmin < xmax):
-            raise ValueError("xmin must be less than xmax.")
+        if not (left < right):
+            raise ValueError("left must be less than right.")
 
-        self.set_xlimits(float(xmin), float(xmax))
-        if rescale:
-            self.set_xscale(self.xscale * (1.0 / (float(xmax) - float(xmin))))
+        self.set_xlimits(float(left), float(right))
 
-    def set_ylim(self, ymin: float, ymax: float, rescale: bool = False) -> None:
+    def set_ylim(self, bottom: float, top: float) -> None:
         """Set y-axis limits for the paintball plot.
 
         Args:
-            ymin (float): Lower y-axis limit.
-            ymax (float): Upper y-axis limit.
-            rescale (bool, optional): Whether to adjust y-scale so the rendered height remains
-                normalized to the new y-range. Defaults to False.
+            bottom (float): Lower y-axis limit.
+            top (float): Upper y-axis limit.
         """
-        if not (ymin < ymax):
-            raise ValueError("ymin must be less than ymax.")
+        if not (bottom < top):
+            raise ValueError("bottom must be less than top.")
 
-        self.set_ylimits(float(ymin), float(ymax))
-        if rescale:
-            self.set_yscale(self.yscale * (1.0 / (float(ymax) - float(ymin))))
+        self.set_ylimits(float(bottom), float(top))
 
     def set_xscale(self, xscale: float) -> None:
         """Set horizontal scaling for the paintball plot.
@@ -487,39 +493,16 @@ class PaintBall(GerryPlotBase):
     def _compute_starting_ending_points_for_line_with_slope(
         self, slope: float
     ) -> tuple[float, float, float, float]:
-        """Compute the start and end points for a slope-constrained guide line."""
-        if slope == 0:
-            starting_x = 0.0
-            ending_x = 1.0
-            starting_y = 0.5
-            ending_y = 0.5
-        elif slope == float("inf") or slope == float("-inf"):
-            starting_x = 0.5
-            ending_x = 0.5
-            starting_y = 0.0
-            ending_y = 1.0
-        elif slope >= 1:
-            starting_x = 0.5 - (0.5 / slope)
-            starting_y = 0.0
-            ending_x = 0.5 + (0.5 / slope)
-            ending_y = 1.0
-        elif -1 < slope < 1:
-            starting_x = 0.0
-            starting_y = 0.5 - (0.5 * slope)
-            ending_x = 1.0
-            ending_y = 0.5 + (0.5 * slope)
-        else:
-            starting_x = 0.5 - (0.5 / slope)
-            starting_y = 0.0
-            ending_x = 0.5 + (0.5 / slope)
-            ending_y = 1.0
+        """Compute the start and end points for a slope-constrained guide line.
 
-        return (
-            round(starting_x, 4),
-            round(starting_y, 4),
-            round(ending_x, 4),
-            round(ending_y, 4),
-        )
+        Args:
+            slope (float): Guide-line slope through the center point ``(0.5, 0.5)``.
+
+        Returns:
+            tuple[float, float, float, float]: ``(x_start, y_start, x_end, y_end)`` clipped to
+                the unit square.
+        """
+        return line_segment_through_unit_square(slope)
 
     def _draw_crosshairs(self) -> None:
         """Draw crosshair guide lines centered at (0.5, 0.5)."""
@@ -767,7 +750,7 @@ class PaintBall(GerryPlotBase):
             filepath (str): Output image file path.
             hull (bool, optional): Whether to save the horizontal hull view.
                 Defaults to False.
-            **kwargs: Additional keyword arguments forwarded to ``fig.savefig``.
+            **kwargs (Any): Additional keyword arguments forwarded to ``Figure.savefig``.
         """
         previous_hull_setting = self._draw_hull
         self._draw_hull = hull

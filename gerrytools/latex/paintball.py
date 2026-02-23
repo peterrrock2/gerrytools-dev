@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import Iterable, Literal
 
+from gerrytools.colors import convert_color_to_hexa_or_none
+from gerrytools.latex._colors import is_latex_color_expression
 from gerrytools.latex._geometry import line_segment_through_unit_square
 from gerrytools.latex.document import TexDocument
 from gerrytools.logging import get_logger
@@ -122,16 +124,25 @@ class PaintBallOptions:
             case "hullcolor":
                 object.__setattr__(self, key, value)
             case "hullalpha":
+                if value is None:
+                    object.__setattr__(self, key, None)
+                    return
                 if not (0.0 <= value <= 1.0):
                     raise ValueError("hullalpha must be in [0.0, 1.0]")
                 object.__setattr__(self, key, round(float(value), 4))
             case "hulledgecolor":
                 object.__setattr__(self, key, value)
             case "hulledgewidth":
+                if value is None:
+                    object.__setattr__(self, key, None)
+                    return
                 if not (0.0 <= value):
                     raise ValueError("hulledgewidth must be non-negative")
                 object.__setattr__(self, key, round(float(value), 4))
             case "hulledgealpha":
+                if value is None:
+                    object.__setattr__(self, key, None)
+                    return
                 if not (0.0 <= value <= 1.0):
                     raise ValueError("hulledgealpha must be in [0.0, 1.0]")
                 object.__setattr__(self, key, round(float(value), 4))
@@ -318,6 +329,20 @@ class PaintBall:
         (when ``maximum_seats`` is None), or as seat counts normalized by
         ``maximum_seats`` (when provided). Returned values are rounded to ``round_data_to``
         decimal places for stable LaTeX output.
+
+        Args:
+            voteshare_data (list[float]): Vote-share values in ``[0, 1]``.
+            seats_data (Iterable[float]): Seat-share values in ``[0, 1]`` or raw seat counts.
+            maximum_seats (int | None, optional): Total seats used to normalize raw seat counts.
+                Defaults to None.
+            round_data_to (int, optional): Decimal precision used for normalized outputs.
+                Defaults to ``4``.
+
+        Returns:
+            tuple[list[float], list[float]]: Normalized vote-share and seat-share vectors.
+
+        Raises:
+            ValueError: If lengths mismatch, inputs are empty, or shares are out of range.
         """
 
         if len(voteshare_data) != len(seats_data):
@@ -495,18 +520,18 @@ class PaintBall:
         """Sets the marker options for the paintball plot.
 
         Args:
-            size_pts (float | None): The size of the markers in points. If None, the size is not
+            size (float | None, optional): The size of the markers in points. If None, the size is
+                not changed from the previous setting. Defaults to None.
+            color (Color | None, optional): The color of the markers. If None, the color is not
                 changed from the previous setting. Defaults to None.
-            color (Color | None): The color of the markers. If None, the color is not changed from
-                the previous setting. Defaults to None.
-            alpha (float): The opacity of the markers (0.0 to 1.0). If None, the opacity is not
-                changed from the previous setting. Defaults to None.
-            edgecolor (Color | None): The edge color of the markers. If None, the edge color is not
-                changed from the previous setting. Defaults to None.
-            edgewidth (float | None): The edge width of the markers. If None, the edge width is not
-                changed from the previous setting. Defaults to None.
-            edgealpha (float | None): The edge opacity of the markers (0.0 to 1.0). If None, the edge
+            alpha (float | None, optional): The opacity of the markers (0.0 to 1.0). If None, the
                 opacity is not changed from the previous setting. Defaults to None.
+            edgecolor (Color | None, optional): The edge color of the markers. If None, the edge
+                color is not changed from the previous setting. Defaults to None.
+            edgewidth (float | None, optional): The edge width of the markers. If None, the edge
+                width is not changed from the previous setting. Defaults to None.
+            edgealpha (float | None, optional): The edge opacity of the markers (0.0 to 1.0). If
+                None, the edge opacity is not changed from the previous setting. Defaults to None.
         """
         if size is not None:
             self.options.markersize = size
@@ -559,16 +584,28 @@ class PaintBall:
     # =====================
 
     def _to_latex_color(self, color: Color, *, prefix: str) -> str:
-        """Resolve a color to a LaTeX color name.
+        """Resolve a color to a LaTeX-safe token for TikZ commands.
 
         Args:
             color (Color): Input color value.
             prefix (str): Prefix for auto-generated color names.
 
         Returns:
-            str: LaTeX color name safe to reference in TikZ commands.
+            str: LaTeX color token safe to reference in TikZ commands.
         """
-        return self._document.resolve_color(color, prefix=prefix)
+        if isinstance(color, str):
+            color_expr = color.strip()
+            if color_expr.lower() == "none":
+                return "none"
+            if is_latex_color_expression(color_expr):
+                return color_expr
+
+        hex8_or_none = convert_color_to_hexa_or_none(color)
+        if hex8_or_none.lower() == "none":
+            return "none"
+
+        hex6 = hex8_or_none.lstrip("#")[:6].upper()
+        return self._document.resolve_color(f"#{hex6}", prefix=prefix)
 
     def _compute_starting_ending_points_for_line_with_slope(
         self, slope: float
