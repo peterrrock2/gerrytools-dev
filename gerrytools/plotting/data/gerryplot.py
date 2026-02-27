@@ -1,3 +1,4 @@
+import math
 import weakref
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
@@ -5,23 +6,104 @@ from numbers import Real
 from typing import Literal, Sequence
 
 import matplotlib.colors as mcolors
+import matplotlib.patheffects as patheffects
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
+from matplotlib.path import Path
+from matplotlib.patheffects import AbstractPathEffect
 from matplotlib.text import Text
+from matplotlib.transforms import Transform
 
 from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
 from gerrytools.plotting._figure_io import save_figure, show_figure
 from gerrytools.plotting._legend_utils import build_legend_options, save_legend_handles
-from gerrytools.plotting.data._gerryplot_dataclasses import BandData, LineData
+from gerrytools.plotting.data._gerryplot_dataclasses import (
+    ArrowData,
+    ArrowPlacement,
+    ArrowTextStyle,
+    BandData,
+    LabelArrowStyle,
+    LineData,
+    TextArrowStyle,
+)
 from gerrytools.plotting.mpl.axis_title_style import AxisLabelStyle, TitleStyle
+from gerrytools.plotting.mpl.label_text_options import LabelBoxOptions, LabelFontOptions
 from gerrytools.plotting.mpl.tick_style import TickStyle
 from gerrytools.plotting.utils import _coerce_real_iter
 from gerrytools.typing import Color, LegendHandle, TickType
 
 logger = get_logger(__name__)
+
+
+class _VerticalTextArrowBoxStyle:
+    """Centered top/bottom triangular-tip boxstyle for vertical text arrows."""
+
+    def __init__(
+        self,
+        *,
+        direction: Literal["up", "down"],
+        pad: float,
+        tip_height_scale: float = 0.8,
+        tip_width_scale: float = 0.28,
+    ) -> None:
+        self.direction = direction
+        self.pad = float(pad)
+        self.tip_height_scale = float(tip_height_scale)
+        self.tip_width_scale = float(tip_width_scale)
+
+    def __call__(
+        self,
+        x0: float,
+        y0: float,
+        width: float,
+        height: float,
+        mutation_size: float,
+    ) -> Path:
+        """Create a box path with a centered triangular tip at top or bottom."""
+        pad_pixels = self.pad * mutation_size
+        left = x0 - pad_pixels
+        bottom = y0 - pad_pixels
+        body_width = width + (2.0 * pad_pixels)
+        body_height = height + (2.0 * pad_pixels)
+        right = left + body_width
+        top = bottom + body_height
+        center_x = left + (0.5 * body_width)
+
+        tip_height = max(0.0, float(mutation_size) * self.tip_height_scale)
+        head_overhang = max(0.0, float(mutation_size) * self.tip_width_scale)
+
+        if self.direction == "up":
+            tip_base_y = top
+            tip_y = top + tip_height
+            vertices = [
+                (left, bottom),
+                (right, bottom),
+                (right, tip_base_y),
+                (right + head_overhang, tip_base_y),
+                (center_x, tip_y),
+                (left - head_overhang, tip_base_y),
+                (left, tip_base_y),
+                (left, bottom),
+            ]
+        else:
+            tip_base_y = bottom
+            tip_y = bottom - tip_height
+            vertices = [
+                (left, top),
+                (right, top),
+                (right, tip_base_y),
+                (right + head_overhang, tip_base_y),
+                (center_x, tip_y),
+                (left - head_overhang, tip_base_y),
+                (left, tip_base_y),
+                (left, top),
+            ]
+
+        codes = [Path.MOVETO] + ([Path.LINETO] * (len(vertices) - 2)) + [Path.CLOSEPOLY]
+        return Path(vertices, codes)
 
 
 class GerryPlotBase(ABC):
@@ -87,6 +169,7 @@ class GerryPlotBase(ABC):
         self._vertical_bands: list[BandData] = []
         self._horizontal_lines: list[LineData] = []
         self._horizontal_bands: list[BandData] = []
+        self._annotation_arrows: list[ArrowData] = []
 
         self._frame_visibility: dict[str, bool] = {
             "top": True,
@@ -298,6 +381,231 @@ class GerryPlotBase(ABC):
                 name=name,
             )
         )
+
+    def add_text_arrow(
+        self,
+        arrowtip: tuple[float, float],
+        direction: Literal["right", "left", "up", "down"],
+        *,
+        text: str = "   ",
+        textrotation: float | None = None,
+        arrowfacecolor: Color | None = None,
+        arrowfacealpha: float | None = None,
+        arrowoutlinecolor: Color | None = None,
+        arrowoutlinealpha: float | None = None,
+        arrowoutlinewidth: float | None = None,
+        arrowtextstyle: ArrowTextStyle | None = None,
+        arrowplacement: ArrowPlacement | None = None,
+        arrowstyle: TextArrowStyle | None = None,
+        name: str | None = None,
+    ) -> None:
+        """Add a deferred text-style arrow to the plot.
+
+        This renders via ``Axes.text(..., bbox=...)`` and stores the arrow so it is redrawn
+        whenever the plot is rebuilt. The arrow tip is aligned to ``arrowtip`` during rendering.
+
+        Args:
+            arrowtip (tuple[float, float]): Arrow-tip coordinate in the selected placement
+                coordinate system.
+            direction (Literal["right", "left", "up", "down"]): Arrow direction.
+            text (str, optional): Text drawn inside the arrow box. Empty strings are normalized
+                to ``"   "`` so the arrow still renders. Defaults to ``"   "``.
+            textrotation (float | None, optional): Top-level text rotation override in degrees.
+                When set, this overrides ``arrowtextstyle.rotation``. Defaults to None.
+            arrowfacecolor (Color | None, optional): Optional override for
+                ``arrowstyle.arrowfacecolor``. Defaults to None.
+            arrowfacealpha (float | None, optional): Optional override for
+                ``arrowstyle.arrowfacealpha``. Defaults to None.
+            arrowoutlinecolor (Color | None, optional): Optional override for
+                ``arrowstyle.arrowoutlinecolor``. Defaults to None.
+            arrowoutlinealpha (float | None, optional): Optional override for
+                ``arrowstyle.arrowoutlinealpha``. Defaults to None.
+            arrowoutlinewidth (float | None, optional): Optional override for
+                ``arrowstyle.arrowoutlinewidth``. Defaults to None.
+            arrowtextstyle (AnnotationArrowTextStyle | None, optional): Text styling options
+                (font, alignment, outline, and rotation). Defaults to None.
+            arrowplacement (AnnotationArrowPlacement | None, optional): Placement options
+                (coordinate system, offsets, clipping, and z-order). Defaults to None.
+            arrowstyle (TextAnnotationArrowStyle | None, optional): Text-arrow box styling
+                options. Defaults to None.
+            name (str | None, optional): Optional identifier for callers. Defaults to None.
+
+        Returns:
+            None
+        """
+        base_text_style = arrowtextstyle if arrowtextstyle is not None else ArrowTextStyle()
+        if textrotation is None:
+            arrow_text_style = base_text_style
+        else:
+            arrow_text_style = ArrowTextStyle(
+                fontsize=base_text_style.fontsize,
+                fontcolor=base_text_style.fontcolor,
+                fontalpha=base_text_style.fontalpha,
+                fontoutlinecolor=base_text_style.fontoutlinecolor,
+                fontoutlinealpha=base_text_style.fontoutlinealpha,
+                fontoutlinewidth=base_text_style.fontoutlinewidth,
+                fontweight=base_text_style.fontweight,
+                fontstyle=base_text_style.fontstyle,
+                fontfamily=base_text_style.fontfamily,
+                rotation=float(textrotation),
+                horizontalalignment=base_text_style.horizontalalignment,
+                verticalalignment=base_text_style.verticalalignment,
+            )
+        arrow_placement = arrowplacement if arrowplacement is not None else ArrowPlacement()
+        style = arrowstyle if arrowstyle is not None else TextArrowStyle()
+        merged_textarrowstyle = TextArrowStyle(
+            arrowfacecolor=arrowfacecolor if arrowfacecolor is not None else style.arrowfacecolor,
+            arrowfacealpha=arrowfacealpha if arrowfacealpha is not None else style.arrowfacealpha,
+            arrowoutlinecolor=(
+                arrowoutlinecolor if arrowoutlinecolor is not None else style.arrowoutlinecolor
+            ),
+            arrowoutlinealpha=(
+                arrowoutlinealpha if arrowoutlinealpha is not None else style.arrowoutlinealpha
+            ),
+            arrowoutlinewidth=(
+                arrowoutlinewidth if arrowoutlinewidth is not None else style.arrowoutlinewidth
+            ),
+            boxpad=style.boxpad,
+            boxstyle=style.boxstyle,
+        )
+
+        text_value = text if text != "" else "   "
+        self._annotation_arrows.append(
+            ArrowData(
+                arrowtip=arrowtip,
+                direction=direction,
+                arrowtype="text",
+                text=text_value,
+                textstyle=arrow_text_style,
+                placement=arrow_placement,
+                textarrowstyle=merged_textarrowstyle,
+                labelarrowstyle=None,
+                name=name,
+            )
+        )
+
+    def add_label_arrow(
+        self,
+        arrowtip: tuple[float, float],
+        direction: Literal["right", "left", "up", "down"],
+        *,
+        text: str | None = None,
+        label_position: tuple[float, float] | None = None,
+        labelfont_options: LabelFontOptions | None = None,
+        labelbox_options: LabelBoxOptions | None = None,
+        arrow_length: float | None = None,
+        arrowfacecolor: Color | None = None,
+        arrowfacealpha: float | None = None,
+        arrowoutlinecolor: Color | None = None,
+        arrowoutlinealpha: float | None = None,
+        arrowoutlinewidth: float | None = None,
+        arrowtextstyle: ArrowTextStyle | None = None,
+        arrowplacement: ArrowPlacement | None = None,
+        arrowstyle: LabelArrowStyle | None = None,
+        name: str | None = None,
+    ) -> None:
+        """Add a deferred label-style arrow to the plot.
+
+        This renders a true annotation arrow and an optional separate text label, so the
+        arrow length is controlled by tail placement rather than text size.
+
+        Args:
+            arrowtip (tuple[float, float]): Arrow-tip coordinate in the selected placement
+                coordinate system.
+            direction (Literal["right", "left", "up", "down"]): Arrow direction.
+            text (str | None, optional): Optional label text near the arrow tail.
+                Defaults to None.
+            label_position (tuple[float, float] | None, optional): Optional explicit text-anchor
+                position in ``arrowplacement.coordinate_system``. If None, uses the arrow tail
+                plus ``arrowplacement.label_padding`` and ``arrowplacement.text_offset``.
+                Defaults to None.
+            labelfont_options (LabelFontOptions | None, optional): Optional geoplot-style label
+                font settings. Defaults to None.
+            labelbox_options (LabelBoxOptions | None, optional): Optional geoplot-style text-box
+                settings. Defaults to None.
+            arrow_length (float | None, optional): Optional label-arrow length as a percent of
+                axes span in the arrow direction. ``0`` means zero length, and ``100`` means one
+                full axes width (horizontal) or height (vertical). Cannot be combined with
+                ``arrowplacement.arrowtail``. Defaults to None.
+            arrowfacecolor (Color | None, optional): Optional override for
+                ``arrowstyle.arrowfacecolor``. Defaults to None.
+            arrowfacealpha (float | None, optional): Optional override for
+                ``arrowstyle.arrowfacealpha``. Defaults to None.
+            arrowoutlinecolor (Color | None, optional): Optional override for
+                ``arrowstyle.arrowoutlinecolor``. Defaults to None.
+            arrowoutlinealpha (float | None, optional): Optional override for
+                ``arrowstyle.arrowoutlinealpha``. Defaults to None.
+            arrowoutlinewidth (float | None, optional): Optional override for
+                ``arrowstyle.arrowoutlinewidth``. Defaults to None.
+            arrowtextstyle (AnnotationArrowTextStyle | None, optional): Text style settings used
+                for alignment/rotation and as a fallback when ``labelfont_options`` is None.
+                Defaults to None.
+            arrowplacement (AnnotationArrowPlacement | None, optional): Placement settings.
+                Defaults to None. When not provided, this method uses
+                ``AnnotationArrowPlacement(tail_length=0.04)``.
+            arrowstyle (LabelAnnotationArrowStyle | None, optional): Base label-arrow styling
+                options. Defaults to None.
+            name (str | None, optional): Optional identifier for callers. Defaults to None.
+
+        Returns:
+            None
+        """
+        arrow_text_style = arrowtextstyle if arrowtextstyle is not None else ArrowTextStyle()
+        arrow_placement = (
+            arrowplacement if arrowplacement is not None else ArrowPlacement(tail_length=0.04)
+        )
+        arrow_length_percentage: float | None = None
+        if arrow_length is not None:
+            arrow_length_value = float(arrow_length)
+            if not math.isfinite(arrow_length_value):
+                raise ValueError("arrow_length must be finite.")
+            if not (0.0 <= arrow_length_value <= 100.0):
+                raise ValueError("arrow_length must be in [0, 100].")
+            if arrow_placement.arrowtail is not None:
+                raise ValueError("arrow_length cannot be set when placement.arrowtail is set.")
+            arrow_length_percentage = arrow_length_value
+        style = arrowstyle if arrowstyle is not None else LabelArrowStyle()
+        merged_labelarrowstyle = LabelArrowStyle(
+            arrowstyle=style.arrowstyle,
+            connectionstyle=style.connectionstyle,
+            arrowhead_scale=style.arrowhead_scale,
+            shrink_a=style.shrink_a,
+            shrink_b=style.shrink_b,
+            arrowfacecolor=arrowfacecolor if arrowfacecolor is not None else style.arrowfacecolor,
+            arrowfacealpha=arrowfacealpha if arrowfacealpha is not None else style.arrowfacealpha,
+            arrowoutlinecolor=(
+                arrowoutlinecolor if arrowoutlinecolor is not None else style.arrowoutlinecolor
+            ),
+            arrowoutlinealpha=(
+                arrowoutlinealpha if arrowoutlinealpha is not None else style.arrowoutlinealpha
+            ),
+            arrowoutlinewidth=(
+                arrowoutlinewidth if arrowoutlinewidth is not None else style.arrowoutlinewidth
+            ),
+            linestyle=style.linestyle,
+        )
+
+        self._annotation_arrows.append(
+            ArrowData(
+                arrowtip=arrowtip,
+                direction=direction,
+                arrowtype="label",
+                text=text,
+                textstyle=arrow_text_style,
+                arrow_length_percentage=arrow_length_percentage,
+                label_position=label_position,
+                labelfont_options=labelfont_options,
+                labelbox_options=labelbox_options,
+                placement=arrow_placement,
+                textarrowstyle=None,
+                labelarrowstyle=merged_labelarrowstyle,
+                name=name,
+            )
+        )
+
+    def clear_annotation_arrows(self) -> None:
+        """Clear all annotation arrows from the figure."""
+        self._annotation_arrows.clear()
 
     def clear_vertical_lines_and_bands(self) -> None:
         """Clear all vertical lines and bands from the figure."""
@@ -1190,6 +1498,550 @@ class GerryPlotBase(ABC):
                     zorder=ln.zorder,
                 )
 
+    @staticmethod
+    def _direction_unit_vector(
+        direction: Literal["right", "left", "up", "down"],
+    ) -> tuple[float, float]:
+        """Map a cardinal arrow direction to a unit vector.
+
+        Args:
+            direction (Literal["right", "left", "up", "down"]): Arrow direction.
+
+        Returns:
+            tuple[float, float]: Unit vector in the requested direction.
+        """
+        mapping: dict[Literal["right", "left", "up", "down"], tuple[float, float]] = {
+            "right": (1.0, 0.0),
+            "left": (-1.0, 0.0),
+            "up": (0.0, 1.0),
+            "down": (0.0, -1.0),
+        }
+        return mapping[direction]
+
+    @staticmethod
+    def _default_text_alignment_for_direction(
+        direction: Literal["right", "left", "up", "down"],
+    ) -> tuple[Literal["left", "center", "right"], Literal["bottom", "center", "top"]]:
+        """Get default text alignment for a direction.
+
+        Args:
+            direction (Literal["right", "left", "up", "down"]): Arrow direction.
+
+        Returns:
+            tuple[Literal["left", "center", "right"], Literal["bottom", "center", "top"]]:
+                Default ``(ha, va)`` pair.
+        """
+        mapping: dict[
+            Literal["right", "left", "up", "down"],
+            tuple[Literal["left", "center", "right"], Literal["bottom", "center", "top"]],
+        ] = {
+            "right": ("right", "center"),
+            "left": ("left", "center"),
+            "up": ("center", "bottom"),
+            "down": ("center", "top"),
+        }
+        return mapping[direction]
+
+    @staticmethod
+    def _default_text_arrow_boxstyle_and_rotation(
+        direction: Literal["right", "left", "up", "down"],
+    ) -> tuple[str, float]:
+        """Get direction-aware defaults for text-arrow boxstyle and text rotation.
+
+        Args:
+            direction (Literal["right", "left", "up", "down"]): Arrow direction.
+
+        Returns:
+            tuple[str, float]: ``(boxstyle_base, rotation_degrees)``.
+        """
+        # Box orientation follows direction; visible text rotation is handled separately.
+        mapping: dict[Literal["right", "left", "up", "down"], tuple[str, float]] = {
+            "right": ("rarrow", 0.0),
+            "left": ("larrow", 0.0),
+            "up": ("__gerryplot_uparrow__", 0.0),
+            "down": ("__gerryplot_downarrow__", 0.0),
+        }
+        return mapping[direction]
+
+    @staticmethod
+    def _directional_extreme_point(
+        points: list[tuple[float, float]],
+        direction: Literal["right", "left", "up", "down"],
+    ) -> tuple[float, float]:
+        """Return the directional-extreme point from a list of 2D points.
+
+        Used for aligning text-arrow tips by finding the point with the extreme x/y value in the
+        arrow direction.
+
+        Args:
+            points (list[tuple[float, float]]): Candidate points in display coordinates.
+            direction (Literal["right", "left", "up", "down"]): Direction used for selecting
+                an extreme.
+
+        Returns:
+            tuple[float, float]: The point with extreme x/y value for ``direction``.
+        """
+        if direction == "right":
+            return max(points, key=lambda point: point[0])
+        if direction == "left":
+            return min(points, key=lambda point: point[0])
+        if direction == "up":
+            return max(points, key=lambda point: point[1])
+        return min(points, key=lambda point: point[1])
+
+    def _align_text_arrow_tip_to_position(
+        self,
+        text_artist: Text,
+        *,
+        desired_tip: tuple[float, float],
+        coordinate_transform: Transform,
+        direction: Literal["right", "left", "up", "down"],
+    ) -> None:
+        """Shift a text-arrow artist so its arrow tip matches ``desired_tip``.
+
+        Args:
+            text_artist (Text): Text artist with a bbox arrow boxstyle.
+            desired_tip (tuple[float, float]): Desired tip coordinate in ``coordinate_transform``.
+            coordinate_transform (Transform): Transform for the coordinate system used by
+                ``desired_tip`` and ``text_artist``.
+            direction (Literal["right", "left", "up", "down"]): Arrow direction.
+
+        Returns:
+            None
+        """
+        bbox_patch = text_artist.get_bbox_patch()
+        if bbox_patch is None:
+            return
+
+        # Some boxstyles finalize their mutated path after the first repositioning draw.
+        # A short fixed-point iteration keeps tip placement stable across boxstyle types.
+        for _ in range(2):
+            # Ensure the bbox path is fully realized before reading transformed vertices.
+            self.fig.canvas.draw()
+
+            vertices_display = bbox_patch.get_transform().transform(bbox_patch.get_path().vertices)
+            points: list[tuple[float, float]] = [
+                (float(vertex[0]), float(vertex[1])) for vertex in vertices_display
+            ]
+            if len(points) == 0:
+                return
+
+            current_tip_x, current_tip_y = self._directional_extreme_point(points, direction)
+            desired_tip_display = coordinate_transform.transform((desired_tip[0], desired_tip[1]))
+            desired_tip_x = float(desired_tip_display[0])
+            desired_tip_y = float(desired_tip_display[1])
+
+            delta_x = desired_tip_x - current_tip_x
+            delta_y = desired_tip_y - current_tip_y
+            if abs(delta_x) < 1e-8 and abs(delta_y) < 1e-8:
+                return
+
+            current_position = text_artist.get_position()
+            current_display = coordinate_transform.transform(
+                (float(current_position[0]), float(current_position[1]))
+            )
+            moved_display = (
+                float(current_display[0]) + delta_x,
+                float(current_display[1]) + delta_y,
+            )
+            moved_position = coordinate_transform.inverted().transform(moved_display)
+            text_artist.set_position((float(moved_position[0]), float(moved_position[1])))
+
+    def _annotation_text_outline_effects(
+        self,
+        textstyle: ArrowTextStyle,
+    ) -> list[AbstractPathEffect] | None:
+        """Build path effects for annotation text outlines from text style settings.
+
+        Args:
+            textstyle (AnnotationArrowTextStyle): Text style settings.
+
+        Returns:
+            list[object] | None: Path effects for Matplotlib text artists, or None when
+                outline rendering is disabled.
+        """
+        if textstyle.fontoutlinecolor is None:
+            return None
+        if textstyle.fontoutlinewidth <= 0:
+            return None
+
+        outline_color = self._resolved_rgba(
+            textstyle.fontoutlinecolor,
+            textstyle.fontoutlinealpha,
+            field="annotation_arrow_text_outlinecolor",
+        )
+        return [
+            patheffects.Stroke(
+                linewidth=float(textstyle.fontoutlinewidth),
+                foreground=outline_color,
+            ),
+            patheffects.Normal(),
+        ]
+
+    def _direction_display_unit_vector(
+        self,
+        *,
+        origin: tuple[float, float],
+        direction: Literal["right", "left", "up", "down"],
+        coordinate_transform: Transform,
+    ) -> tuple[float, float]:
+        """Get a unit direction vector in display space for a coordinate-space direction.
+
+        Args:
+            origin (tuple[float, float]): Origin point in coordinate space.
+            direction (Literal["right", "left", "up", "down"]): Direction in coordinate space.
+            coordinate_transform (Transform): Transform mapping coordinate space to display space.
+
+        Returns:
+            tuple[float, float]: Unit vector in display coordinates.
+        """
+        unit_x, unit_y = self._direction_unit_vector(direction)
+        origin_display = coordinate_transform.transform((origin[0], origin[1]))
+        forward_display = coordinate_transform.transform((origin[0] + unit_x, origin[1] + unit_y))
+
+        vector_x = float(forward_display[0] - origin_display[0])
+        vector_y = float(forward_display[1] - origin_display[1])
+        norm = math.hypot(vector_x, vector_y)
+        if norm > 1e-12:
+            return (vector_x / norm, vector_y / norm)
+
+        # Fallback for degenerate transforms.
+        if direction == "right":
+            return (1.0, 0.0)
+        if direction == "left":
+            return (-1.0, 0.0)
+        if direction == "up":
+            return (0.0, 1.0)
+        return (0.0, -1.0)
+
+    def _shift_point_along_direction_pixels(
+        self,
+        point: tuple[float, float],
+        *,
+        direction: Literal["right", "left", "up", "down"],
+        signed_pixels: float,
+        coordinate_transform: Transform,
+    ) -> tuple[float, float]:
+        """Shift a coordinate-space point by a signed number of display pixels.
+
+        Args:
+            point (tuple[float, float]): Starting point in coordinate space.
+            direction (Literal["right", "left", "up", "down"]): Direction in coordinate space.
+            signed_pixels (float): Signed distance in display pixels. Positive values shift in
+                ``direction``; negative values shift opposite ``direction``.
+            coordinate_transform (Transform): Transform mapping coordinate space to display space.
+
+        Returns:
+            tuple[float, float]: Shifted point in coordinate space.
+        """
+        direction_display_x, direction_display_y = self._direction_display_unit_vector(
+            origin=point,
+            direction=direction,
+            coordinate_transform=coordinate_transform,
+        )
+        start_display = coordinate_transform.transform((point[0], point[1]))
+        shifted_display = (
+            float(start_display[0]) + (direction_display_x * signed_pixels),
+            float(start_display[1]) + (direction_display_y * signed_pixels),
+        )
+        shifted = coordinate_transform.inverted().transform(shifted_display)
+        return (float(shifted[0]), float(shifted[1]))
+
+    def _draw_annotation_arrows(self) -> None:
+        """Draw all deferred annotation arrows."""
+        if len(self._annotation_arrows) == 0:
+            return
+
+        for arrow in self._annotation_arrows:
+            placement = arrow.placement
+            coordinate_system = placement.coordinate_system
+            transform = self._ax.transData if coordinate_system == "data" else self._ax.transAxes
+
+            tip_x, tip_y = arrow.arrowtip
+            offset_x, offset_y = placement.text_offset
+
+            default_ha, default_va = self._default_text_alignment_for_direction(arrow.direction)
+            ha = (
+                arrow.textstyle.horizontalalignment
+                if arrow.textstyle.horizontalalignment is not None
+                else default_ha
+            )
+            va = (
+                arrow.textstyle.verticalalignment
+                if arrow.textstyle.verticalalignment is not None
+                else default_va
+            )
+
+            if arrow.arrowtype == "text":
+                style = arrow.textarrowstyle
+                if style is None:  # pragma: no cover
+                    raise RuntimeError("Text arrow missing textarrowstyle.")
+
+                boxstyle_base, box_rotation = self._default_text_arrow_boxstyle_and_rotation(
+                    arrow.direction
+                )
+                text_rotation = (
+                    float(arrow.textstyle.rotation) if arrow.textstyle.rotation is not None else 0.0
+                )
+                if style.boxstyle is not None:
+                    boxstyle: str | object = style.boxstyle
+                elif boxstyle_base == "__gerryplot_uparrow__":
+                    boxstyle = _VerticalTextArrowBoxStyle(direction="up", pad=style.boxpad)
+                elif boxstyle_base == "__gerryplot_downarrow__":
+                    boxstyle = _VerticalTextArrowBoxStyle(direction="down", pad=style.boxpad)
+                else:
+                    boxstyle = f"{boxstyle_base},pad={style.boxpad:g}"
+
+                if (
+                    isinstance(style.arrowoutlinecolor, str)
+                    and style.arrowoutlinecolor.lower() == "none"
+                ):
+                    edgecolor: str | tuple[float, float, float, float] = "none"
+                else:
+                    edgecolor = self._resolved_rgba(
+                        style.arrowoutlinecolor,
+                        style.arrowoutlinealpha,
+                        field="annotation_arrow_outlinecolor",
+                    )
+
+                text_value = arrow.text if arrow.text is not None else "   "
+                if text_value == "":
+                    text_value = "   "
+                text_color = self._resolved_rgba(
+                    arrow.textstyle.fontcolor,
+                    arrow.textstyle.fontalpha,
+                    field="annotation_arrow_text_color",
+                )
+                face_color = self._resolved_rgba(
+                    style.arrowfacecolor,
+                    style.arrowfacealpha,
+                    field="annotation_arrow_facecolor",
+                )
+
+                # When text rotation differs from box rotation, draw the arrow box with invisible
+                # glyphs and overlay separately rotated visible text.
+                if abs(text_rotation - box_rotation) > 1e-8:
+                    bbox_artist = self._ax.text(
+                        tip_x + offset_x,
+                        tip_y + offset_y,
+                        text_value,
+                        transform=transform,
+                        ha=ha,
+                        va=va,
+                        color=(0.0, 0.0, 0.0, 0.0),
+                        fontsize=arrow.textstyle.fontsize,
+                        fontweight=arrow.textstyle.fontweight,
+                        fontstyle=arrow.textstyle.fontstyle,
+                        fontfamily=arrow.textstyle.fontfamily,
+                        rotation=box_rotation,
+                        clip_on=placement.clip_on,
+                        zorder=placement.zorder,
+                        bbox=dict(
+                            boxstyle=boxstyle,
+                            fc=face_color,
+                            ec=edgecolor,
+                            lw=style.arrowoutlinewidth,
+                        ),
+                    )
+                    self._align_text_arrow_tip_to_position(
+                        bbox_artist,
+                        desired_tip=(tip_x + offset_x, tip_y + offset_y),
+                        coordinate_transform=transform,
+                        direction=arrow.direction,
+                    )
+                    aligned_x, aligned_y = bbox_artist.get_position()
+                    text_artist = self._ax.text(
+                        aligned_x,
+                        aligned_y,
+                        text_value,
+                        transform=transform,
+                        ha=ha,
+                        va=va,
+                        color=text_color,
+                        fontsize=arrow.textstyle.fontsize,
+                        fontweight=arrow.textstyle.fontweight,
+                        fontstyle=arrow.textstyle.fontstyle,
+                        fontfamily=arrow.textstyle.fontfamily,
+                        rotation=text_rotation,
+                        clip_on=placement.clip_on,
+                        zorder=float(placement.zorder) + 0.01,
+                    )
+                    text_effects = self._annotation_text_outline_effects(arrow.textstyle)
+                    if text_effects is not None:
+                        text_artist.set_path_effects(text_effects)
+                else:
+                    text_artist = self._ax.text(
+                        tip_x + offset_x,
+                        tip_y + offset_y,
+                        text_value,
+                        transform=transform,
+                        ha=ha,
+                        va=va,
+                        color=text_color,
+                        fontsize=arrow.textstyle.fontsize,
+                        fontweight=arrow.textstyle.fontweight,
+                        fontstyle=arrow.textstyle.fontstyle,
+                        fontfamily=arrow.textstyle.fontfamily,
+                        rotation=box_rotation,
+                        clip_on=placement.clip_on,
+                        zorder=placement.zorder,
+                        bbox=dict(
+                            boxstyle=boxstyle,
+                            fc=face_color,
+                            ec=edgecolor,
+                            lw=style.arrowoutlinewidth,
+                        ),
+                    )
+                    self._align_text_arrow_tip_to_position(
+                        text_artist,
+                        desired_tip=(tip_x + offset_x, tip_y + offset_y),
+                        coordinate_transform=transform,
+                        direction=arrow.direction,
+                    )
+                    text_effects = self._annotation_text_outline_effects(arrow.textstyle)
+                    if text_effects is not None:
+                        text_artist.set_path_effects(text_effects)
+                continue
+
+            style = arrow.labelarrowstyle
+            if style is None:  # pragma: no cover
+                raise RuntimeError("Label arrow missing labelarrowstyle.")
+
+            unit_x, unit_y = self._direction_unit_vector(arrow.direction)
+            if placement.arrowtail is None:
+                if arrow.arrow_length_percentage is not None:
+                    self.fig.canvas.draw()
+                    axes_bbox = self._ax.get_window_extent()
+                    if arrow.direction in {"left", "right"}:
+                        direction_span_pixels = float(axes_bbox.width)
+                    else:
+                        direction_span_pixels = float(axes_bbox.height)
+                    arrow_length_pixels = (
+                        float(arrow.arrow_length_percentage) / 100.0
+                    ) * direction_span_pixels
+                    tail_x, tail_y = self._shift_point_along_direction_pixels(
+                        (tip_x, tip_y),
+                        direction=arrow.direction,
+                        signed_pixels=-arrow_length_pixels,
+                        coordinate_transform=transform,
+                    )
+                else:
+                    tail_x = tip_x - (unit_x * placement.tail_length)
+                    tail_y = tip_y - (unit_y * placement.tail_length)
+            else:
+                tail_x, tail_y = placement.arrowtail
+
+            if (
+                isinstance(style.arrowoutlinecolor, str)
+                and style.arrowoutlinecolor.lower() == "none"
+            ):
+                regular_edgecolor: str | tuple[float, float, float, float] = "none"
+            else:
+                regular_edgecolor = self._resolved_rgba(
+                    style.arrowoutlinecolor,
+                    style.arrowoutlinealpha,
+                    field="annotation_arrow_outlinecolor",
+                )
+
+            self._ax.annotate(
+                "",
+                xy=(tip_x, tip_y),
+                xytext=(tail_x, tail_y),
+                xycoords=coordinate_system,
+                textcoords=coordinate_system,
+                clip_on=placement.clip_on,
+                zorder=placement.zorder,
+                arrowprops=dict(
+                    arrowstyle=style.arrowstyle,
+                    connectionstyle=style.connectionstyle,
+                    mutation_scale=style.arrowhead_scale,
+                    shrinkA=style.shrink_a,
+                    shrinkB=style.shrink_b,
+                    facecolor=self._resolved_rgba(
+                        style.arrowfacecolor,
+                        style.arrowfacealpha,
+                        field="annotation_arrow_facecolor",
+                    ),
+                    edgecolor=regular_edgecolor,
+                    linewidth=style.arrowoutlinewidth,
+                    linestyle=style.linestyle,
+                ),
+            )
+
+            text_value = arrow.text if arrow.text is not None else ""
+            if text_value == "":
+                continue
+
+            if arrow.label_position is None:
+                label_anchor_x = tail_x - (unit_x * placement.label_padding)
+                label_anchor_y = tail_y - (unit_y * placement.label_padding)
+            else:
+                label_anchor_x, label_anchor_y = arrow.label_position
+
+            text_x = label_anchor_x + offset_x
+            text_y = label_anchor_y + offset_y
+
+            if arrow.labelbox_options is None:
+                bbox: dict[str, object] | None = None
+            else:
+                bbox = arrow.labelbox_options.to_mpl_bbox()
+
+            if arrow.labelfont_options is not None:
+                outline_color, _ = resolve_color_and_alpha(
+                    arrow.labelfont_options.outlinecolor,
+                    alpha=1.0,
+                )
+                text_effects: list[AbstractPathEffect] | None = [
+                    patheffects.Stroke(
+                        linewidth=float(arrow.labelfont_options.outlinewidth),
+                        foreground=outline_color,
+                    ),
+                    patheffects.Normal(),
+                ]
+                text_artist = self._ax.text(
+                    text_x,
+                    text_y,
+                    text_value,
+                    transform=transform,
+                    ha=ha,
+                    va=va,
+                    rotation=(
+                        arrow.textstyle.rotation if arrow.textstyle.rotation is not None else 0.0
+                    ),
+                    clip_on=placement.clip_on,
+                    zorder=placement.zorder,
+                    bbox=bbox,
+                    **arrow.labelfont_options.to_mpl_text_kwargs(),
+                )
+            else:
+                text_effects = self._annotation_text_outline_effects(arrow.textstyle)
+                text_artist = self._ax.text(
+                    text_x,
+                    text_y,
+                    text_value,
+                    transform=transform,
+                    ha=ha,
+                    va=va,
+                    rotation=(
+                        arrow.textstyle.rotation if arrow.textstyle.rotation is not None else 0.0
+                    ),
+                    clip_on=placement.clip_on,
+                    zorder=placement.zorder,
+                    bbox=bbox,
+                    color=self._resolved_rgba(
+                        arrow.textstyle.fontcolor,
+                        arrow.textstyle.fontalpha,
+                        field="annotation_arrow_text_color",
+                    ),
+                    fontsize=arrow.textstyle.fontsize,
+                    fontweight=arrow.textstyle.fontweight,
+                    fontstyle=arrow.textstyle.fontstyle,
+                    fontfamily=arrow.textstyle.fontfamily,
+                )
+            text_artist.set_clip_path(self._ax.patch)
+            if text_effects is not None:
+                text_artist.set_path_effects(text_effects)
+
     def _get_named_line_legend_handles(self) -> list[LegendHandle]:
         """Get legend handles for all named lines.
 
@@ -1367,6 +2219,7 @@ class GerryPlotBase(ABC):
         self._draw_horizontals()
         self._set_x_axis()
         self._set_y_axis()
+        self._draw_annotation_arrows()
         self._apply_frame_visibility()
         self._apply_deferred_tick_styles()
         self._apply_deferred_label_styles()
