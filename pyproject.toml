@@ -66,6 +66,8 @@ docs = [
   "sphinx>=8.2.3",
   "sphinx-copybutton>=0.5.2",
   "sphinx-rtd-theme>=3.0.2",
+  "recommonmark>=0.7.1,<0.8.0",
+  "nbconvert>=7.16.6,<8.0.0",
 ]
 tex = [
     "pymupdf>=1.26.6",

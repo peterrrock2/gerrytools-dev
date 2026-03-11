@@ -49,7 +49,29 @@ tasks:
     cmds:
       - uv python install {{.PYTHON_VERSION}}
       - >-
-        uv --managed-python sync --locked --all-groups --extra mgrp
+        uv --managed-python sync --locked --all-groups --all-extras
+        --python {{.PYTHON_VERSION}}
+
+  lock:
+    desc: Generate a lockfile without installing dependencies
+    internal: true
+    silent: true
+    deps: ["ensure-uv-{{OS}}", "upgrade-deps"]
+    env:
+      UV_PROJECT_ENVIRONMENT: "{{.ROOT_DIR}}/{{.VENV_DIR}}"
+    cmds:
+      - uv lock
+
+  upgrade-deps:
+    desc: Upgrade dependencies and regenerate the lockfile
+    silent: true
+    deps: ["ensure-uv-{{OS}}"]
+    env:
+      UV_PROJECT_ENVIRONMENT: "{{.ROOT_DIR}}/{{.VENV_DIR}}"
+    cmds:
+      - uv python install {{.PYTHON_VERSION}}
+      - >-
+        uv --managed-python sync --upgrade --all-groups --all-extras
         --python {{.PYTHON_VERSION}}
 
   setup:
@@ -69,17 +91,17 @@ tasks:
       - uv python install {{.PYTHON_VERSION}}
       - uv --managed-python sync --locked --python {{.PYTHON_VERSION}}
 
-  install-docs:
-    desc: Install documentation dependencies
-    silent: true
-    deps: ["ensure-uv-{{OS}}"]
-    env:
-      UV_PROJECT_ENVIRONMENT: "{{.ROOT_DIR}}/{{.VENV_DIR}}"
-    cmds:
-      - uv python install {{.PYTHON_VERSION}}
-      - >-
-        uv --managed-python sync --locked --group docs --extra mgrp
-        --python {{.PYTHON_VERSION}}
+  # install-docs:
+  #   desc: Install documentation dependencies
+  #   silent: true
+  #   deps: ["ensure-uv-{{OS}}"]
+  #   env:
+  #     UV_PROJECT_ENVIRONMENT: "{{.ROOT_DIR}}/{{.VENV_DIR}}"
+  #   cmds:
+  #     - uv python install {{.PYTHON_VERSION}}
+  #     - >-
+  #       uv --managed-python sync --locked --group docs --all-extras
+  #       --python {{.PYTHON_VERSION}}
 
   format:
     desc: Format the codebase using Black and isort
@@ -139,7 +161,7 @@ tasks:
     cmds:
       - task: pytest
         vars:
-          PYTEST_ARGS: '{{.CLI_ARGS | default .TEST_PATHS}}'
+          PYTEST_ARGS: "{{.CLI_ARGS | default .TEST_PATHS}}"
 
   test:*:
     desc: Run tests in a specific path (`task test:tests/foo`)
@@ -157,7 +179,7 @@ tasks:
     cmds:
       - task: pytest
         vars:
-          PYTEST_ARGS: '{{.CLI_ARGS | default .TEST_PATHS}} -m slow'
+          PYTEST_ARGS: "{{.CLI_ARGS | default .TEST_PATHS}} -m slow"
 
   coverage:
     desc: Run tests with coverage reporting
@@ -186,12 +208,26 @@ tasks:
       - uv run pre-commit install
       - uv run pre-commit run --all-files
 
+  # docs:
+  #   desc: Build the documentation
+  #   silent: true
+  #   cmds:
+  #     - task: install-docs
+  #     - uv run sphinx-build -b html docs/source docs/build
+
   docs:
     desc: Build the documentation
     silent: true
     cmds:
-      - task: install-docs
-      - uv run sphinx-build -b html docs/source docs/build
+      - task: sync-contributing-doc
+      - uv run jupyter nbconvert --to rst docs/notebooks/*.ipynb --output-dir docs/user/tutorial/
+      - uv run sphinx-build -b dirhtml docs/source docs/build
+
+  sync-contributing-doc:
+    desc: Sync the docs contributing page from CONTRIBUTING.md
+    silent: true
+    cmds:
+      - uv run python docs/sync_contributing.py
 
   clean:
     desc: Clean build artifacts
@@ -203,7 +239,7 @@ tasks:
     internal: true
     silent: true
     cmds: &clean-unix
-      - rm -rf dist build docs/build docs/_build "{{.VENV_DIR}}" .pytest_cache .mypy_cache .ruff_cache
+      - rm -rf dist build docs/build docs/build "{{.VENV_DIR}}" .pytest_cache .mypy_cache .ruff_cache
       - find . -type d -name "*.egg-info" -exec rm -rf {} +
       - find . -type d -name "__pycache__" -exec rm -rf {} +
       - find . -type d -name ".ipynb_checkpoints" -exec rm -rf {} +
@@ -221,7 +257,6 @@ tasks:
       - cmd /c "if exist dist rmdir /s /q dist"
       - cmd /c "if exist build rmdir /s /q build"
       - cmd /c "if exist docs\\build rmdir /s /q docs\\build"
-      - cmd /c "if exist docs\\_build rmdir /s /q docs\\_build"
       - cmd /c "if exist {{.VENV_DIR}} rmdir /s /q {{.VENV_DIR}}"
       - cmd /c "if exist .pytest_cache rmdir /s /q .pytest_cache"
       - cmd /c "if exist .mypy_cache rmdir /s /q .mypy_cache"

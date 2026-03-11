@@ -24,6 +24,7 @@ Welcome to gerrytools's documentation!
    :maxdepth: 2
    :caption: Topics
 
+   package_info/contributing
    topics/docker
 
 
