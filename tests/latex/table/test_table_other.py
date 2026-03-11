@@ -18,14 +18,14 @@ def test_include_index_resizes_existing_boundary_extras(table_defaults):
     table = table_defaults
     n_data_cols = table.df.shape[1]
 
-    assert not table._TexTable__options.include_index
-    assert len(table._TexTable__options.tabular_alignments) == n_data_cols
+    assert not table._options.include_index
+    assert len(table._options.tabular_alignments) == n_data_cols
 
-    table._TexTable__options.boundary_extras = ["existing"] * 1  # != ncols + 1
+    table._options.boundary_extras = ["existing"] * 1  # != ncols + 1
 
     table.include_index(include=True)
 
-    assert len(table._TexTable__options.boundary_extras) == n_data_cols + 2
+    assert len(table._options.boundary_extras) == n_data_cols + 2
 
 
 def test_string_ops_idempotent(table_defaults):
@@ -44,7 +44,7 @@ def test_include_index_add_mismatched_tabular_alignments_raises(table_defaults):
     table = table_defaults
     n_data_cols = table.df.shape[1]
 
-    table._TexTable__options.tabular_alignments = ["c"] * (n_data_cols + 1)
+    table._options.tabular_alignments = ["c"] * (n_data_cols + 1)
 
     with pytest.raises(
         ValueError,
@@ -59,7 +59,7 @@ def test_include_index_remove_mismatched_tabular_alignments_raises(table_default
 
     table.include_index(include=True)
 
-    table._TexTable__options.tabular_alignments = ["c"] * (n_data_cols + 2)
+    table._options.tabular_alignments = ["c"] * (n_data_cols + 2)
 
     with pytest.raises(
         ValueError,
@@ -98,7 +98,7 @@ def test_add_vrule_left_of_negative_index_raises(table_defaults):
 
 def test_add_vrule_left_of_index_too_large_raises(table_defaults):
     table = table_defaults
-    include_index_offset = int(table._TexTable__options.include_index)
+    include_index_offset = int(table._options.include_index)
     too_big = len(table.df.columns) + include_index_offset + 1
 
     with pytest.raises(
@@ -120,7 +120,7 @@ def test_add_vrule_right_of_index_too_small_raises(table_defaults):
 
 def test_add_vrule_right_of_index_too_large_raises(table_defaults):
     table = table_defaults
-    include_index_offset = int(table._TexTable__options.include_index)
+    include_index_offset = int(table._options.include_index)
     too_big = len(table.df.columns) + include_index_offset
 
     with pytest.raises(
@@ -154,7 +154,7 @@ def test_highlight_rows_invalid_color_spec_raises(table_defaults):
 def test_generate_body_invalid_name_color_value_type_raises(table_defaults):
     table = table_defaults
     # Force bad ("NAME", non-str) entry
-    table._TexTable__options.row_highlight_colors[0] = ("NAME", 123)
+    table._options.row_highlight_colors[0] = ("NAME", 123)
 
     with pytest.raises(
         ValueError,
@@ -165,7 +165,7 @@ def test_generate_body_invalid_name_color_value_type_raises(table_defaults):
 
 def test_generate_body_invalid_html_color_value_type_raises(table_defaults):
     table = table_defaults
-    table._TexTable__options.row_highlight_colors[0] = ("HTML", 123)
+    table._options.row_highlight_colors[0] = ("HTML", 123)
 
     with pytest.raises(
         ValueError,
@@ -176,7 +176,7 @@ def test_generate_body_invalid_html_color_value_type_raises(table_defaults):
 
 def test_generate_body_invalid_html_color_value_bad_hex_raises(table_defaults):
     table = table_defaults
-    table._TexTable__options.row_highlight_colors[0] = ("HTML", "#12345")  # 5 digits
+    table._options.row_highlight_colors[0] = ("HTML", "#12345")  # 5 digits
 
     with pytest.raises(
         ValueError,
@@ -187,7 +187,7 @@ def test_generate_body_invalid_html_color_value_bad_hex_raises(table_defaults):
 
 def test_generate_body_unsupported_color_type_warns(table_defaults):
     table = table_defaults
-    table._TexTable__options.row_highlight_colors[0] = ("WEIRD", "blue")
+    table._options.row_highlight_colors[0] = ("WEIRD", "blue")
 
     with pytest.warns(UserWarning, match=r"Unsupported color type 'WEIRD'"):
         table._generate_body()
@@ -284,89 +284,89 @@ def test_add_hrule_above_initializes_and_extends(table_defaults):
     table = table_defaults
 
     table.clear_all_hrule()
-    assert table._TexTable__options.hrule_counts == []
+    assert table._options.hrule_counts == []
 
     table.add_hrule_above(0, count=2)
 
-    assert len(table._TexTable__options.hrule_counts) == len(table.df)
-    assert table._TexTable__options.hrule_counts[0] == 2
+    assert len(table._options.hrule_counts) == len(table.df)
+    assert table._options.hrule_counts[0] == 2
 
 
 def test_add_hrule_above_extends_existing_short_hrule_counts():
     df = pd.DataFrame({"a": [1, 2, 3]})
     table = TexTable(df)
 
-    table._TexTable__options.hrule_counts = [5]
+    table._options.hrule_counts = [5]
 
     table.add_hrule_above(2, count=1)
 
-    assert len(table._TexTable__options.hrule_counts) == 3
-    assert table._TexTable__options.hrule_counts[0] == 5
-    assert table._TexTable__options.hrule_counts[2] == 1
+    assert len(table._options.hrule_counts) == 3
+    assert table._options.hrule_counts[0] == 5
+    assert table._options.hrule_counts[2] == 1
 
 
 def test_add_hrule_above_all_initializes_if_empty(table_defaults):
     table = table_defaults
 
-    table._TexTable__options.hrule_counts = []
+    table._options.hrule_counts = []
     table.add_hrule_above_all(count=3)
 
-    assert table._TexTable__options.hrule_counts == [3] * len(table.df)
+    assert table._options.hrule_counts == [3] * len(table.df)
 
 
 def test_clear_all_hrule(table_defaults):
     table = table_defaults
 
     table.add_hrule_above_all(count=1)
-    assert any(c > 0 for c in table._TexTable__options.hrule_counts)
+    assert any(c > 0 for c in table._options.hrule_counts)
 
     table.clear_all_hrule()
-    assert table._TexTable__options.hrule_counts == []
+    assert table._options.hrule_counts == []
 
 
 def test_add_toprule_default_and_remove(table_defaults):
     table = table_defaults
 
-    table._TexTable__options.hrule_cmd = r"\midrule"
-    table._TexTable__options.toprule_cmd = None
+    table._options.hrule_cmd = r"\midrule"
+    table._options.toprule_cmd = None
 
     table.add_toprule()
-    assert table._TexTable__options.toprule_cmd == r"\midrule"
+    assert table._options.toprule_cmd == r"\midrule"
 
     header = table._generate_header()
     assert r"\midrule" in header
 
     table.remove_toprule()
-    assert table._TexTable__options.toprule_cmd is None
+    assert table._options.toprule_cmd is None
 
 
 def test_add_bottomrule_default_and_remove(table_defaults):
     table = table_defaults
 
-    table._TexTable__options.hrule_cmd = r"\midrule"
-    table._TexTable__options.bottomrule_cmd = None
+    table._options.hrule_cmd = r"\midrule"
+    table._options.bottomrule_cmd = None
 
     table.add_bottomrule()
-    assert table._TexTable__options.bottomrule_cmd == r"\midrule"
+    assert table._options.bottomrule_cmd == r"\midrule"
 
     footer = table._generate_footer()
     assert r"\midrule" in footer
 
     table.remove_bottomrule()
-    assert table._TexTable__options.bottomrule_cmd is None
+    assert table._options.bottomrule_cmd is None
 
 
 def test_add_vrule_left_of_initializes_and_updates(table_defaults):
     table = table_defaults
     ncols = len(table.df.columns)
-    include_index_offset = int(table._TexTable__options.include_index)
+    include_index_offset = int(table._options.include_index)
 
-    table._TexTable__options.vrule_counts = []
+    table._options.vrule_counts = []
 
     table.add_vrule_left_of(0, count=2)
 
-    assert len(table._TexTable__options.vrule_counts) == ncols + 1 + include_index_offset
-    assert table._TexTable__options.vrule_counts[0] == 2
+    assert len(table._options.vrule_counts) == ncols + 1 + include_index_offset
+    assert table._options.vrule_counts[0] == 2
 
 
 def test_clear_all_vrule_sets_correct_length(table_defaults):
@@ -375,33 +375,33 @@ def test_clear_all_vrule_sets_correct_length(table_defaults):
     table.include_index(include=True)
     table.clear_all_vrule()
 
-    expected_len = len(table.df.columns) + 1 + int(table._TexTable__options.include_index)
-    assert len(table._TexTable__options.vrule_counts) == expected_len
-    assert all(c == 0 for c in table._TexTable__options.vrule_counts)
+    expected_len = len(table.df.columns) + 1 + int(table._options.include_index)
+    assert len(table._options.vrule_counts) == expected_len
+    assert all(c == 0 for c in table._options.vrule_counts)
 
 
 def test_add_vrule_right_of_initializes_and_updates(table_defaults):
     table = table_defaults
     ncols = len(table.df.columns)
-    include_index_offset = int(table._TexTable__options.include_index)
+    include_index_offset = int(table._options.include_index)
 
-    table._TexTable__options.vrule_counts = []
+    table._options.vrule_counts = []
 
     table.add_vrule_right_of(0, count=3)
 
-    assert len(table._TexTable__options.vrule_counts) == ncols + 1 + include_index_offset
-    assert table._TexTable__options.vrule_counts[1] == 3
+    assert len(table._options.vrule_counts) == ncols + 1 + include_index_offset
+    assert table._options.vrule_counts[1] == 3
 
 
 def test_add_vrule_all_initializes_and_increments(table_defaults):
     table = table_defaults
 
-    table._TexTable__options.vrule_counts = []
+    table._options.vrule_counts = []
     table.add_vrule_all(count=1)
 
-    total_cols = len(table.df.columns) + int(table._TexTable__options.include_index)
-    assert len(table._TexTable__options.vrule_counts) == total_cols + 1
-    assert table._TexTable__options.vrule_counts == [1] * (total_cols + 1)
+    total_cols = len(table.df.columns) + int(table._options.include_index)
+    assert len(table._options.vrule_counts) == total_cols + 1
+    assert table._options.vrule_counts == [1] * (total_cols + 1)
 
 
 def test_highlight_rows_name_color_and_generate_body(table_defaults):
@@ -412,16 +412,39 @@ def test_highlight_rows_name_color_and_generate_body(table_defaults):
     assert r"\rowcolor{yellow}" in body
 
 
+def test_highlight_rows_xcolor_expression_preserved(table_defaults):
+    table = table_defaults
+    table.highlight_rows(0, color="amber!80!gray")
+
+    assert table._options.row_highlight_colors[0] == ("NAME", "amber!80!gray")
+
+    body = table._generate_body()
+    assert r"\rowcolor{amber!80!gray}" in body
+
+
+def test_highlight_rows_non_latex_named_color_converts_to_html(table_defaults):
+    table = table_defaults
+    table.highlight_rows(0, color="tab:blue")
+
+    color_type, color_value = table._options.row_highlight_colors[0]
+    assert color_type == "HTML"
+    assert isinstance(color_value, str)
+    assert len(color_value) == 6
+
+    body = table._generate_body()
+    assert r"\rowcolor[HTML]{" in body
+
+
 def test_highlight_rows_initializes_row_highlight_colors_if_empty():
     df = pd.DataFrame({"a": [1, 2]})
     table = TexTable(df)
 
-    table._TexTable__options.row_highlight_colors = []
+    table._options.row_highlight_colors = []
 
     table.highlight_rows(1, color="yellow")
 
-    assert len(table._TexTable__options.row_highlight_colors) == len(df)
-    assert table._TexTable__options.row_highlight_colors[1] == ("NAME", "yellow")
+    assert len(table._options.row_highlight_colors) == len(df)
+    assert table._options.row_highlight_colors[1] == ("NAME", "yellow")
 
 
 def test_highlight_rows_hex_color_and_generate_body(table_defaults):
@@ -481,8 +504,8 @@ def test_set_hrule_and_all_hrule(table_defaults):
     table.set_hrule_command(r"\hline")
     table.set_all_hrule(2)
 
-    assert table._TexTable__options.hrule_cmd == r"\hline"
-    assert table._TexTable__options.hrule_counts == [2] * len(table.df)
+    assert table._options.hrule_cmd == r"\hline"
+    assert table._options.hrule_counts == [2] * len(table.df)
 
 
 def test_set_nan_string_used_in_body():
@@ -501,9 +524,9 @@ def test_set_tabular_format_success_without_index(table_defaults):
     fmt = "c" * ncols
     table.set_tabular_format(fmt)
 
-    assert table._TexTable__options.tabular_alignments == ["c"] * ncols
-    assert len(table._TexTable__options.vrule_counts) == ncols + 1
-    assert len(table._TexTable__options.boundary_extras) == ncols + 1
+    assert table._options.tabular_alignments == ["c"] * ncols
+    assert len(table._options.vrule_counts) == ncols + 1
+    assert len(table._options.boundary_extras) == ncols + 1
 
 
 def test_set_tabular_format_success_with_index():
@@ -514,7 +537,7 @@ def test_set_tabular_format_success_with_index():
     fmt = "cc"
     table.set_tabular_format(fmt)
 
-    assert table._TexTable__options.tabular_alignments == ["c", "c"]
+    assert table._options.tabular_alignments == ["c", "c"]
 
 
 def test_set_group_tabular_format_autocompletes_short_fmt():
@@ -524,8 +547,9 @@ def test_set_group_tabular_format_autocompletes_short_fmt():
     table.set_header_groups({"G1": ["a"], "G2": ["b"]})
     table.set_group_tabular_format("c")
 
-    assert table._TexTable__options.group_tabular_alignments == ["c", "c"]
-    assert len(table._TexTable__options.group_vrule_counts) == 3  # 2 cells + 1 boundary
+    assert table._options.group_tabular_alignments == ["c", "c"]
+    assert table._options.group_vrule_counts is not None
+    assert len(table._options.group_vrule_counts) == 3  # 2 cells + 1 boundary
 
 
 def test_clear_header_groups_resets_state():
@@ -536,10 +560,10 @@ def test_clear_header_groups_resets_state():
     table.set_group_tabular_format("cc")
     table.clear_header_groups()
 
-    assert table._TexTable__options.groups_to_cols == {"": ["a", "b"]}
-    assert table._TexTable__options.group_tabular_alignments is None
-    assert table._TexTable__options.group_vrule_counts is None
-    assert table._TexTable__options.group_boundary_extras is None
+    assert table._options.groups_to_cols == {"": ["a", "b"]}
+    assert table._options.group_tabular_alignments is None
+    assert table._options.group_vrule_counts is None
+    assert table._options.group_boundary_extras is None
 
 
 def test_set_header_groups_with_missing_cols_and_blank_group_key():
@@ -552,7 +576,7 @@ def test_set_header_groups_with_missing_cols_and_blank_group_key():
             "": ["b"],
         }
     )
-    g2c = table._TexTable__options.groups_to_cols
+    g2c = table._options.groups_to_cols
     assert g2c[""][-1] == "c"
 
 
@@ -561,7 +585,7 @@ def test_set_header_groups_with_missing_cols_and_no_blank_group():
     table = TexTable(df)
 
     table.set_header_groups({"G1": ["a"]})
-    g2c = table._TexTable__options.groups_to_cols
+    g2c = table._options.groups_to_cols
 
     assert g2c["G1"] == ["a"]
     assert g2c[""] == ["b", "c"]
@@ -572,7 +596,7 @@ def test_set_header_groups_covering_all_cols_no_missing():
     table = TexTable(df)
 
     table.set_header_groups({"G1": ["a"], "G2": ["b"]})
-    g2c = table._TexTable__options.groups_to_cols
+    g2c = table._options.groups_to_cols
 
     assert set(g2c.keys()) == {"G1", "G2"}
     assert "" not in g2c

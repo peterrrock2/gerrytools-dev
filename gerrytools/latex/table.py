@@ -311,7 +311,7 @@ class TexTable:
         self._document.add_packages("colortbl")
         self.df.index = self.df.index.map(str)
         if use_defaults:
-            self.__options = TableOptions(
+            self._options = TableOptions(
                 groups_to_cols={"": list(df.columns)},
                 tabular_alignments=["c"] * df.shape[1],
                 vrule_counts=[0] * (df.shape[1] + 1),
@@ -323,7 +323,7 @@ class TexTable:
             self.set_decimal_count(4)
 
         else:
-            self.__options = TableOptions(
+            self._options = TableOptions(
                 groups_to_cols={"": list(df.columns)},
                 tabular_alignments=["c"] * df.shape[1],
                 row_highlight_colors=[("NONE", "")] * df.shape[0],
@@ -344,7 +344,7 @@ class TexTable:
 
     def clear_options(self) -> None:
         """Resets all table options to their default values."""
-        self.__options = TableOptions(
+        self._options = TableOptions(
             groups_to_cols={"": list(self.df.columns)},
             tabular_alignments=["c"] * self.df.shape[1],
             row_highlight_colors=[("NONE", "")] * self.df.shape[0],
@@ -379,8 +379,8 @@ class TexTable:
                 with the DataFrame shape when including or removing the index.
         """
 
-        self.__options.index_alignment = alignment
-        self.__options.index_name = latex_escape(str(name)) if name is not None else ""
+        self._options.index_alignment = alignment
+        self._options.index_name = latex_escape(str(name)) if name is not None else ""
 
         n_data_cols = self.df.shape[1]
 
@@ -394,24 +394,24 @@ class TexTable:
             Returns:
                 None
             """
-            if not getattr(self.__options, "boundary_extras", None):
-                self.__options.boundary_extras = [""] * (ncols + 1)
-            if len(self.__options.boundary_extras) != ncols + 1:
-                self.__options.boundary_extras = [""] * (ncols + 1)
+            if not getattr(self._options, "boundary_extras", None):
+                self._options.boundary_extras = [""] * (ncols + 1)
+            if len(self._options.boundary_extras) != ncols + 1:
+                self._options.boundary_extras = [""] * (ncols + 1)
 
         # ADD index
-        if include and not self.__options.include_index:
-            self.__options.include_index = True
+        if include and not self._options.include_index:
+            self._options.include_index = True
 
             # expected current cols = data cols
-            if len(self.__options.tabular_alignments) != n_data_cols:
+            if len(self._options.tabular_alignments) != n_data_cols:
                 raise ValueError(
                     "Current tabular format does not match DataFrame columns. Got "
-                    f"{len(self.__options.tabular_alignments)} colspecs but expected {n_data_cols}."
+                    f"{len(self._options.tabular_alignments)} colspecs but expected {n_data_cols}."
                 )
 
             # Insert the new index column spec
-            self.__options.tabular_alignments.insert(0, alignment)
+            self._options.tabular_alignments.insert(0, alignment)
 
             # vrule_counts/extras: old length was n_data_cols+1, new length should be
             # (n_data_cols+1)+1
@@ -420,30 +420,30 @@ class TexTable:
 
             # Insert a NEW boundary at position 1 (between new index col and old first col)
             # Keep boundary 0 (left edge) as-is.
-            self.__options.vrule_counts.insert(1, 0)
-            self.__options.boundary_extras.insert(1, "")
+            self._options.vrule_counts.insert(1, 0)
+            self._options.boundary_extras.insert(1, "")
 
         # REMOVE index
-        if (not include) and self.__options.include_index:
-            self.__options.include_index = False
+        if (not include) and self._options.include_index:
+            self._options.include_index = False
 
             # expected current cols = data cols + 1
-            if len(self.__options.tabular_alignments) != n_data_cols + 1:
+            if len(self._options.tabular_alignments) != n_data_cols + 1:
                 raise ValueError(
                     "Current tabular format does not match DataFrame columns+index. Got "
-                    f"{len(self.__options.tabular_alignments)} colspecs but expected "
+                    f"{len(self._options.tabular_alignments)} colspecs but expected "
                     f"{n_data_cols + 1}."
                 )
 
             # Remove the index column spec
-            self.__options.tabular_alignments.pop(0)
+            self._options.tabular_alignments.pop(0)
 
             # Remove boundary 1 (between old index col and first data col)
             new_ncols = n_data_cols + 1
             _ensure_extras(new_ncols)
 
-            self.__options.vrule_counts.pop(1)
-            self.__options.boundary_extras.pop(1)
+            self._options.vrule_counts.pop(1)
+            self._options.boundary_extras.pop(1)
 
     def remove_index(self) -> None:
         """Remove the index from the generated latex table (if it exists)"""
@@ -465,11 +465,11 @@ class TexTable:
         else:
             indices = index
 
-        if not self.__options.hrule_counts:
-            self.__options.hrule_counts = [0] * len(self.df)
-        if len(self.__options.hrule_counts) < len(self.df):
-            self.__options.hrule_counts.extend(
-                [0] * (len(self.df) - len(self.__options.hrule_counts))
+        if not self._options.hrule_counts:
+            self._options.hrule_counts = [0] * len(self.df)
+        if len(self._options.hrule_counts) < len(self.df):
+            self._options.hrule_counts.extend(
+                [0] * (len(self.df) - len(self._options.hrule_counts))
             )
 
         for idx in indices:
@@ -477,7 +477,7 @@ class TexTable:
                 raise ValueError(
                     f"Row index {idx} is out of bounds for DataFrame with {len(self.df)} rows."
                 )
-            self.__options.hrule_counts[idx] += count
+            self._options.hrule_counts[idx] += count
 
     def add_toprule(self, *, cmd: Optional[str] = None) -> None:
         """Add a rule to the top of the LaTeX table.
@@ -487,12 +487,12 @@ class TexTable:
                 current hrule_cmd in options. Defaults to None.
         """
         if cmd is None:
-            cmd = self.__options.hrule_cmd
+            cmd = self._options.hrule_cmd
         self.set_toprule_command(cmd)
 
     def remove_toprule(self) -> None:
         """Remove the rule at the top of the LaTeX table."""
-        self.__options.toprule_cmd = None
+        self._options.toprule_cmd = None
 
     def add_bottomrule(self, *, cmd: Optional[str] = None) -> None:
         """Add a rule to the bottom of the LaTeX table.
@@ -502,12 +502,12 @@ class TexTable:
                 current hrule_cmd in options. Defaults to None.
         """
         if cmd is None:
-            cmd = self.__options.hrule_cmd
+            cmd = self._options.hrule_cmd
         self.set_bottomrule_command(cmd)
 
     def remove_bottomrule(self) -> None:
         """Remove the rule at the bottom of the LaTeX table."""
-        self.__options.bottomrule_cmd = None
+        self._options.bottomrule_cmd = None
 
     def add_hrule_above_all(self, count: int = 1) -> None:
         """Add horizontal rules above all rows in the LaTeX table.
@@ -515,15 +515,15 @@ class TexTable:
         Args:
             count (int, optional): Number of horizontal rules to add above each row. Defaults to 1.
         """
-        if self.__options.hrule_counts is None or len(self.__options.hrule_counts) == 0:
-            self.__options.hrule_counts = [0] * len(self.df)
+        if self._options.hrule_counts is None or len(self._options.hrule_counts) == 0:
+            self._options.hrule_counts = [0] * len(self.df)
 
         for idx in range(len(self.df)):
-            self.__options.hrule_counts[idx] += count
+            self._options.hrule_counts[idx] += count
 
     def clear_all_hrule(self) -> None:
         """Remove all horizontal rules from the LaTeX table."""
-        self.__options.hrule_counts = []
+        self._options.hrule_counts = []
 
     def add_vrule_left_of(self, col_idx: int | list[int], count: int = 1) -> None:
         """Add vertical rules to the left of specified columns in the LaTeX table.
@@ -541,10 +541,10 @@ class TexTable:
         else:
             cols = col_idx
 
-        include_index_offset = 1 if self.__options.include_index else 0
+        include_index_offset = 1 if self._options.include_index else 0
 
-        if not self.__options.vrule_counts:
-            self.__options.vrule_counts = [0] * (len(self.df.columns) + 1 + include_index_offset)
+        if not self._options.vrule_counts:
+            self._options.vrule_counts = [0] * (len(self.df.columns) + 1 + include_index_offset)
 
         for cidx in cols:
             if cidx < 0 or cidx > len(self.df.columns) + include_index_offset:
@@ -554,12 +554,12 @@ class TexTable:
                     f"You may add vrules to the left of index 0 up to index "
                     f"{len(self.df.columns) + include_index_offset} for this dataframe."
                 )
-            self.__options.vrule_counts[cidx] += count
+            self._options.vrule_counts[cidx] += count
 
     def clear_all_vrule(self) -> None:
         """Remove all vertical rules from the LaTeX table."""
-        self.__options.vrule_counts = [0] * (
-            len(self.df.columns) + 1 + int(self.__options.include_index)
+        self._options.vrule_counts = [0] * (
+            len(self.df.columns) + 1 + int(self._options.include_index)
         )
 
     def add_vrule_right_of(self, col_idx: int | list[int], count: int = 1) -> None:
@@ -578,10 +578,10 @@ class TexTable:
         else:
             cols = col_idx
 
-        include_index_offset = 1 if self.__options.include_index else 0
+        include_index_offset = 1 if self._options.include_index else 0
 
-        if not self.__options.vrule_counts:
-            self.__options.vrule_counts = [0] * (len(self.df.columns) + 1 + include_index_offset)
+        if not self._options.vrule_counts:
+            self._options.vrule_counts = [0] * (len(self.df.columns) + 1 + include_index_offset)
 
         for cidx in cols:
             if cidx < -1 or cidx > len(self.df.columns) + include_index_offset - 1:
@@ -591,7 +591,7 @@ class TexTable:
                     f"You may add vrules to the right of index -1 up to index "
                     f"{len(self.df.columns) + include_index_offset - 1} for this dataframe."
                 )
-            self.__options.vrule_counts[cidx + 1] += count
+            self._options.vrule_counts[cidx + 1] += count
 
     def add_vrule_all(self, count: int = 1) -> None:
         """Add vertical rules around all columns in the LaTeX table.
@@ -600,12 +600,12 @@ class TexTable:
             count (int, optional): Number of vertical rules to add between each column.
                 Defaults to 1.
         """
-        total_cols = len(self.df.columns) + int(self.__options.include_index)
-        if not self.__options.vrule_counts:
-            self.__options.vrule_counts = [0] * (total_cols + 1)
+        total_cols = len(self.df.columns) + int(self._options.include_index)
+        if not self._options.vrule_counts:
+            self._options.vrule_counts = [0] * (total_cols + 1)
 
         for idx in range(total_cols + 1):
-            self.__options.vrule_counts[idx] += count
+            self._options.vrule_counts[idx] += count
 
     def highlight_rows(self, rows: int | Iterable[int], color: Color = "yellow") -> None:
         """Highlight specified rows in the LaTeX table.
@@ -633,21 +633,21 @@ class TexTable:
         color_tup = (color_type, color_value)
 
         if (
-            self.__options.row_highlight_colors is None
-            or len(self.__options.row_highlight_colors) == 0
+            self._options.row_highlight_colors is None
+            or len(self._options.row_highlight_colors) == 0
         ):
-            self.__options.row_highlight_colors = [("NONE", "")] * len(self.df)
+            self._options.row_highlight_colors = [("NONE", "")] * len(self.df)
 
         for ridx in row_indices:
-            self.__options.row_highlight_colors[ridx] = color_tup
+            self._options.row_highlight_colors[ridx] = color_tup
 
     def remove_column_headers(self) -> None:
         """Remove the column headers from the LaTeX table."""
-        self.__options.include_column_headers = False
+        self._options.include_column_headers = False
 
     def remove_group_headers(self) -> None:
         """Remove the group headers from the LaTeX table."""
-        self.__options.include_group_headers = False
+        self._options.include_group_headers = False
 
     def remove_all_headers(self) -> None:
         """Remove all headers (both column and group) from the LaTeX table."""
@@ -656,11 +656,11 @@ class TexTable:
 
     def include_column_headers(self) -> None:
         """Include the column headers in the LaTeX table."""
-        self.__options.include_column_headers = True
+        self._options.include_column_headers = True
 
     def include_group_headers(self) -> None:
         """Include the group headers in the LaTeX table."""
-        self.__options.include_group_headers = True
+        self._options.include_group_headers = True
 
     def include_all_headers(self) -> None:
         """Include all headers (both column and group) in the LaTeX table."""
@@ -681,8 +681,8 @@ class TexTable:
         Returns:
             None
         """
-        self.__options.bold_column_headers = bold
-        self.__options.italic_column_headers = italic
+        self._options.bold_column_headers = bold
+        self._options.italic_column_headers = italic
 
     def set_group_headers_text_format(self, bold: bool = True, italic: bool = False) -> None:
         """Set group-header emphasis styling.
@@ -694,8 +694,8 @@ class TexTable:
         Returns:
             None
         """
-        self.__options.bold_group_headers = bold
-        self.__options.italic_group_headers = italic
+        self._options.bold_group_headers = bold
+        self._options.italic_group_headers = italic
 
     def set_decimal_count(self, count: int) -> None:
         """Set the number of decimal places to round float values to in the LaTeX table.
@@ -706,7 +706,7 @@ class TexTable:
         if count < 0:
             raise ValueError("Decimal count must be non-negative")
 
-        self.__options.number_fmt_fn = round_decimals(count)
+        self._options.number_fmt_fn = round_decimals(count)
 
     def set_hrule_command(self, cmd: str) -> None:
         r"""Set the LaTeX command for horizontal rules in the table.
@@ -714,7 +714,7 @@ class TexTable:
         Args:
             cmd (str): LaTeX command for horizontal rules (e.g., r"\hline").
         """
-        self.__options.hrule_cmd = cmd
+        self._options.hrule_cmd = cmd
 
     def set_toprule_command(self, cmd: str | None = None) -> None:
         """Set the LaTeX command for the top rule in the table.
@@ -724,9 +724,9 @@ class TexTable:
                 current hrule_cmd in options. Defaults to None.
         """
         if cmd is None:
-            self.__options.toprule_cmd = self.__options.hrule_cmd
+            self._options.toprule_cmd = self._options.hrule_cmd
         else:
-            self.__options.toprule_cmd = cmd
+            self._options.toprule_cmd = cmd
 
     def set_bottomrule_command(self, cmd: str | None = None) -> None:
         """Set the LaTeX command for the bottom rule in the table.
@@ -736,9 +736,9 @@ class TexTable:
                 current hrule_cmd in options. Defaults to None.
         """
         if cmd is None:
-            self.__options.bottomrule_cmd = self.__options.hrule_cmd
+            self._options.bottomrule_cmd = self._options.hrule_cmd
         else:
-            self.__options.bottomrule_cmd = cmd
+            self._options.bottomrule_cmd = cmd
 
     def set_all_hrule(self, count: int) -> None:
         """Set the number of horizontal rules above all rows in the LaTeX table.
@@ -746,7 +746,7 @@ class TexTable:
         Args:
             count (int): Number of horizontal rules to add above each row.
         """
-        self.__options.hrule_counts = [count] * len(self.df)
+        self._options.hrule_counts = [count] * len(self.df)
 
     def set_nan_string(self, nan_str: str) -> None:
         """Set the string to represent NaN values in the LaTeX table.
@@ -754,7 +754,7 @@ class TexTable:
         Args:
             nan_str (str): String to represent NaN values.
         """
-        self.__options.nan_string = nan_str
+        self._options.nan_string = nan_str
 
     def set_tabular_format(self, fmt: str) -> None:
         """Set the table-row tabular preamble.
@@ -774,16 +774,16 @@ class TexTable:
         """
         colspecs, vrules, extras = _parse_tabular_preamble(fmt)
 
-        expected_cols = self.df.shape[1] + (1 if self.__options.include_index else 0)
+        expected_cols = self.df.shape[1] + (1 if self._options.include_index else 0)
         if len(colspecs) != expected_cols:
             raise ValueError(
                 f"Format implies {len(colspecs)} columns but expected {expected_cols} "
-                f"({'with' if self.__options.include_index else 'without'} index)."
+                f"({'with' if self._options.include_index else 'without'} index)."
             )
 
-        self.__options.tabular_alignments = colspecs
-        self.__options.vrule_counts = vrules
-        self.__options.boundary_extras = extras
+        self._options.tabular_alignments = colspecs
+        self._options.vrule_counts = vrules
+        self._options.boundary_extras = extras
 
     def set_group_tabular_format(self, fmt: str) -> None:
         """Set the group-header-row tabular preamble.
@@ -800,9 +800,7 @@ class TexTable:
         colspecs, vrules, extras = _parse_tabular_preamble(fmt)
 
         # group header has one cell per group-header block (+ index cell if include_index)
-        group_cells = len(self.__options.groups_to_cols) + (
-            1 if self.__options.include_index else 0
-        )
+        group_cells = len(self._options.groups_to_cols) + (1 if self._options.include_index else 0)
 
         if len(colspecs) == group_cells - 1:
             colspecs, vrules, extras = _parse_tabular_preamble(fmt + "c")
@@ -810,20 +808,20 @@ class TexTable:
         if len(colspecs) != group_cells:
             raise ValueError(
                 f"Group-header format implies {len(colspecs)} cells but expected {group_cells}. "
-                f"({('with' if self.__options.include_index else 'without')} index)."
+                f"({('with' if self._options.include_index else 'without')} index)."
             )
 
-        self.__options.group_tabular_alignments = colspecs
-        self.__options.group_vrule_counts = vrules
-        self.__options.group_boundary_extras = extras
+        self._options.group_tabular_alignments = colspecs
+        self._options.group_vrule_counts = vrules
+        self._options.group_boundary_extras = extras
 
     def clear_header_groups(self) -> None:
         """Clear any header groups set for the LaTeX table."""
-        self.__options.groups_to_cols = {"": list(self.df.columns)}
+        self._options.groups_to_cols = {"": list(self.df.columns)}
 
-        self.__options.group_tabular_alignments = None
-        self.__options.group_vrule_counts = None
-        self.__options.group_boundary_extras = None
+        self._options.group_tabular_alignments = None
+        self._options.group_vrule_counts = None
+        self._options.group_boundary_extras = None
 
     def set_header_groups(
         self,
@@ -867,11 +865,11 @@ class TexTable:
         elif len(missing_cols) > 0:
             groups_to_cols[""] = missing_cols
 
-        self.__options.groups_to_cols = groups_to_cols
+        self._options.groups_to_cols = groups_to_cols
 
-        self.__options.group_tabular_alignments = None
-        self.__options.group_vrule_counts = None
-        self.__options.group_boundary_extras = None
+        self._options.group_tabular_alignments = None
+        self._options.group_vrule_counts = None
+        self._options.group_boundary_extras = None
 
     def set_index_formatter(self, fmt_fn: CellWrapper | Callable[[TableCellValue], str]) -> None:
         """Set a formatter function for the index column.
@@ -898,9 +896,9 @@ class TexTable:
                 """
                 return v, one_arg(v)
 
-            self.__options.index_fmt_fn = _wrapped
+            self._options.index_fmt_fn = _wrapped
         else:
-            self.__options.index_fmt_fn = cast(CellWrapper, fmt_fn)
+            self._options.index_fmt_fn = cast(CellWrapper, fmt_fn)
 
     def set_number_formatter(self, fmt_fn: CellWrapper | Callable[[float], str]) -> None:
         """Set the number formatter function for the LaTeX table.
@@ -934,7 +932,7 @@ class TexTable:
         else:
             new_fn = cast(CellWrapper, fmt_fn)
 
-        self.__options.number_fmt_fn = new_fn
+        self._options.number_fmt_fn = new_fn
 
     def set_string_formatter(self, fmt_fn: CellWrapper | Callable[[str], str]) -> None:
         """Set the string formatter function for the LaTeX table.
@@ -967,7 +965,7 @@ class TexTable:
         else:
             new_fn = cast(CellWrapper, fmt_fn)
 
-        self.__options.str_fmt_fn = new_fn
+        self._options.str_fmt_fn = new_fn
 
     def __set_single_col_formatter(
         self, col: str, fmt_fn: CellWrapper | Callable[[TableCellValue], str]
@@ -1005,9 +1003,11 @@ class TexTable:
         else:
             new_fn = cast(CellWrapper, fmt_fn)
 
-        self.__options.col_formatters[col] = new_fn
+        self._options.col_formatters[col] = new_fn
 
-    def set_column_formatter(self, col: str | list[str], fmt_fn: CellWrapper) -> None:
+    def set_column_formatter(
+        self, col: str | list[str], fmt_fn: CellWrapper | Callable[[TableCellValue], str]
+    ) -> None:
         """Set a specific column formatter function for the LaTeX table.
 
         Args:
@@ -1064,9 +1064,11 @@ class TexTable:
         else:
             new_fn = cast(CellWrapper, fmt_fn)
 
-        self.__options.row_formatters[row_idx] = new_fn
+        self._options.row_formatters[row_idx] = new_fn
 
-    def set_row_formatter(self, row_idx: int | list[int], fmt_fn: CellWrapper) -> None:
+    def set_row_formatter(
+        self, row_idx: int | list[int], fmt_fn: CellWrapper | Callable[[TableCellValue], str]
+    ) -> None:
         """Set a specific row formatter function for the LaTeX table.
 
         Args:
@@ -1097,41 +1099,41 @@ class TexTable:
         Returns:
             str: LaTeX table header string.
         """
-        header_string = f"{{{self.__options.column_format}}}"
-        if self.__options.toprule_cmd is not None:
-            header_string += "\n" + self.__options.toprule_cmd + "\n"
+        header_string = f"{{{self._options.column_format}}}"
+        if self._options.toprule_cmd is not None:
+            header_string += "\n" + self._options.toprule_cmd + "\n"
 
         column_titles = []
         if (
-            set(self.__options.groups_to_cols.keys()) != set({""})
-            and self.__options.include_group_headers
+            set(self._options.groups_to_cols.keys()) != set({""})
+            and self._options.include_group_headers
         ):
-            header_string += f"\n{self.__options.multicolumn_format}"
+            header_string += f"\n{self._options.multicolumn_format}"
 
-        if self.__options.include_index:
+        if self._options.include_index:
             index_name = (
-                self.__options.index_name
-                if self.__options.index_name is not None
+                self._options.index_name
+                if self._options.index_name is not None
                 else (self.df.index.name if self.df.index.name is not None else "")
             )
             index_str = latex_escape(str(index_name))
-            if self.__options.bold_column_headers:
+            if self._options.bold_column_headers:
                 index_str = rf"\textbf{{{index_str}}}"
-            if self.__options.italic_column_headers:
+            if self._options.italic_column_headers:
                 index_str = rf"\textit{{{index_str}}}"
             column_titles.append(index_str)
 
-        for _, col_list in self.__options.groups_to_cols.items():
+        for _, col_list in self._options.groups_to_cols.items():
             for col in col_list:
                 col_title = latex_escape(str(col))
-                if self.__options.bold_column_headers:
+                if self._options.bold_column_headers:
                     col_title = rf"\textbf{{{col_title}}}"
-                if self.__options.italic_column_headers:
+                if self._options.italic_column_headers:
                     col_title = rf"\textit{{{col_title}}}"
 
                 column_titles.append(col_title)
 
-        if self.__options.include_column_headers:
+        if self._options.include_column_headers:
             header_string += "\n" + " & ".join(column_titles) + r" \\"
 
         header_string = rf"\begin{{tabular}}{header_string}" + "\n"
@@ -1154,19 +1156,17 @@ class TexTable:
         """
         column_ordering = list(self.df.columns)
 
-        if set(self.__options.groups_to_cols.keys()) != {""}:
+        if set(self._options.groups_to_cols.keys()) != {""}:
             column_ordering = []
-            for cols in self.__options.groups_to_cols.values():
+            for cols in self._options.groups_to_cols.values():
                 column_ordering.extend(cols)
 
         body_string = ""
         for row_idx, (df_row_idx, row) in enumerate(self.df.iterrows()):
-            if len(self.__options.hrule_counts) > 0 and self.__options.hrule_counts[row_idx] > 0:
-                body_string += (
-                    self.__options.hrule_cmd * self.__options.hrule_counts[row_idx] + "\n"
-                )
+            if len(self._options.hrule_counts) > 0 and self._options.hrule_counts[row_idx] > 0:
+                body_string += self._options.hrule_cmd * self._options.hrule_counts[row_idx] + "\n"
 
-            color_type, color_value = self.__options.row_highlight_colors[row_idx]
+            color_type, color_value = self._options.row_highlight_colors[row_idx]
             match color_type:
                 case "NAME":
                     if not isinstance(color_value, str):
@@ -1203,36 +1203,34 @@ class TexTable:
                     )
 
             row_items = []
-            if self.__options.include_index:
+            if self._options.include_index:
                 raw = str(df_row_idx)
                 esc = latex_escape(raw)
-                if self.__options.index_fmt_fn is not None:
-                    row_items.append(self.__options.index_fmt_fn(df_row_idx, esc)[1])
+                if self._options.index_fmt_fn is not None:
+                    row_items.append(self._options.index_fmt_fn(df_row_idx, esc)[1])
                 else:
                     row_items.append(esc)
 
             for col in column_ordering:
                 cell_value = row[col]
                 if pd.isna(cell_value):
-                    cell_str = self.__options.nan_string
+                    cell_str = self._options.nan_string
                 else:
-                    if col in self.__options.col_formatters:
-                        cell_str = self.__options.col_formatters[col](cell_value, str(cell_value))[
-                            1
-                        ]
-                    elif row_idx in self.__options.row_formatters:
-                        cell_str = self.__options.row_formatters[row_idx](
+                    if col in self._options.col_formatters:
+                        cell_str = self._options.col_formatters[col](cell_value, str(cell_value))[1]
+                    elif row_idx in self._options.row_formatters:
+                        cell_str = self._options.row_formatters[row_idx](
                             cell_value, str(cell_value)
                         )[1]
-                    elif isinstance(cell_value, float) and self.__options.number_fmt_fn is not None:
-                        cell_str = self.__options.number_fmt_fn(cell_value, str(cell_value))[1]
-                    elif isinstance(cell_value, str) and self.__options.str_fmt_fn is not None:
-                        cell_str = self.__options.str_fmt_fn(cell_value, cell_value)[1]
+                    elif isinstance(cell_value, float) and self._options.number_fmt_fn is not None:
+                        cell_str = self._options.number_fmt_fn(cell_value, str(cell_value))[1]
+                    elif isinstance(cell_value, str) and self._options.str_fmt_fn is not None:
+                        cell_str = self._options.str_fmt_fn(cell_value, cell_value)[1]
                     else:
                         cell_str_raw = latex_escape(str(cell_value))
                         cell_str = (
-                            self.__options.str_fmt_fn(cell_str_raw, cell_str_raw)[1]
-                            if self.__options.str_fmt_fn is not None
+                            self._options.str_fmt_fn(cell_str_raw, cell_str_raw)[1]
+                            if self._options.str_fmt_fn is not None
                             else cell_str_raw
                         )
 
@@ -1245,8 +1243,8 @@ class TexTable:
     def _generate_footer(self) -> str:
         """Generate the LaTeX table footer string."""
         footer_str = ""
-        if self.__options.bottomrule_cmd is not None:
-            footer_str += "\n" + self.__options.bottomrule_cmd + "\n"
+        if self._options.bottomrule_cmd is not None:
+            footer_str += "\n" + self._options.bottomrule_cmd + "\n"
         footer_str += r"\end{tabular}"
         logger.log(logging.DEBUG, "Generated LaTeX table footer:\n%s", footer_str, stacklevel=2)
         return footer_str

@@ -81,7 +81,7 @@ def test_body_only_image_snapshot(table_defaults, tmp_path):
     require_tex_engine()
 
     # Build a minimal tabular around just the body rows
-    opts = table_defaults._TexTable__options  # access the internal options
+    opts = table_defaults._options  # access the internal options
     fmt = opts.column_format  # e.g. "|c|c|c|..."
 
     body = table_defaults._generate_body()
@@ -432,7 +432,9 @@ def test_highlight_between_exclude_bounds_snapshot(df, table_plain, tmp_path):
 
     table_plain.set_number_formatter(
         compose_formatters(
-            highlight_between(min_val, max_val, "applegreen", include_bounds=False),
+            highlight_between(
+                min_val, max_val, "applegreen", include_lower=False, include_upper=False
+            ),
             round_decimals(5),
         )
     )
