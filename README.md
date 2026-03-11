@@ -126,19 +126,19 @@ minute. -->
 GerryTools is an active project, and has multiple contributors. If you'd like to contribute, here
 are a few house rules:
 
-1. After cloning this repository, run `sh setup.sh` to download and install necessary git hooks and
-   linting configurations.
+1. Install `task` and `uv`, then run `task setup` from the repository root. Use
+   `task --list-all` to see the available development workflows.
 
-1. **Follow the [PEP8 style guide](https://peps.python.org/pep-0008/)**. After installing the above
-   git hooks, linting is performed before every push. PEP8 errors can be automatically corrected by
-   running `autopep8 --in-place --aggressive -r gerrytools` on the command line from the root
-   directory.
+1. Run `task check` before opening a pull request. Use `task format` for `isort` and `black`,
+   `task lint` for `ruff`, `task test` for the test suite, and `task docs` to build the
+   documentation locally.
 
 1. **Write tests.** All changes, major or minor, **must** be accompanied by testing code. Code and
    tests will be immediately reviewed by Lab maintainers.
 
 1. Test coverage must stay **at least** the same; this can be checked by running
-   `pytest --cov=evaltools` after the tests are added to `tests/`.
+   `uv run pytest --cov=gerrytools --cov-report=term-missing` after the tests are added to
+   `tests/`.
 
 1. **Write documentation.** All changes should be documented via docstrings, and code should be
    repletely commented. It's much easier to decipher commented code! Docstring documentation is

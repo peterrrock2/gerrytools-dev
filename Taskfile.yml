@@ -1,0 +1,232 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+
+version: "3"
+
+vars:
+  PYTHON_VERSION: "3.11"
+  VENV_DIR: ".venv"
+  PKG: "gerrytools"
+  TEST_PATHS: "tests"
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task: help
+
+  help:
+    desc: List available tasks
+    silent: true
+    cmds:
+      - task --list-all
+
+  ensure-uv-linux: &ensure-uv-unix
+    desc: Install uv if not already available
+    internal: true
+    silent: true
+    status:
+      - command -v uv
+    cmds:
+      - curl -LsSf https://astral.sh/uv/install.sh | sh
+
+  ensure-uv-darwin: *ensure-uv-unix
+
+  ensure-uv-windows:
+    internal: true
+    silent: true
+    status:
+      - where uv
+    cmds:
+      - powershell -ExecutionPolicy ByPass -Command "irm https://astral.sh/uv/install.ps1 | iex"
+
+  sync:
+    desc: Sync the development environment
+    internal: true
+    silent: true
+    deps: ["ensure-uv-{{OS}}"]
+    env:
+      UV_PROJECT_ENVIRONMENT: "{{.ROOT_DIR}}/{{.VENV_DIR}}"
+    cmds:
+      - uv python install {{.PYTHON_VERSION}}
+      - >-
+        uv --managed-python sync --locked --all-groups --extra mgrp
+        --python {{.PYTHON_VERSION}}
+
+  setup:
+    desc: Set up the development environment
+    silent: true
+    cmds:
+      - task: sync
+      - uv run pre-commit install
+
+  install:
+    desc: Install the package environment
+    silent: true
+    deps: ["ensure-uv-{{OS}}"]
+    env:
+      UV_PROJECT_ENVIRONMENT: "{{.ROOT_DIR}}/{{.VENV_DIR}}"
+    cmds:
+      - uv python install {{.PYTHON_VERSION}}
+      - uv --managed-python sync --locked --python {{.PYTHON_VERSION}}
+
+  install-docs:
+    desc: Install documentation dependencies
+    silent: true
+    deps: ["ensure-uv-{{OS}}"]
+    env:
+      UV_PROJECT_ENVIRONMENT: "{{.ROOT_DIR}}/{{.VENV_DIR}}"
+    cmds:
+      - uv python install {{.PYTHON_VERSION}}
+      - >-
+        uv --managed-python sync --locked --group docs --extra mgrp
+        --python {{.PYTHON_VERSION}}
+
+  format:
+    desc: Format the codebase using Black and isort
+    silent: true
+    cmds:
+      - uv run isort {{.PKG}} {{.TEST_PATHS}}
+      - uv run black {{.PKG}} {{.TEST_PATHS}}
+
+  format-check:
+    desc: Check code formatting using Black and isort
+    silent: true
+    cmds:
+      - uv run isort --check-only --diff {{.PKG}} {{.TEST_PATHS}}
+      - uv run black --check --diff {{.PKG}} {{.TEST_PATHS}}
+
+  lint:
+    desc: Lint the codebase using Ruff
+    silent: true
+    cmds:
+      - uv run ruff check {{.PKG}} {{.TEST_PATHS}}
+
+  typecheck:
+    desc: Run type checks using Ty
+    aliases: [type-check]
+    silent: true
+    cmds:
+      - uv run ty check {{.PKG}} {{.TEST_PATHS}}
+
+  all-checks:
+    desc: Run formatting, linting, and type checking
+    silent: true
+    cmds:
+      - task: format-check
+      - task: lint
+      - task: typecheck
+
+  check:
+    desc: Run formatting and lint checks
+    silent: true
+    cmds:
+      - task: format-check
+      - task: lint
+
+  pytest:
+    internal: true
+    silent: true
+    env:
+      PYTHONHASHSEED: "0"
+      TERM: xterm
+    cmds:
+      - task: sync
+      - uv run pytest -v {{.PYTEST_ARGS}}
+
+  test:
+    desc: Run tests using pytest (`task test -- tests/foo` to scope the run)
+    silent: true
+    cmds:
+      - task: pytest
+        vars:
+          PYTEST_ARGS: '{{.CLI_ARGS | default .TEST_PATHS}}'
+
+  test:*:
+    desc: Run tests in a specific path (`task test:tests/foo`)
+    silent: true
+    vars:
+      TEST_PATH: "{{index .MATCH 0}}"
+    cmds:
+      - task: pytest
+        vars:
+          PYTEST_ARGS: "{{.TEST_PATH}}"
+
+  test-slow:
+    desc: Run only tests marked slow
+    silent: true
+    cmds:
+      - task: pytest
+        vars:
+          PYTEST_ARGS: '{{.CLI_ARGS | default .TEST_PATHS}} -m slow'
+
+  coverage:
+    desc: Run tests with coverage reporting
+    silent: true
+    cmds:
+      - task: pytest
+        vars:
+          PYTEST_ARGS: >-
+            {{.CLI_ARGS | default .TEST_PATHS}} --cov={{.PKG}}
+            --cov-report=term-missing
+
+  snapshots:
+    desc: Update LaTeX image snapshots
+    silent: true
+    env:
+      UPDATE_SNAPSHOTS: "1"
+    cmds:
+      - task: sync
+      - uv run pytest -m latex -v tests
+
+  precommit:
+    desc: Install and run pre-commit hooks
+    silent: true
+    cmds:
+      - task: sync
+      - uv run pre-commit install
+      - uv run pre-commit run --all-files
+
+  docs:
+    desc: Build the documentation
+    silent: true
+    cmds:
+      - task: install-docs
+      - uv run sphinx-build -b html docs/source docs/build
+
+  clean:
+    desc: Clean build artifacts
+    silent: true
+    cmds:
+      - task: clean-{{OS}}
+
+  clean-linux:
+    internal: true
+    silent: true
+    cmds: &clean-unix
+      - rm -rf dist build docs/build docs/_build "{{.VENV_DIR}}" .pytest_cache .mypy_cache .ruff_cache
+      - find . -type d -name "*.egg-info" -exec rm -rf {} +
+      - find . -type d -name "__pycache__" -exec rm -rf {} +
+      - find . -type d -name ".ipynb_checkpoints" -exec rm -rf {} +
+      - find . -type f -name "*.pyc" -delete
+
+  clean-darwin:
+    internal: true
+    silent: true
+    cmds: *clean-unix
+
+  clean-windows:
+    internal: true
+    silent: true
+    cmds:
+      - cmd /c "if exist dist rmdir /s /q dist"
+      - cmd /c "if exist build rmdir /s /q build"
+      - cmd /c "if exist docs\\build rmdir /s /q docs\\build"
+      - cmd /c "if exist docs\\_build rmdir /s /q docs\\_build"
+      - cmd /c "if exist {{.VENV_DIR}} rmdir /s /q {{.VENV_DIR}}"
+      - cmd /c "if exist .pytest_cache rmdir /s /q .pytest_cache"
+      - cmd /c "if exist .mypy_cache rmdir /s /q .mypy_cache"
+      - cmd /c "if exist .ruff_cache rmdir /s /q .ruff_cache"
+      - powershell -NoProfile -Command "Get-ChildItem -Path . -Filter *.egg-info -Directory -Recurse | Remove-Item -Recurse -Force"
+      - powershell -NoProfile -Command "Get-ChildItem -Path . -Directory -Filter __pycache__ -Recurse | Remove-Item -Recurse -Force"
+      - powershell -NoProfile -Command "Get-ChildItem -Path . -Directory -Filter .ipynb_checkpoints -Recurse | Remove-Item -Recurse -Force"
+      - powershell -NoProfile -Command "Get-ChildItem -Path . -Filter *.pyc -File -Recurse | Remove-Item -Force"

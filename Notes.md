@@ -16,3 +16,5 @@ continuous_color_layer
 discrete_color_layer
 
 outline and highlight layers can just be special calls to the discrete color layer
+
+move seats-votes computation to scoring module
