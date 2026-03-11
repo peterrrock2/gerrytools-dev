@@ -36,6 +36,7 @@ ENSEMBLE_COLORS = {
     "ensemble:forest": "#00cd99",
     "ensemble:rrc": "#0099cd",
     "ensemble:revrecom": "#0099cd",
+    "ensemble:recom": "#0099cd",
     "ensemble:recoma": "#99cd00",
     "ensemble:recomb": "#cd0099",
     "ensemble:recomc": "#9900cd",

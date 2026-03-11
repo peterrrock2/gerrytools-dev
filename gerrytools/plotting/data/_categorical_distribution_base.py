@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from numbers import Real
+from typing import Mapping, Sequence, cast
 
 import numpy as np
 import pandas as pd
@@ -81,7 +82,12 @@ class CategoricalDistributionPlotBase(GerryPlotBase):
 
     @staticmethod
     def _convert_distribution_data_to_dictionary(
-        scores: dict[str, list[float]] | list[float] | list[list[float]] | pd.DataFrame,
+        scores: (
+            Mapping[str, Sequence[float]]
+            | Sequence[float]
+            | Sequence[Sequence[float]]
+            | pd.DataFrame
+        ),
         scores_labels: list[str] | None = None,
     ) -> dict[str, list[float]]:
         """Convert distribution input to a dictionary mapping labels to score lists.
@@ -97,12 +103,13 @@ class CategoricalDistributionPlotBase(GerryPlotBase):
             dict[str, list[float]]: Category label to score-list mapping.
         """
         if isinstance(scores, dict):
-            return {str(k): list(v) for k, v in scores.items()}
+            typed_scores = cast(dict[str, Sequence[float]], scores)
+            return {str(k): list(v) for k, v in typed_scores.items()}
 
         if isinstance(scores, pd.DataFrame):
             return {str(col): scores[col].dropna().tolist() for col in scores.columns}
 
-        if isinstance(scores, list):
+        if isinstance(scores, Sequence):
             if scores_labels is None:
                 raise ValueError(
                     "When providing lists of scores, also provide labels for each list."

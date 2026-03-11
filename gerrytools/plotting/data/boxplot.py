@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass, field
-from typing import cast
+from typing import Mapping, Sequence, cast
 
 import numpy as np
 import pandas as pd
@@ -151,7 +151,12 @@ class BoxPlot(CategoricalDistributionPlotBase):
 
     @staticmethod
     def _convert_boxplot_data_to_dictionary(
-        scores: dict[str, list[float]] | list[float] | list[list[float]] | pd.DataFrame,
+        scores: (
+            Mapping[str, Sequence[int | float]]
+            | Sequence[int | float]
+            | Sequence[Sequence[int | float]]
+            | pd.DataFrame
+        ),
         scores_labels: list[str] | None = None,
     ) -> dict[str, list[float]]:
         """Convert boxplot input to a dictionary mapping labels to score lists.
@@ -172,7 +177,12 @@ class BoxPlot(CategoricalDistributionPlotBase):
 
     def add_boxplot_datasets(
         self,
-        scores: dict[str, list[float]] | list[float] | list[list[float]] | pd.DataFrame,
+        scores: (
+            Mapping[str, Sequence[float]]
+            | Sequence[float]
+            | Sequence[Sequence[float]]
+            | pd.DataFrame
+        ),
         *,
         scores_labels: list[str] | None = None,
         name: str | None = None,

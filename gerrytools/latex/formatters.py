@@ -179,6 +179,44 @@ def _make_numeric_highlighter(
     return _inner
 
 
+def _make_numeric_wrapper(
+    predicate: Callable[[float], bool],
+    wrap_cmd: str,
+    *,
+    round_to: int | None,
+) -> CellWrapper:
+    """Build a numeric wrapper formatter from a predicate.
+
+    Args:
+        predicate (Callable[[float], bool]): Comparison predicate.
+        wrap_cmd (str): LaTeX command name without a leading backslash.
+        round_to (int | None): Decimal places to round values before comparison.
+
+    Returns:
+        CellWrapper: Formatter that wraps matching values in the specified LaTeX command.
+    """
+    validate_command_name(wrap_cmd)
+    prefix = rf"\{wrap_cmd}{{"
+
+    def _inner(v: TableCellValue, s: str) -> tuple[TableCellValue, str]:
+        """Apply conditional wrapping to one value/string pair.
+
+        Args:
+            v (TableCellValue): Original unformatted cell value.
+            s (str): Current rendered cell string.
+
+        Returns:
+            tuple[TableCellValue, str]: Original value and wrapped (or unchanged) output string.
+        """
+        if isinstance(v, Real):
+            rounded_value = _safe_round(v, round_to)
+            if isinstance(rounded_value, Real) and predicate(float(rounded_value)):
+                return v, f"{prefix}{s}}}"
+        return v, s
+
+    return _inner
+
+
 def highlight_gt(
     thresh: int | float,
     color: Color = "yellow",
@@ -197,6 +235,26 @@ def highlight_gt(
         CellWrapper: Highlight formatter.
     """
     return _make_numeric_highlighter(lambda x: x > float(thresh), color, round_to=round_to)
+
+
+def wrap_gt(
+    thresh: int | float,
+    wrap_cmd: str,
+    *,
+    round_to: int | None = None,
+) -> CellWrapper:
+    """Wrap values strictly greater than a threshold in a LaTeX command.
+
+    Args:
+        thresh (int | float): Threshold value.
+        wrap_cmd (str): LaTeX command name without a leading backslash.
+        round_to (int | None, optional): Decimal places for comparison rounding.
+            Defaults to None.
+
+    Returns:
+        CellWrapper: Formatter that wraps matching values in the specified LaTeX command.
+    """
+    return _make_numeric_wrapper(lambda x: x > float(thresh), wrap_cmd, round_to=round_to)
 
 
 def highlight_ge(
@@ -219,6 +277,26 @@ def highlight_ge(
     return _make_numeric_highlighter(lambda x: x >= float(thresh), color, round_to=round_to)
 
 
+def wrap_ge(
+    thresh: int | float,
+    wrap_cmd: str,
+    *,
+    round_to: int | None = None,
+) -> CellWrapper:
+    """Wrap values greater than or equal to a threshold in a LaTeX command.
+
+    Args:
+        thresh (int | float): Threshold value.
+        wrap_cmd (str): LaTeX command name without a leading backslash.
+        round_to (int | None, optional): Decimal places for comparison rounding.
+            Defaults to None.
+
+    Returns:
+        CellWrapper: Formatter that wraps matching values in the specified LaTeX command.
+    """
+    return _make_numeric_wrapper(lambda x: x >= float(thresh), wrap_cmd, round_to=round_to)
+
+
 def highlight_lt(
     thresh: float,
     color: Color = "yellow",
@@ -239,6 +317,26 @@ def highlight_lt(
     return _make_numeric_highlighter(lambda x: x < float(thresh), color, round_to=round_to)
 
 
+def wrap_lt(
+    thresh: float,
+    wrap_cmd: str,
+    *,
+    round_to: int | None = None,
+) -> CellWrapper:
+    """Wrap values strictly less than a threshold in a LaTeX command.
+
+    Args:
+        thresh (float): Threshold value.
+        wrap_cmd (str): LaTeX command name without a leading backslash.
+        round_to (int | None, optional): Decimal places for comparison rounding.
+            Defaults to None.
+
+    Returns:
+        CellWrapper: Formatter that wraps matching values in the specified LaTeX command.
+    """
+    return _make_numeric_wrapper(lambda x: x < float(thresh), wrap_cmd, round_to=round_to)
+
+
 def highlight_le(
     thresh: float,
     color: Color = "yellow",
@@ -257,6 +355,26 @@ def highlight_le(
         CellWrapper: Highlight formatter.
     """
     return _make_numeric_highlighter(lambda x: x <= float(thresh), color, round_to=round_to)
+
+
+def wrap_le(
+    thresh: float,
+    wrap_cmd: str,
+    *,
+    round_to: int | None = None,
+) -> CellWrapper:
+    """Wrap values less than or equal to a threshold in a LaTeX command.
+
+    Args:
+        thresh (float): Threshold value.
+        wrap_cmd (str): LaTeX command name without a leading backslash.
+        round_to (int | None, optional): Decimal places for comparison rounding.
+            Defaults to None.
+
+    Returns:
+        CellWrapper: Formatter that wraps matching values in the specified LaTeX command.
+    """
+    return _make_numeric_wrapper(lambda x: x <= float(thresh), wrap_cmd, round_to=round_to)
 
 
 def highlight_between(
@@ -292,3 +410,38 @@ def highlight_between(
     low = float(lower_bound)
     high = float(upper_bound)
     return _make_numeric_highlighter(lambda x: low <= x <= high, color, round_to=round_to)
+
+
+def wrap_between(
+    lower_bound: int | float,
+    upper_bound: int | float,
+    wrap_cmd: str,
+    *,
+    round_to: int | None = None,
+    include_lower: bool = True,
+    include_upper: bool = True,
+) -> CellWrapper:
+    """Wrap values between lower and upper bounds in a LaTeX command.
+
+    Args:
+        lower_bound (int | float): Lower bound.
+        upper_bound (int | float): Upper bound.
+        wrap_cmd (str): LaTeX command name without a leading backslash.
+        round_to (int | None, optional): Decimal places for comparison rounding.
+            Defaults to None.
+        include_lower (bool, optional): Whether the lower bound is inclusive.
+            Defaults to True.
+        include_upper (bool, optional): Whether the upper bound is inclusive.
+            Defaults to True.
+
+    Returns:
+        CellWrapper: Formatter that wraps matching values in the specified LaTeX command.
+    """
+    if not include_lower:
+        lower_bound = math.nextafter(float(lower_bound), math.inf)  # smallest float > lower_bound
+    if not include_upper:
+        upper_bound = math.nextafter(float(upper_bound), -math.inf)  # largest float < upper_bound
+
+    low = float(lower_bound)
+    high = float(upper_bound)
+    return _make_numeric_wrapper(lambda x: low <= x <= high, wrap_cmd, round_to=round_to)
