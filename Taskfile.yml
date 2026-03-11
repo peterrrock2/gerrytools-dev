@@ -84,19 +84,10 @@ tasks:
       - task: sync
       - uv run pre-commit install
 
-  install:
-    desc: Install the package environment
-    silent: true
-    deps: ["ensure-uv-{{OS}}"]
-    env:
-      UV_PROJECT_ENVIRONMENT: "{{.ROOT_DIR}}/{{.VENV_DIR}}"
-    cmds:
-      - uv python install {{.PYTHON_VERSION}}
-      - uv --managed-python sync --locked --python {{.PYTHON_VERSION}}
-
   format:
     desc: Format the codebase using Black and isort
     silent: true
+    deps: ["sync"]
     cmds:
       - uv run isort {{.PKG}} {{.TEST_PATHS}}
       - uv run black --target-version {{.BLACK_TARGET}} {{.PKG}} {{.TEST_PATHS}}
@@ -104,6 +95,7 @@ tasks:
   format-check:
     desc: Check code formatting using Black and isort
     silent: true
+    deps: ["sync"]
     cmds:
       - uv run isort --check-only --diff {{.PKG}} {{.TEST_PATHS}}
       - uv run black --target-version {{.BLACK_TARGET}} --check --diff {{.PKG}} {{.TEST_PATHS}}
