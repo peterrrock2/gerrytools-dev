@@ -11,12 +11,14 @@ from geopandas import GeoDataFrame
 from joblib import Parallel, delayed
 from matplotlib.colors import to_hex
 from matplotlib.lines import Line2D
+from numpy.random import Generator
 from numpy.typing import NDArray
 from shapely.geometry import Point
 
 from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
 from gerrytools.plotting._legend_utils import build_legend_options, save_legend_handles
+from gerrytools.plotting._rng import resolve_numpy_rng, spawn_child_seeds
 from gerrytools.plotting.geometry.geoplot import GeoPlot
 from gerrytools.plotting.mpl.label_text_options import LabelBoxOptions, LabelFontOptions
 from gerrytools.plotting.mpl.marker_options import PointMarkerOptions
@@ -27,12 +29,19 @@ logger = get_logger(__name__)
 MAX_CORES = max(int(os.cpu_count() or 1) - 2, 1)
 
 
-def _random_points_in_poly(poly: shapely.Geometry, n_points: int, batch_size: int = 4096):
+def _random_points_in_poly(
+    poly: shapely.Geometry,
+    n_points: int,
+    *,
+    rng: Generator,
+    batch_size: int = 4096,
+):
     """Generate random points within a polygon.
 
     Args:
         poly (shapely.Geometry): The polygon within which to generate points.
         n_points (int): The number of random points to generate.
+        rng (Generator): NumPy random generator used for point sampling.
         batch_size (int, optional): The number of candidate points to generate in each batch.
             Defaults to 4096.
     """
@@ -40,20 +49,21 @@ def _random_points_in_poly(poly: shapely.Geometry, n_points: int, batch_size: in
     pts = []
     while len(pts) < n_points:
         k = max(batch_size, (n_points - len(pts)) * 2)
-        xs = np.random.uniform(minx, maxx, size=k)
-        ys = np.random.uniform(miny, maxy, size=k)
+        xs = rng.uniform(minx, maxx, size=k)
+        ys = rng.uniform(miny, maxy, size=k)
         cand = shapely.points(xs, ys)
         mask = shapely.contains(poly, cand)
         pts.extend(cand[mask].tolist())
     return pts[:n_points]
 
 
-def _random_xy_in_poly(poly: shapely.Geometry, n_points: int):
+def _random_xy_in_poly(poly: shapely.Geometry, n_points: int, *, rng: Generator):
     """Generate random x, y coordinates within a polygon.
 
     Args:
         poly (shapely.Geometry): The polygon within which to generate points.
         n_points (int): The number of random points to generate.
+        rng (Generator): NumPy random generator used for coordinate sampling.
         batch_size (int, optional): The number of candidate points to generate in each batch.
             Defaults to 4096.
     """
@@ -80,8 +90,8 @@ def _random_xy_in_poly(poly: shapely.Geometry, n_points: int):
 
     while n_points_so_far < n_points:
         k = max(batch_size, (n_points - n_points_so_far) * 2)
-        xs = np.random.uniform(minx, maxx, size=k)
-        ys = np.random.uniform(miny, maxy, size=k)
+        xs = rng.uniform(minx, maxx, size=k)
+        ys = rng.uniform(miny, maxy, size=k)
 
         cand = shapely.points(xs, ys)
         mask = shapely.contains(poly, cand)
@@ -100,6 +110,7 @@ def _make_random_points(
     people_per_dot: int,
     datacolumn_name: str,
     color: Color,
+    rng: Generator,
     n_jobs=-1,
     n_chunks=10,
 ) -> tuple[NDArray, NDArray, NDArray]:
@@ -110,6 +121,7 @@ def _make_random_points(
         people_per_dot (int): Number of people represented by each dot.
         datacolumn_name (str): The name of the data column to use for dot density.
         color (Color): The color of the dots.
+        rng (Generator): NumPy random generator used to derive per-chunk generators.
         n_jobs (int): Number of CPU cores to use for parallel processing. Defaults to -1 (all
             available cores minus two).
         n_chunks (int): Number of chunks to split the GeoDataFrame into for parallel processing.
@@ -121,7 +133,7 @@ def _make_random_points(
         gdf.iloc[i : min(len(gdf), i + chunk_size)] for i in range(0, len(gdf), chunk_size)
     ]
 
-    def process_chunk(chunk: GeoDataFrame):
+    def process_chunk(chunk: GeoDataFrame, chunk_seed: int):
         """Generate random dot coordinates for one GeoDataFrame chunk.
 
         Args:
@@ -131,6 +143,7 @@ def _make_random_points(
             tuple[NDArray, NDArray, NDArray]: X coordinates, Y coordinates, and polygon ids
                 for generated dots.
         """
+        chunk_rng = np.random.default_rng(chunk_seed)
         x_parts = []
         y_parts = []
         pid_parts = []
@@ -142,7 +155,7 @@ def _make_random_points(
             if n_dots <= 0:
                 continue
 
-            x, y = _random_xy_in_poly(geom, n_dots)
+            x, y = _random_xy_in_poly(geom, n_dots, rng=chunk_rng)
             x_parts.append(x)
             y_parts.append(y)
             pid_parts.append(np.full(n_dots, polyid, dtype=np.int64))
@@ -160,7 +173,10 @@ def _make_random_points(
             np.concatenate(pid_parts),
         )
 
-    results = Parallel(n_jobs=use_cores)(delayed(process_chunk)(chunk) for chunk in chunked_gdfs)
+    chunk_seeds = spawn_child_seeds(rng, len(chunked_gdfs))
+    results = Parallel(n_jobs=use_cores)(
+        delayed(process_chunk)(chunk, seed) for chunk, seed in zip(chunked_gdfs, chunk_seeds)
+    )
 
     xs = np.concatenate([r[0] for r in results])
     ys = np.concatenate([r[1] for r in results])
@@ -203,6 +219,8 @@ class DotDensityPlot(GeoPlot):
         edgecolor: Color = "black",
         edgealpha: float | None = None,
         edgewidth: float = 0.6,
+        rng_seed: int | None = None,
+        rng: Generator | None = None,
     ):
         """Initialize a DotDensityPlot instance.
 
@@ -237,6 +255,10 @@ class DotDensityPlot(GeoPlot):
             silent (bool, optional): Whether to suppress informational output throughout
                 the rendering process. Defaults to False.
             show_legend (bool, optional): Whether to show the legend. Defaults to False.
+            rng_seed (int | None, optional): Seed for reproducible NumPy randomness used when
+                generating and interleaving dots. Defaults to None.
+            rng (Generator | None, optional): Explicit NumPy generator to use instead of
+                constructing one from ``rng_seed``. Defaults to None.
         """
         super().__init__(
             gdf=gdf,
@@ -246,6 +268,7 @@ class DotDensityPlot(GeoPlot):
             include_default_outline=include_default_outline,
             silent=silent,
         )
+        self._rng, self._rng_seed = resolve_numpy_rng(seed=rng_seed, rng=rng, field_name="rng_seed")
         self.people_per_dot = people_per_dot
 
         # outlines for districts
@@ -304,6 +327,16 @@ class DotDensityPlot(GeoPlot):
 
         self._legend_options = build_legend_options()
         self.show_legend = show_legend
+
+    @property
+    def rng_seed(self) -> int | None:
+        """Get the RNG seed used for deterministic dot placement."""
+        return self._rng_seed
+
+    @rng_seed.setter
+    def rng_seed(self, seed: int | None) -> None:
+        """Set the RNG seed used for deterministic dot placement."""
+        self._rng, self._rng_seed = resolve_numpy_rng(seed=seed, field_name="rng_seed")
 
     def _close(self):
         """Clean up temporary directory used for caching dot density points."""
@@ -424,6 +457,7 @@ class DotDensityPlot(GeoPlot):
                 people_per_dot=self.people_per_dot,
                 datacolumn_name=column_name,
                 color=color,
+                rng=self._rng,
                 n_jobs=n_cores_for_processing,
                 n_chunks=n_chunks,
             )
@@ -459,7 +493,7 @@ class DotDensityPlot(GeoPlot):
         )
 
         palette = np.asarray(layer_colors, dtype=object)
-        random_priority = np.random.random(size=len(xs_all))
+        random_priority = self._rng.random(size=len(xs_all))
 
         # Randomize within each polygon: sort by (polyid, rnd)
         # Lexsort uses last key as primary sort key and avoids copying data

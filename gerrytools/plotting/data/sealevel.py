@@ -7,9 +7,11 @@ from numbers import Real
 import numpy as np
 import pandas as pd
 from matplotlib.lines import Line2D
+from numpy.random import Generator
 
 from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
+from gerrytools.plotting._rng import resolve_numpy_rng
 from gerrytools.plotting.data.gerryplot import GerryPlotBase
 from gerrytools.plotting.mpl.marker_options import PointMarkerOptions
 from gerrytools.typing import CategoryKey, Color, LegendHandle
@@ -61,6 +63,8 @@ class SeaLevel(GerryPlotBase):
         title: str | None = None,
         grid: bool = False,
         hide_warnings: bool = False,
+        jitter_rng_seed: int | None = None,
+        jitter_rng: Generator | None = None,
     ) -> None:
         """Initialize a SeaLevel instance.
 
@@ -70,6 +74,10 @@ class SeaLevel(GerryPlotBase):
             dpi (int, optional): The dots per inch (DPI) of the figure. Defaults to 300.
             include_legend (bool, optional): Whether to include a legend in the plot.
                 Defaults to True.
+            jitter_rng_seed (int | None, optional): Seed for reproducible jitter placement.
+                Defaults to None.
+            jitter_rng (Generator | None, optional): Explicit NumPy generator to use for
+                jitter instead of constructing one from ``jitter_rng_seed``. Defaults to None.
         """
         super().__init__(
             figure_size=figure_size,
@@ -89,8 +97,11 @@ class SeaLevel(GerryPlotBase):
         self._maximum_vertical_jitter_per_category: dict[str, float] = {}
         self._maximum_horizontal_jitter_per_category: dict[str, float] = {}
 
-        self._jitter_rng_seed = None
-        self._rng = np.random.default_rng(seed=self._jitter_rng_seed)
+        self._jitter_rng, self._jitter_rng_seed = resolve_numpy_rng(
+            seed=jitter_rng_seed,
+            rng=jitter_rng,
+            field_name="jitter_rng_seed",
+        )
 
     @property
     def jitter_rng_seed(self) -> int | None:
@@ -114,10 +125,10 @@ class SeaLevel(GerryPlotBase):
         Raises:
             TypeError: If ``seed`` is neither ``int`` nor ``None``.
         """
-        if seed is not None and not isinstance(seed, int):
-            raise TypeError("jitter_rng_seed must be an integer or None.")
-        self._jitter_rng_seed = seed
-        self._rng = np.random.default_rng(seed=seed)
+        self._jitter_rng, self._jitter_rng_seed = resolve_numpy_rng(
+            seed=seed,
+            field_name="jitter_rng_seed",
+        )
 
     def set_max_vertical_jitter_per_category(
         self,
@@ -453,14 +464,14 @@ class SeaLevel(GerryPlotBase):
             y_positions = []
             for idx, label in enumerate(self._labels or []):
                 hoizontal_jitter = self._maximum_horizontal_jitter_per_category.get(label, 0.0)
-                x_center = centers[idx] + self._rng.uniform(
+                x_center = centers[idx] + self._jitter_rng.uniform(
                     low=-hoizontal_jitter,
                     high=hoizontal_jitter,
                 )
                 x_positions.append(x_center)
 
                 vertical_jitter = self._maximum_vertical_jitter_per_category.get(label, 0.0)
-                y_center = sealevel_set.scores_dict[label] + self._rng.uniform(
+                y_center = sealevel_set.scores_dict[label] + self._jitter_rng.uniform(
                     low=-vertical_jitter,
                     high=vertical_jitter,
                 )
