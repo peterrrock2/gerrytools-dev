@@ -1,7 +1,7 @@
 import logging
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import docker
 
@@ -80,7 +80,7 @@ def msms_parse(
 
     os.makedirs(output_parent_path, exist_ok=True)
 
-    config_args = {
+    config_args: dict[str, Any] = {
         "name": "parse_msms_runner",
         "image": docker_image_name,
         "detach": True,
@@ -269,7 +269,7 @@ def smc_parse(
 
     os.makedirs(output_parent_path, exist_ok=True)
 
-    config_args = {
+    config_args: dict[str, Any] = {
         "name": "parse_msms_runner",
         "image": docker_image_name,
         "detach": True,

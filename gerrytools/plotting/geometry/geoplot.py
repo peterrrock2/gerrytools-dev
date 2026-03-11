@@ -260,9 +260,9 @@ class _CategoricalColorLayer(_GeoLayer):
         elif isinstance(self.colormap, Colormap) or (
             isinstance(self.colormap, str) and self.colormap in plt.colormaps()
         ):
-            cmap = self.colormap
-            if isinstance(self.colormap, str):
-                cmap = get_cmap(self.colormap)
+            cmap: Colormap = (
+                get_cmap(self.colormap) if isinstance(self.colormap, str) else self.colormap
+            )
 
             # Almost all color maps have at most 256 discrete colors (even the "continuous" ones).
             # This is just a safeguard to avoid indexing errors
@@ -448,7 +448,7 @@ class _MarkerLayer:
                 self.labelfont_options.outlinecolor,
                 alpha=1.0,
             )
-            text_effects = [
+            text_effects: list[patheffects.AbstractPathEffect] = [
                 patheffects.Stroke(
                     linewidth=float(self.labelfont_options.outlinewidth),
                     foreground=outline_color,

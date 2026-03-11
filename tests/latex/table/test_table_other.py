@@ -148,7 +148,7 @@ def test_highlight_rows_invalid_color_spec_raises(table_defaults):
         ValueError,
         match=r"Invalid color specification for row highlighting",
     ):
-        table.highlight_rows(0, color=(1, 2))  # type: ignore[arg-type]
+        table.highlight_rows(0, color=(1, 2))
 
 
 def test_generate_body_invalid_name_color_value_type_raises(table_defaults):

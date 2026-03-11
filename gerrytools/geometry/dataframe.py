@@ -3,7 +3,7 @@ from gerrychain import Partition
 
 
 def dataframe(
-    P: Partition, index: str = "id", assignment: str = "DISTRICT", columns: list = None
+    P: Partition, index: str = "id", assignment: str = "DISTRICT", columns: list | None = None
 ) -> pd.DataFrame:
     """
     Converts a `Partition` into a `DataFrame`.

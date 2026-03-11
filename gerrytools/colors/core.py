@@ -80,14 +80,13 @@ GERRYTOOLS_EXTRA_COLORS_DICT = (
 
 def get_all_supported_colors_dict() -> dict[str, Color]:
     """Get a dictionary of all supported color names mapping to their values."""
-    return (
-        mcolors.get_named_colors_mapping()
-        | DISTRICTR_COLOR_DICT
-        | LATEX_COLOR_DICT
-        | GERRYTOOLS_EXTRA_COLORS_DICT
-        | {"green": "#00ff00"}  # Override matplotlib's dark "green"
-        | {"none": "none"}
-    )
+    result: dict[str, Color] = cast(dict[str, Color], dict(mcolors.get_named_colors_mapping()))
+    result.update(DISTRICTR_COLOR_DICT)
+    result.update(LATEX_COLOR_DICT)
+    result.update(GERRYTOOLS_EXTRA_COLORS_DICT)
+    result["green"] = "#00ff00"  # Override matplotlib's dark "green"
+    result["none"] = "none"
+    return result
 
 
 def get_named_color(name: str) -> Color:
@@ -192,7 +191,7 @@ def convert_color_to_hexa_or_none(
 
     # ---- (base, alpha) tuples ----
     elif _is_mpl_base_color_with_alpha(color):
-        base, a = cast(_MplBaseColorWithAlpha, color)
+        base, a = color  # type narrowed by _is_mpl_base_color_with_alpha
         alpha_value = _validate_alpha(float(a), field="alpha in (base, alpha) color tuple")
         base_hex8 = convert_color_to_hexa_or_none(base)
         if base_hex8.lower() == "none":
@@ -202,7 +201,7 @@ def convert_color_to_hexa_or_none(
 
     # ---- numeric RGB(A) tuples (0–1 or 0–255) ----
     elif _is_rgba_tuple(color):
-        rgba = cast(tuple[int | float, int | float, int | float, int | float], color)
+        rgba = color  # type narrowed by _is_rgba_tuple
         vals: list[float] = [float(rgba[0]), float(rgba[1]), float(rgba[2]), float(rgba[3])]
         r, g, b = vals[:3]
 
@@ -236,7 +235,7 @@ def convert_color_to_hexa_or_none(
 
         resolved_color = (r, g, b, a)
     elif _is_rgb_tuple(color):
-        rgb = cast(tuple[int | float, int | float, int | float], color)
+        rgb = color  # type narrowed by _is_rgb_tuple
         vals: list[float] = [float(rgb[0]), float(rgb[1]), float(rgb[2])]
         r, g, b = vals[:3]
         a = 1.0

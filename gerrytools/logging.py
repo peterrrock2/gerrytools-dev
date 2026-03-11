@@ -58,7 +58,7 @@ def configure_logging(
         stream = sys.stderr
 
     logger = logging.getLogger(_GERRYTOOLS_LOGGER_NAME)
-    logger.setLevel(level)  # type: ignore[arg-type]
+    logger.setLevel(level)
 
     if force:
         for h in list(logger.handlers):
@@ -66,7 +66,7 @@ def configure_logging(
 
     if not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
         handler = logging.StreamHandler(stream)
-        handler.setLevel(level)  # type: ignore[arg-type]
+        handler.setLevel(level)
         handler.setFormatter(logging.Formatter(fmt=fmt, datefmt=datefmt))
         logger.addHandler(handler)
 

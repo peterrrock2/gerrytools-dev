@@ -2,7 +2,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import docker
 
@@ -57,7 +57,7 @@ def ben(
 
     os.makedirs(output_parent_path, exist_ok=True)
 
-    config_args = {
+    config_args: dict[str, Any] = {
         "name": "ben_runner",
         "image": docker_image_name,
         "detach": True,
@@ -174,7 +174,7 @@ def ben_replay(
     input_parent_path = Path(input_file_path).parent
     input_file_name = Path(input_file_path).name
 
-    config_args = {
+    config_args: dict[str, Any] = {
         "name": "ben_runner",
         "image": docker_image_name,
         "detach": True,

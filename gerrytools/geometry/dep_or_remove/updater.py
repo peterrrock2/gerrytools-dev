@@ -1,7 +1,7 @@
 import geopandas as gpd
 import gerrychain
 
-from .optimize import calculate_dispersion, minimize_dispersion
+from gerrytools.geometry.optimize import calculate_dispersion, minimize_dispersion
 
 
 def dispersion_updater_closure(

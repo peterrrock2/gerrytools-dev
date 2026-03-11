@@ -117,6 +117,9 @@ def hierarchical_block_dissolve(
         (indexed by label) and counts of polygons used from each level
         in the hierarchy.
     """
+    if state.blocks is None:
+        raise ValueError("Block geometries are required for hierarchical dissolve.")
+
     block_assignment = block_assignment.set_index("GEOID20").to_dict()[district_col]
 
     level_gdfs = {
@@ -173,7 +176,7 @@ def hierarchical_block_dissolve(
                     level_counts[level] += 1
 
     # Dissolve geometries by assignment.
-    dissolved_gdf = (
+    dissolved_gdf: GeoDataFrame = GeoDataFrame(
         GeoDataFrame(
             [
                 {"label": assignment, "geometry": unary_union(geometries)}

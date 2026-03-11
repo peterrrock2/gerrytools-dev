@@ -9,7 +9,7 @@ def dualgraphs20(state, filepath, geometry="block group"):
     Args:
         state (us.State): State for which we retrieve data.
     """
-    acceptable = set("bg", "block group", "blockgroup", "vtd")
+    acceptable = {"bg", "block group", "blockgroup", "vtd"}
 
     if geometry.lower() not in acceptable:
         print(f'Requested geometry "{geometry}" is not allowed; ' "loading block groups.")

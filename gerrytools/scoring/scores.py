@@ -1,7 +1,7 @@
 import gzip
 import json
 from functools import partial
-from typing import Dict, Iterable, List, Mapping, Optional, Union
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Union
 
 from geopandas import GeoDataFrame
 from gerrychain import Graph, Partition
@@ -79,16 +79,17 @@ def summarize(
             assignment = {
                 part.graph.nodes[node][join_on]: label for node, label in part.assignment.items()
             }
-            gdf = gdf.set_index(join_on)
+            gdf = GeoDataFrame(gdf.set_index(join_on))
 
         gdf["assignment"] = assignment
-        dissolved_gdf = gdf.dissolve(by="assignment")
+        dissolved_gdf: GeoDataFrame | None = gdf.dissolve(by="assignment")
     else:
         dissolved_gdf = None
 
     summary = {}
     for score in scores:
         if score.dissolved:
+            assert dissolved_gdf is not None
             summary[score.name] = score.apply(dissolved_gdf)
         else:
             summary[score.name] = score.apply(part)
@@ -100,8 +101,8 @@ def summarize_many(
     scores: Iterable[Score],
     gdf: Optional[GeoDataFrame] = None,
     join_on: Optional[str] = None,
-    plan_names: List[str] = None,
-    output_file: str = None,
+    plan_names: list[str] | None = None,
+    output_file: str | None = None,
     compress: bool = False,
     verbose: bool = False,
 ) -> Union[List[Dict[str, ScoreValue]], None]:
@@ -147,9 +148,11 @@ def summarize_many(
         with gzip.open(f"{output_file}.gz", "wt") if compress else open(output_file, "w") as fout:
             iterator = tqdm(enumerate(parts)) if verbose else enumerate(parts)
             for i, part in iterator:
-                plan_details = summarize(part, scores=scores, gdf=gdf, join_on=join_on)
+                plan_details: dict[str, Any] = summarize(
+                    part, scores=scores, gdf=gdf, join_on=join_on
+                )
                 try:
-                    plan_details["id"] = plan_names[i]
+                    plan_details["id"] = plan_names[i]  # type: ignore[index]
                 except BaseException:
                     plan_details["id"] = i
                 fout.write(json.dumps(plan_details) + "\n")
@@ -158,9 +161,9 @@ def summarize_many(
 def splits(
     unit: str,
     names: bool = False,
-    popcol: str = None,
+    popcol: str | None = None,
     how: str = "pandas",
-    alias: str = None,
+    alias: str | None = None,
 ) -> Score:
     """
     Score representing the number of units split by the districting plan.
@@ -199,9 +202,9 @@ def splits(
 def pieces(
     unit: str,
     names: bool = False,
-    popcol: str = None,
+    popcol: str | None = None,
     how: str = "pandas",
-    alias: str = None,
+    alias: str | None = None,
 ) -> Score:
     """
     Score representing the number of "unit pieces" produced by the plan. For example,
@@ -244,7 +247,7 @@ def competitive_contests(
     election_cols: Iterable[str],
     party: str,
     points_within: float = 0.03,
-    alias: str = None,
+    alias: str | None = None,
 ) -> Score:
     """
     Score representing the number of competitive contests in a plan.

@@ -182,7 +182,7 @@ class _ContinuousColorLayer(_GeoLayer):
             m = ScalarMappable(norm=norm, cmap=listed)
             m.set_array([])
 
-            cbar_kwargs = {
+            cbar_kwargs: MplKwargs = {
                 "ticks": edges,
                 "spacing": "uniform",
                 "boundaries": edges,
@@ -195,7 +195,7 @@ class _ContinuousColorLayer(_GeoLayer):
                 cmap = self._with_alpha(cmap, self.facealpha)
             m = ScalarMappable(norm=norm, cmap=cmap)
             m.set_array([])
-            cbar_kwargs = {}
+            cbar_kwargs: MplKwargs = {}
 
         return m, cbar_kwargs
 

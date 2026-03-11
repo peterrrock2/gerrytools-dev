@@ -1,6 +1,7 @@
 from contextlib import contextmanager
 
 import docker
+import docker.errors
 
 
 @contextmanager

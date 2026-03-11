@@ -1,8 +1,6 @@
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Callable, Mapping, Union
-
-from geopandas import GeoDataFrame
-from gerrychain import Partition
+from typing import Any
 
 """
     Typing Definitions:
@@ -14,19 +12,19 @@ from gerrychain import Partition
     elections to numerics.
 """
 
-Numeric = Union[float, int]
-DistrictID = Union[int, str]
+Numeric = float | int
+DistrictID = int | str
 ElectionID = str
 
 PlanWideScoreValue = Numeric
 DistrictWideScoreValue = Mapping[DistrictID, Numeric]
 ElectionWideScoreValue = Mapping[ElectionID, Numeric]
 
-ScoreValue = Union[PlanWideScoreValue, DistrictWideScoreValue, ElectionWideScoreValue]
+ScoreValue = PlanWideScoreValue | DistrictWideScoreValue | ElectionWideScoreValue
 
 
 @dataclass
 class Score:
     name: str
-    apply: Callable[[Union[Partition, GeoDataFrame]], ScoreValue]
+    apply: Callable[..., Any]
     dissolved: bool = False

@@ -4,9 +4,13 @@ version: "3"
 
 vars:
   PYTHON_VERSION: "3.11"
+  BLACK_TARGET: 'py{{.PYTHON_VERSION | replace "." ""}}'
   VENV_DIR: ".venv"
   PKG: "gerrytools"
   TEST_PATHS: "tests"
+
+dotenv:
+  - .env
 
 tasks:
   default:
@@ -54,7 +58,6 @@ tasks:
 
   lock:
     desc: Generate a lockfile without installing dependencies
-    internal: true
     silent: true
     deps: ["ensure-uv-{{OS}}", "upgrade-deps"]
     env:
@@ -91,37 +94,27 @@ tasks:
       - uv python install {{.PYTHON_VERSION}}
       - uv --managed-python sync --locked --python {{.PYTHON_VERSION}}
 
-  # install-docs:
-  #   desc: Install documentation dependencies
-  #   silent: true
-  #   deps: ["ensure-uv-{{OS}}"]
-  #   env:
-  #     UV_PROJECT_ENVIRONMENT: "{{.ROOT_DIR}}/{{.VENV_DIR}}"
-  #   cmds:
-  #     - uv python install {{.PYTHON_VERSION}}
-  #     - >-
-  #       uv --managed-python sync --locked --group docs --all-extras
-  #       --python {{.PYTHON_VERSION}}
-
   format:
     desc: Format the codebase using Black and isort
     silent: true
     cmds:
       - uv run isort {{.PKG}} {{.TEST_PATHS}}
-      - uv run black {{.PKG}} {{.TEST_PATHS}}
+      - uv run black --target-version {{.BLACK_TARGET}} {{.PKG}} {{.TEST_PATHS}}
 
   format-check:
     desc: Check code formatting using Black and isort
     silent: true
     cmds:
       - uv run isort --check-only --diff {{.PKG}} {{.TEST_PATHS}}
-      - uv run black --check --diff {{.PKG}} {{.TEST_PATHS}}
+      - uv run black --target-version {{.BLACK_TARGET}} --check --diff {{.PKG}} {{.TEST_PATHS}}
 
   lint:
     desc: Lint the codebase using Ruff
     silent: true
+    vars:
+      CLI_ARGS: "{{.CLI_ARGS | default .TEST_PATHS}}"
     cmds:
-      - uv run ruff check {{.PKG}} {{.TEST_PATHS}}
+      - uv run ruff check {{.PKG}} {{.CLI_ARGS}}
 
   typecheck:
     desc: Run type checks using Ty
@@ -207,13 +200,6 @@ tasks:
       - task: sync
       - uv run pre-commit install
       - uv run pre-commit run --all-files
-
-  # docs:
-  #   desc: Build the documentation
-  #   silent: true
-  #   cmds:
-  #     - task: install-docs
-  #     - uv run sphinx-build -b html docs/source docs/build
 
   docs:
     desc: Build the documentation

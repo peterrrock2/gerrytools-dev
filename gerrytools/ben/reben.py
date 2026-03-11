@@ -1,7 +1,7 @@
 import logging
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import docker
 
@@ -75,7 +75,7 @@ def canonicalize_ben_file(
 
     os.makedirs(output_parent_path, exist_ok=True)
 
-    config_args = {
+    config_args: dict[str, Any] = {
         "name": "reben_runner",
         "image": docker_image_name,
         "detach": True,
@@ -191,7 +191,7 @@ def relabel_json_file_by_key(
 
     os.makedirs(output_parent_path, exist_ok=True)
 
-    config_args = {
+    config_args: dict[str, Any] = {
         "name": "reben_runner",
         "image": docker_image_name,
         "detach": True,
@@ -317,7 +317,7 @@ def relabel_ben_file_by_key(
 
     os.makedirs(output_parent_path, exist_ok=True)
 
-    config_args = {
+    config_args: dict[str, Any] = {
         "name": "reben_runner",
         "image": docker_image_name,
         "detach": True,
@@ -494,7 +494,7 @@ def relabel_ben_file_with_map(
 
     os.makedirs(output_parent_path, exist_ok=True)
 
-    config_args = {
+    config_args: dict[str, Any] = {
         "name": "reben_runner",
         "image": docker_image_name,
         "detach": True,

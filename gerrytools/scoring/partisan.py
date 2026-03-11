@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from functools import cache
 from typing import Iterable, Tuple
 
@@ -33,14 +34,14 @@ def _competitive_contests(
 
 
 def _swing_districts(
-    part: Partition, election_cols: Iterable[str], party: str
+    part: Partition, election_cols: Sequence[str], party: str
 ) -> PlanWideScoreValue:
     stability = _election_stability(part, tuple(election_cols), party)
     return int(np.logical_and(stability != 0, stability != len(election_cols)).sum())
 
 
 def _party_districts(
-    part: Partition, election_cols: Iterable[str], party: str
+    part: Partition, election_cols: Sequence[str], party: str
 ) -> PlanWideScoreValue:
     stability = _election_stability(part, tuple(election_cols), party)
     return int((stability == len(election_cols)).sum())

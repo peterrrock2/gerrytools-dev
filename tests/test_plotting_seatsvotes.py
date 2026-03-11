@@ -1,4 +1,5 @@
 import pytest
+from matplotlib.lines import Line2D
 
 from gerrytools.plotting.data.seatsvotes import SeatsVotes
 
@@ -47,11 +48,13 @@ def test_seatsvotes_supports_per_series_line_and_marker_options():
     assert {"Election A", "Result A", "Prop", "EG", "Custom"}.issubset(labels)
 
     marker_handle = next(h for h in handles if h.get_label() == "Result A")
+    assert isinstance(marker_handle, Line2D)
     assert marker_handle.get_marker() == "s"
     assert marker_handle.get_markersize() == pytest.approx(9.0)
     assert marker_handle.get_markeredgewidth() == pytest.approx(1.2)
 
     curve_handle = next(h for h in handles if h.get_label() == "Election A")
+    assert isinstance(curve_handle, Line2D)
     assert curve_handle.get_linestyle() == "--"
     assert curve_handle.get_linewidth() == pytest.approx(3.5)
 

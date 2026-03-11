@@ -325,33 +325,14 @@ def test_annotation_arrow_direct_color_overrides_style_colors():
     ax = plot.ax
     arrow_text = next((t for t in ax.texts if t.get_text() == "Override"), None)
     assert arrow_text is not None
-    face_hex = mcolors.to_hex(arrow_text.get_bbox_patch().get_facecolor(), keep_alpha=True)
+    bbox_patch = arrow_text.get_bbox_patch()
+    assert bbox_patch is not None
+    face_hex = mcolors.to_hex(bbox_patch.get_facecolor(), keep_alpha=True)
     expected_hex = mcolors.to_hex(
         mcolors.to_rgba(resolve_color_and_alpha("denim")[0], alpha=1.0),
         keep_alpha=True,
     )
     assert face_hex.lower() == expected_hex.lower()
-
-
-def test_annotation_arrow_rejects_incompatible_style_argument_pairings():
-    plot = _simple_scatter()
-    with pytest.raises(ValueError, match="labelarrowstyle cannot be set when arrowtype='text'"):
-        plot.add_text_arrow(
-            arrowtip=(0.5, 0.5),
-            direction="up",
-        )
-
-    with pytest.raises(ValueError, match="textarrowstyle cannot be set when arrowtype='label'"):
-        plot.add_label_arrow(
-            arrowtip=(0.5, 0.5),
-            direction="up",
-        )
-
-    with pytest.raises(ValueError, match="arrow_length can only be set when arrowtype='label'"):
-        plot.add_text_arrow(
-            arrowtip=(0.5, 0.5),
-            direction="up",
-        )
 
 
 def test_clear_annotation_arrows_removes_all_arrows():

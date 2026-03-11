@@ -106,7 +106,7 @@ class TableOptions:
     group_tabular_alignments: list[str] | None = None
     group_boundary_extras: list[str] | None = None
 
-    row_highlight_colors: list[tuple[str, Color]] = field(default_factory=list)
+    row_highlight_colors: list = field(default_factory=list)
 
     number_fmt_fn: Optional[CellWrapper] = None
     str_fmt_fn: Optional[CellWrapper] = _latex_escape_wrapper
@@ -639,7 +639,7 @@ class TexTable:
             self._options.row_highlight_colors = [("NONE", "")] * len(self.df)
 
         for ridx in row_indices:
-            self._options.row_highlight_colors[ridx] = color_tup
+            self._options.row_highlight_colors[ridx] = color_tup  # type: ignore[assignment]
 
     def remove_column_headers(self) -> None:
         """Remove the column headers from the LaTeX table."""

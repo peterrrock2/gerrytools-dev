@@ -6,7 +6,7 @@ from gerrychain.updaters import Tally
 from .types import DistrictWideScoreValue, Numeric, PlanWideScoreValue
 
 
-def demographic_updaters(demographic_keys: Iterable[str], aliases: Iterable[str] = None):
+def demographic_updaters(demographic_keys: Iterable[str], aliases: Iterable[str] | None = None):
     updaters = {}
     aliases = aliases if aliases else demographic_keys
     for key, alias in zip(demographic_keys, aliases):

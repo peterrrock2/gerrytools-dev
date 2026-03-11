@@ -4,13 +4,16 @@ import json
 import os
 import traceback
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from types import TracebackType
 from typing import Optional, Type, Union
 
 import docker
+import docker.errors
 from gerrychain import Graph, Partition
 
-from gerrytools.mgrp.run_info import ForestRunInfo, RecomRunInfo
+from gerrytools.mgrp.runners.forest import ForestRunInfo
+from gerrytools.mgrp.runners.recom import RecomRunInfo
 
 
 class RunnerConfig(ABC):
@@ -60,7 +63,7 @@ class RunContainer:
         self,
         configuration: RunnerConfig,
         docker_image_name="mgggdev/replicate:v0.2",
-        docker_client_args: dict = None,
+        docker_client_args: dict | None = None,
     ):
         """
         Sets up the replicator class
@@ -186,6 +189,7 @@ class RunContainer:
                 f"an implemented run method."
             )
 
+        assert self.container is not None, "Container not started. Use within a `with` block."
         cmd = self.config.run_command(*args, **kwargs)
         log_file = self.config.log_file(*args, **kwargs)
         exec_id = self.client.api.exec_create(
@@ -231,6 +235,7 @@ class RunContainer:
                 f"an implemented run method."
             )
 
+        assert self.container is not None, "Container not started. Use within a `with` block."
         cmd = self.config.run_command(*args, **kwargs)
         exec_id = self.client.api.exec_create(
             self.container.id,
@@ -301,13 +306,14 @@ class RunContainer:
         # This is a bit janky, but we want the canonical output
         # to be the default for the run_info
         if hasattr(run_info, "writer"):
-            run_info.writer = "canonical"
+            run_info.writer = "canonical"  # type: ignore[attr-defined]
         else:
             run_info.standard_jsonl = True
             run_info.ben = False
 
         run_info.force_print = True
 
+        assert self.container is not None, "Container not started. Use within a `with` block."
         cmd = self.config.run_command(run_info)
 
         exec_id = self.client.api.exec_create(
@@ -326,7 +332,7 @@ class RunContainer:
             demux=True,
         )
 
-        self.graph = Graph.from_json(os.path.join(self.config.json_dir, self.config.json_name))
+        self.graph = Graph.from_json(os.path.join(self.config.json_dir, self.config.json_name))  # type: ignore[attr-defined]
 
         updater_values = {}
 
@@ -364,8 +370,8 @@ class RunContainer:
 
     def _process_output(
         self,
-        canon_json_line: str,
-        updater_dict: dict[str, callable],
+        canon_json_line: dict,
+        updater_dict: dict[str, Callable],
         updater_values: dict[str, float],
         error=None,
     ):

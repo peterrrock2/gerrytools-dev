@@ -6,7 +6,7 @@ from gerrychain.updaters import CountySplit
 from ..geometry import dataframe
 
 
-def _grouper(P: Partition, unit: str, popcol: str = None) -> list:
+def _grouper(P: Partition, unit: str, popcol: str | None = None) -> list:
     """
     A nice little subroutine for doing the necessary pandas operations that we
     don't want to repeat.
@@ -49,9 +49,9 @@ def _splits(
     P: Partition,
     unit: str,
     names: bool = False,
-    popcol: str = None,
+    popcol: str | None = None,
     how: str = "pandas",
-    unit_info_updater_col: str = None,
+    unit_info_updater_col: str | None = None,
 ) -> Union[int, List[str]]:
     """
     Determines the number of units split by the districting plan.
@@ -112,9 +112,9 @@ def _pieces(
     P: Partition,
     unit: str,
     names: bool = False,
-    popcol: str = None,
+    popcol: str | None = None,
     how: str = "pandas",
-    unit_info_updater_col: str = None,
+    unit_info_updater_col: str | None = None,
 ) -> Union[int, List[str]]:
     """
     Determines the number of "unit pieces" produced by the plan. For example,

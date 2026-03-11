@@ -30,7 +30,7 @@ class JSONtoObject(BaseModel):
     Official title of the plan.
     """
 
-    type: str = None
+    type: str | None = None
     """
     The "type" of plan; could denote a party affiliation, a chamber, whatever.
     """

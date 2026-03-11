@@ -320,7 +320,7 @@ def minimize_dispersion(
     numbering_mapping = {}
     for i in range(len(districts)):
         for j in range(len(districts)):
-            if solution[i * len(districts) + j].x:
+            if solution[i * len(districts) + j].x:  # type: ignore[attr-defined]
                 numbering_mapping[districts[i]] = districts[j]
 
     return numbering_mapping
@@ -387,7 +387,7 @@ def minimize_parity(
 
     mapping = {}
     for i, v in enumerate(model.getVars()):
-        mapping[districts[i]] = bool(v.x)
+        mapping[districts[i]] = bool(v.x)  # type: ignore[attr-defined]
 
     return mapping
 
@@ -428,7 +428,8 @@ def minimize_dispersion_with_parity(
                 == 1
             )
 
-        extra_constraints(model, numbering, district, districts)
+        if extra_constraints is not None:
+            extra_constraints(model, numbering, district, districts)
 
     return minimize_dispersion(units, enacted_col, proposed_col, pop_col, parity_constraint)
 
