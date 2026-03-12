@@ -5,6 +5,9 @@ line_segment_through_unit_square, build_legend_options, save_legend_handles,
 _coerce_to_1d_float_array, _coerce_values_and_weights.
 """
 
+import os
+import tempfile
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -442,3 +445,50 @@ class TestCoerceValuesAndWeights:
         assert vals.shape == (1,)
         np.testing.assert_array_equal(vals, [1.0])
         np.testing.assert_array_equal(wts, [1.0])
+
+
+class TestSaveFigure:
+    def test_save_figure_writes_nonempty_file(self):
+        import matplotlib.pyplot as plt
+
+        from gerrytools.plotting._figure_io import save_figure
+
+        fig = plt.figure()
+        plt.plot([0, 1], [0, 1])
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+            tmppath = f.name
+        try:
+            save_figure(fig, tmppath)
+            assert os.path.getsize(tmppath) > 0
+        finally:
+            plt.close(fig)
+            os.unlink(tmppath)
+
+    def test_save_figure_accepts_custom_dpi(self):
+        import matplotlib.pyplot as plt
+
+        from gerrytools.plotting._figure_io import save_figure
+
+        fig = plt.figure()
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+            tmppath = f.name
+        try:
+            save_figure(fig, tmppath, dpi=72)
+            assert os.path.getsize(tmppath) > 0
+        finally:
+            plt.close(fig)
+            os.unlink(tmppath)
+
+    def test_save_figure_default_bbox_inches_is_tight(self):
+        import matplotlib.pyplot as plt
+
+        from gerrytools.plotting._figure_io import save_figure
+
+        fig = plt.figure()
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+            tmppath = f.name
+        try:
+            save_figure(fig, tmppath)
+        finally:
+            plt.close(fig)
+            os.unlink(tmppath)

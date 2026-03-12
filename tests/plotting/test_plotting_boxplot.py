@@ -333,3 +333,51 @@ class TestBoxPlotLegendHandles:
         handles = bp._legend_handles
         # Should only have the boxplot handle
         assert len(handles) == 1
+
+
+class TestBoxPlotActualBuilds:
+    def test_build_single_dataset(self):
+        bp = BoxPlot()
+        bp.add_boxplot_datasets({"A": [1.0, 2.0, 3.0], "B": [4.0, 5.0, 6.0]})
+        ax = bp.ax
+        assert ax is not None
+
+    def test_build_two_datasets_grouped(self):
+        bp = BoxPlot()
+        bp.add_boxplot_datasets({"A": [1.0, 2.0, 3.0], "B": [4.0, 5.0, 6.0]}, name="Set1")
+        bp.add_boxplot_datasets({"A": [2.0, 3.0, 4.0], "B": [5.0, 6.0, 7.0]}, name="Set2")
+        ax = bp.ax
+        assert ax is not None
+
+    def test_build_with_pointset_overlay(self):
+        bp = BoxPlot()
+        bp.add_boxplot_datasets({"A": [1.0, 2.0, 3.0], "B": [4.0, 5.0, 6.0]})
+        bp.add_pointset({"A": 2.0, "B": 5.0}, name="Enacted")
+        ax = bp.ax
+        assert ax is not None
+
+    def test_build_with_group_vlines(self):
+        bp = BoxPlot(include_boxplot_group_vlines=True)
+        bp.add_boxplot_datasets({"A": [1.0, 2.0, 3.0]})
+        ax = bp.ax
+        assert ax is not None
+
+    def test_build_with_vlines_disabled(self):
+        bp = BoxPlot(include_boxplot_group_vlines=False)
+        bp.add_boxplot_datasets({"A": [1.0, 2.0, 3.0]})
+        ax = bp.ax
+        assert ax is not None
+
+    def test_build_with_fliers_shown(self):
+        bp = BoxPlot()
+        bp.add_boxplot_datasets({"A": [1.0, 2.0, 10.0, 3.0]}, showfliers=True)
+        ax = bp.ax
+        assert ax is not None
+
+    def test_build_category_tick_labels_populated(self):
+        bp = BoxPlot()
+        bp.add_boxplot_datasets({"Alpha": [1.0, 2.0], "Beta": [3.0, 4.0]})
+        ax = bp.ax
+        tick_labels = [t.get_text() for t in ax.get_xticklabels()]
+        assert "Alpha" in tick_labels
+        assert "Beta" in tick_labels

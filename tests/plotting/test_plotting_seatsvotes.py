@@ -1,3 +1,4 @@
+import numpy as np
 import pytest
 from matplotlib.lines import Line2D
 
@@ -70,3 +71,27 @@ def test_seatsvotes_rejects_conflicting_custom_line_name_and_label():
             label="Label A",
             name="Label B",
         )
+
+
+class TestSeatsVotesDataEdgeCases:
+    def _base_kwargs(self):
+        return dict(
+            pov_party_vote_counts=np.array([400.0, 600.0]),
+            total_vote_counts=np.array([1000.0, 1000.0]),
+            name="Test",
+            linecolor="blue",
+            markercolor="red",
+            markerlabel="Result",
+        )
+
+    def test_infinite_markersize_raises_valueerror(self):
+        from gerrytools.plotting.data.seatsvotes import SeatsVotesData
+
+        with pytest.raises(ValueError, match="markersize must be finite"):
+            SeatsVotesData(**self._base_kwargs(), markersize=float("inf"))
+
+    def test_infinite_markeredgewidth_raises_valueerror(self):
+        from gerrytools.plotting.data.seatsvotes import SeatsVotesData
+
+        with pytest.raises(ValueError, match="markeredgewidth must be finite"):
+            SeatsVotesData(**self._base_kwargs(), markeredgewidth=float("inf"))

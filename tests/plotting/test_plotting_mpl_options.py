@@ -346,3 +346,118 @@ class TestLegendOptions:
         assert lo.fontsize == 14.0
         lo.ncols = 3
         assert lo.ncols == 3
+
+
+class TestAxisLabelStyleOptionalFields:
+    def test_labelpad_validation_finite(self):
+        style = AxisLabelStyle(labelpad=5.0)
+        assert style.labelpad == pytest.approx(5.0)
+
+    def test_labelpad_infinite_raises_valueerror(self):
+        with pytest.raises(ValueError, match="finite"):
+            AxisLabelStyle(labelpad=float("inf"))
+
+    def test_labelpad_negative_raises_valueerror(self):
+        with pytest.raises(ValueError, match="nonnegative"):
+            AxisLabelStyle(labelpad=-1.0)
+
+    def test_labelpad_not_numeric_raises_typeerror(self):
+        with pytest.raises(TypeError, match="float or int"):
+            AxisLabelStyle(labelpad="big")  # ty: ignore[invalid-argument-type]
+
+    def test_to_mpl_settings_dict_includes_fontfamily(self):
+        style = AxisLabelStyle(fontfamily="serif")
+        d = style.to_mpl_settings_dict()
+        assert "fontfamily" in d
+        assert d["fontfamily"] == "serif"
+
+    def test_to_mpl_settings_dict_includes_labelpad(self):
+        style = AxisLabelStyle(labelpad=8.0)
+        d = style.to_mpl_settings_dict()
+        assert "labelpad" in d
+        assert d["labelpad"] == pytest.approx(8.0)
+
+    def test_to_mpl_settings_dict_omits_fontfamily_when_none(self):
+        style = AxisLabelStyle()
+        d = style.to_mpl_settings_dict()
+        assert "fontfamily" not in d
+
+    def test_to_mpl_settings_dict_omits_labelpad_when_none(self):
+        style = AxisLabelStyle()
+        d = style.to_mpl_settings_dict()
+        assert "labelpad" not in d
+
+
+class TestTitleStyleOptionalFields:
+    def test_pad_validation_finite(self):
+        style = TitleStyle(pad=6.0)
+        assert style.pad == pytest.approx(6.0)
+
+    def test_pad_infinite_raises_valueerror(self):
+        with pytest.raises(ValueError, match="finite"):
+            TitleStyle(pad=float("inf"))
+
+    def test_pad_negative_raises_valueerror(self):
+        with pytest.raises(ValueError, match="nonnegative"):
+            TitleStyle(pad=-1.0)
+
+    def test_pad_not_numeric_raises_typeerror(self):
+        with pytest.raises(TypeError, match="float or int"):
+            TitleStyle(pad="large")  # ty: ignore[invalid-argument-type]
+
+    def test_to_mpl_settings_dict_includes_fontweight(self):
+        style = TitleStyle(fontweight="bold")
+        d = style.to_mpl_settings_dict()
+        assert d["fontweight"] == "bold"
+
+    def test_to_mpl_settings_dict_includes_fontstyle(self):
+        style = TitleStyle(fontstyle="italic")
+        d = style.to_mpl_settings_dict()
+        assert d["fontstyle"] == "italic"
+
+    def test_to_mpl_settings_dict_includes_fontfamily(self):
+        style = TitleStyle(fontfamily="serif")
+        d = style.to_mpl_settings_dict()
+        assert d["fontfamily"] == "serif"
+
+    def test_to_mpl_settings_dict_includes_loc(self):
+        style = TitleStyle(loc="left")
+        d = style.to_mpl_settings_dict()
+        assert d["loc"] == "left"
+
+    def test_to_mpl_settings_dict_includes_pad(self):
+        style = TitleStyle(pad=4.0)
+        d = style.to_mpl_settings_dict()
+        assert d["pad"] == pytest.approx(4.0)
+
+    def test_to_mpl_settings_dict_omits_fontweight_when_none(self):
+        style = TitleStyle()
+        d = style.to_mpl_settings_dict()
+        assert "fontweight" not in d
+
+    def test_to_mpl_settings_dict_omits_loc_when_none(self):
+        style = TitleStyle()
+        d = style.to_mpl_settings_dict()
+        assert "loc" not in d
+
+    def test_to_mpl_settings_dict_omits_pad_when_none(self):
+        style = TitleStyle()
+        d = style.to_mpl_settings_dict()
+        assert "pad" not in d
+
+    def test_invalid_loc_raises_valueerror(self):
+        with pytest.raises(ValueError, match="loc"):
+            TitleStyle(loc="top")  # ty: ignore[invalid-argument-type]
+
+
+class TestLabelFontOptionsStretch:
+    def test_fontstretch_included_in_kwargs_when_set(self):
+        opts = LabelFontOptions(fontstretch="condensed")
+        kw = opts.to_mpl_text_kwargs()
+        assert "fontstretch" in kw
+        assert kw["fontstretch"] == "condensed"
+
+    def test_fontstretch_omitted_when_none(self):
+        opts = LabelFontOptions()
+        kw = opts.to_mpl_text_kwargs()
+        assert "fontstretch" not in kw

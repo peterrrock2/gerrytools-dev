@@ -105,7 +105,9 @@ def save_legend_handles(
     canvas = legend_fig.canvas
     canvas.draw()
     get_renderer_fn = getattr(canvas, "get_renderer", None)
-    if not callable(get_renderer_fn):
+    if not callable(
+        get_renderer_fn
+    ):  # pragma: no cover — defensive guard for non-standard Matplotlib backends that omit get_renderer()
         raise RuntimeError("Matplotlib canvas does not expose get_renderer().")
     renderer = get_renderer_fn()
 

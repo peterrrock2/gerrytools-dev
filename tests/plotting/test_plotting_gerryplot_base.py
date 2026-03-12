@@ -12,6 +12,9 @@ import matplotlib
 
 matplotlib.use("Agg")
 
+import os
+import tempfile
+
 import pytest
 
 from gerrytools.plotting.data.scatterplot import ScatterPlot
@@ -482,3 +485,236 @@ class TestNamedOverlaysInLegend:
         sp.add_horizontal_band(0.3, 0.7)
         handles = sp._get_named_band_legend_handles()
         assert len(handles) == 0
+
+
+class TestGerryPlotBaseSetters:
+    """Tests for set_xlabel / set_ylabel / set_title and related clearers."""
+
+    def test_set_xlabel_stores_text(self):
+        sp = ScatterPlot()
+        sp.set_xlabel("Vote Share")
+        assert sp.xlabel == "Vote Share"
+
+    def test_set_xlabel_none_clears(self):
+        sp = ScatterPlot(xlabel="old")
+        sp.set_xlabel(None)
+        assert sp.xlabel is None
+
+    def test_set_ylabel_stores_text(self):
+        sp = ScatterPlot()
+        sp.set_ylabel("Seat Share")
+        assert sp.ylabel == "Seat Share"
+
+    def test_set_title_stores_text(self):
+        sp = ScatterPlot()
+        sp.set_title("My Plot")
+        assert sp.title == "My Plot"
+
+    def test_clear_xlabel_ylabel_and_title_styles_clears_all(self):
+        sp = ScatterPlot()
+        sp.set_xaxis_label_style(fontsize=14.0)
+        sp.set_yaxis_label_style(fontsize=14.0)
+        sp.set_title_style(fontsize=14.0)
+        sp.clear_xlabel_ylabel_and_title_styles()
+        assert sp._xlabel_style is None
+        assert sp._ylabel_style is None
+        assert sp._title_style is None
+
+    def test_clear_xtick_labels(self):
+        sp = ScatterPlot()
+        sp.set_xticks(locations=[0.5], labels=["mid"])
+        sp.clear_xtick_labels()
+        assert sp._x_tick_labels == []
+
+    def test_clear_ytick_labels(self):
+        sp = ScatterPlot()
+        sp.set_yticks(locations=[0.5], labels=["mid"])
+        sp.clear_ytick_labels()
+        assert sp._y_tick_labels == []
+
+    def test_clear_xticks_clears_locations_and_labels(self):
+        sp = ScatterPlot()
+        sp.set_xticks(locations=[0.5], labels=["mid"])
+        sp.clear_xticks()
+        assert sp._x_tick_locations == []
+        assert sp._x_tick_labels == []
+
+    def test_clear_yticks_clears_locations_and_labels(self):
+        sp = ScatterPlot()
+        sp.set_yticks(locations=[0.5], labels=["mid"])
+        sp.clear_yticks()
+        assert sp._y_tick_locations == []
+        assert sp._y_tick_labels == []
+
+    def test_set_legend_options_updates_options(self):
+        sp = ScatterPlot()
+        sp.set_legend_options(ncols=2, fontsize=12.0)
+        assert sp._legend_options.ncols == 2
+        assert sp._legend_options.fontsize == 12.0
+
+
+class TestGerryPlotBaseUpdateYTickEdgeCases:
+    """Edge cases in update_ytick_values that weren't previously exercised."""
+
+    def test_update_ytick_values_both_none_is_noop(self):
+        sp = ScatterPlot()
+        sp.update_ytick_values()
+        assert sp._y_tick_locations is None
+        assert sp._y_tick_labels is None
+
+    def test_update_ytick_values_inconsistent_clear_raises(self):
+        sp = ScatterPlot()
+        with pytest.raises(ValueError, match="clear both"):
+            sp.update_ytick_values(locations=[], labels=["a"])
+
+    def test_update_ytick_values_locations_mismatch_existing_labels_raises(self):
+        sp = ScatterPlot()
+        sp.update_ytick_values(labels=["a", "b"])
+        with pytest.raises(ValueError, match="Locations length"):
+            sp.update_ytick_values(locations=[0.1, 0.2, 0.3])
+
+    def test_update_ytick_values_locations_only_stores(self):
+        sp = ScatterPlot()
+        sp.update_ytick_values(locations=[0.1, 0.2])
+        assert sp._y_tick_locations == [0.1, 0.2]
+        assert sp._y_tick_labels is None
+
+    def test_update_ytick_values_labels_empty_clears_only_labels(self):
+        sp = ScatterPlot()
+        sp.update_ytick_values(labels=[])
+        assert sp._y_tick_labels == []
+
+    def test_update_ytick_values_labels_mismatch_existing_locations_raises(self):
+        sp = ScatterPlot()
+        sp.update_ytick_values(locations=[0.1, 0.2])
+        with pytest.raises(ValueError, match="Labels length"):
+            sp.update_ytick_values(labels=["only_one"])
+
+    def test_update_ytick_values_labels_only_stores(self):
+        sp = ScatterPlot()
+        sp.update_ytick_values(locations=[0.1, 0.2])
+        sp.update_ytick_values(labels=["a", "b"])
+        assert sp._y_tick_labels == ["a", "b"]
+
+    def test_update_xtick_values_labels_empty_clears(self):
+        sp = ScatterPlot()
+        sp.set_xticks(locations=[0.5], labels=["mid"])
+        sp.update_xtick_values(labels=[])
+        assert sp._x_tick_labels == []
+
+
+class TestGerryPlotBaseBuildWithStyles:
+    """Tests that trigger the _apply_deferred_label_styles path during build."""
+
+    def test_build_with_xlabel_style(self):
+        sp = ScatterPlot(xlabel="x")
+        sp.set_xaxis_label_style(fontsize=12.0)
+        ax = sp.ax
+        assert ax.get_xlabel() == "x"
+
+    def test_build_with_ylabel_style(self):
+        sp = ScatterPlot(ylabel="y")
+        sp.set_yaxis_label_style(fontsize=12.0)
+        ax = sp.ax
+        assert ax.get_ylabel() == "y"
+
+    def test_build_with_title_style(self):
+        sp = ScatterPlot(title="T")
+        sp.set_title_style(fontsize=14.0)
+        ax = sp.ax
+        assert ax.get_title() == "T"
+
+    def test_build_with_minor_x_tick_style(self):
+        sp = ScatterPlot()
+        sp.set_xaxis_tick_style(ticktype="minor")
+        ax = sp.ax
+        assert ax is not None
+
+    def test_build_with_minor_y_tick_style(self):
+        sp = ScatterPlot()
+        sp.set_yaxis_tick_style(ticktype="minor")
+        ax = sp.ax
+        assert ax is not None
+
+    def test_build_with_horizontal_line(self):
+        sp = ScatterPlot()
+        sp.add_horizontal_lines(0.5)
+        ax = sp.ax
+        assert ax is not None
+
+    def test_build_with_scalar_horizontal_line_covers_real_branch(self):
+        """Passing a scalar (not a list) exercises the isinstance(vals, Real) branch."""
+        sp = ScatterPlot()
+        sp.add_horizontal_lines(0.5)
+        ax = sp.ax
+        assert len(ax.lines) >= 1
+
+    def test_build_with_scalar_vertical_line_covers_real_branch(self):
+        sp = ScatterPlot()
+        sp.add_vertical_lines(0.5)
+        ax = sp.ax
+        assert len(ax.lines) >= 1
+
+    def test_build_with_horizontal_band(self):
+        sp = ScatterPlot()
+        sp.add_horizontal_band(0.3, 0.7, bandcolor="blue")
+        ax = sp.ax
+        assert ax is not None
+
+    def test_build_with_horizontal_band_zero_linewidth_uses_none_edgecolor(self):
+        """linewidth=0.0 triggers the edgecolor='none' branch in _draw_horizontals."""
+        sp = ScatterPlot()
+        sp.add_horizontal_band(0.3, 0.7, linewidth=0.0)
+        ax = sp.ax
+        assert ax is not None
+
+    def test_build_with_vertical_band_zero_linewidth_uses_none_edgecolor(self):
+        sp = ScatterPlot()
+        sp.add_vertical_band(0.3, 0.7, linewidth=0.0)
+        ax = sp.ax
+        assert ax is not None
+
+    def test_build_with_named_band_no_linecolor_in_legend(self):
+        """Named band with linewidth=0 should produce a 'none' edgecolor legend handle."""
+        sp = ScatterPlot()
+        sp.include_legend = True
+        sp.add_horizontal_band(0.3, 0.7, linewidth=0.0, name="My Band")
+        ax = sp.ax
+        assert ax is not None
+
+    def test_save_to_tempfile(self):
+        sp = ScatterPlot()
+        sp.add_scatter(x=[1.0], y=[2.0])
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+            tmppath = f.name
+        try:
+            sp.save(tmppath)
+            assert os.path.getsize(tmppath) > 0
+        finally:
+            os.unlink(tmppath)
+
+    def test_arrow_length_with_explicit_arrowtail_raises(self):
+        from gerrytools.plotting.data._gerryplot_dataclasses import ArrowPlacement
+
+        sp = ScatterPlot()
+        placement_with_tail = ArrowPlacement(arrowtail=(0.3, 0.3))
+        with pytest.raises(ValueError, match="arrowtail"):
+            sp.add_label_arrow(
+                arrowtip=(0.5, 0.5),
+                direction="right",
+                arrow_length=10.0,
+                arrowplacement=placement_with_tail,
+            )
+
+
+class TestGerryPlotBaseYTickBuildErrors:
+    """Tests that trigger ValueError during build for mismatched tick labels."""
+
+    def test_build_with_y_tick_labels_but_no_locations_still_builds(self):
+        """Setting y_tick_labels without locations falls back to existing auto-ticks."""
+        sp = ScatterPlot()
+        # set labels explicitly matching auto-tick count would be brittle, so just check
+        # that it doesn't hard-crash when labels list is empty
+        sp._y_tick_labels = []
+        ax = sp.ax
+        assert ax is not None

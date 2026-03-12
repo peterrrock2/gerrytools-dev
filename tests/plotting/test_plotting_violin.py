@@ -98,3 +98,38 @@ class TestViolinPlotLegend:
         handles = vp._legend_handles
         labels = [h.get_label() for h in handles]
         assert "Enacted" in labels
+
+
+class TestViolinPlotActualBuilds:
+    def test_build_single_dataset(self):
+        vp = ViolinPlot()
+        vp.add_violinplot_datasets({"A": [1.0, 2.0, 3.0, 4.0], "B": [2.0, 3.0, 4.0, 5.0]})
+        ax = vp.ax
+        assert ax is not None
+
+    def test_build_two_datasets_grouped(self):
+        vp = ViolinPlot()
+        vp.add_violinplot_datasets({"A": [1.0, 2.0, 3.0], "B": [4.0, 5.0, 6.0]}, name="Set1")
+        vp.add_violinplot_datasets({"A": [2.0, 3.0, 4.0], "B": [5.0, 6.0, 7.0]}, name="Set2")
+        ax = vp.ax
+        assert ax is not None
+
+    def test_build_with_pointset_overlay(self):
+        vp = ViolinPlot()
+        vp.add_violinplot_datasets({"A": [1.0, 2.0, 3.0], "B": [4.0, 5.0, 6.0]})
+        vp.add_pointset({"A": 2.0, "B": 5.0}, name="Enacted")
+        ax = vp.ax
+        assert ax is not None
+
+    def test_build_with_group_vlines(self):
+        vp = ViolinPlot(include_violinplot_group_vlines=True)
+        vp.add_violinplot_datasets({"A": [1.0, 2.0, 3.0]})
+        ax = vp.ax
+        assert ax is not None
+
+    def test_build_category_tick_labels_populated(self):
+        vp = ViolinPlot()
+        vp.add_violinplot_datasets({"Group1": [1.0, 2.0, 3.0], "Group2": [4.0, 5.0, 6.0]})
+        ax = vp.ax
+        tick_labels = [t.get_text() for t in ax.get_xticklabels()]
+        assert "Group1" in tick_labels

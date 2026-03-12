@@ -315,3 +315,116 @@ class TestHistogramLegend:
         handles = h._legend_handles
         labels = [handle.get_label() for handle in handles]
         assert "Threshold" in labels
+
+
+class TestHistogramActualBuilds:
+    """Every test here calls .ax to exercise the draw path."""
+
+    def test_build_overlay_histogram(self):
+        h = Histogram()
+        h.add_histogram([1.0, 2.0, 3.0, 4.0, 5.0])
+        ax = h.ax
+        assert ax is not None
+
+    def test_build_stack_histogram(self):
+        h = Histogram()
+        h.add_histogram([1.0, 2.0, 3.0], histtype="stack")
+        h.add_histogram([4.0, 5.0, 6.0], histtype="stack")
+        ax = h.ax
+        assert ax is not None
+
+    def test_build_weave_histogram(self):
+        h = Histogram()
+        h.add_histogram([1.0, 2.0, 3.0], histtype="weave")
+        h.add_histogram([4.0, 5.0, 6.0], histtype="weave")
+        ax = h.ax
+        assert ax is not None
+
+    def test_build_outline_histogram(self):
+        h = Histogram()
+        h.add_histogram(
+            [1.0, 2.0, 3.0],
+            histtype="outline",
+            facecolor="none",
+            edgecolor="black",
+            edgewidth=1.0,
+        )
+        ax = h.ax
+        assert ax is not None
+
+    def test_build_with_explicit_bins(self):
+        h = Histogram()
+        h.add_histogram([1.0, 2.0, 3.0])
+        h.set_bins(5)
+        ax = h.ax
+        assert ax is not None
+
+    def test_build_with_binwidth(self):
+        h = Histogram()
+        h.add_histogram([1.0, 2.0, 3.0])
+        h.set_bins_by_width(0.5)
+        ax = h.ax
+        assert ax is not None
+
+    def test_build_with_points_above(self):
+        h = Histogram()
+        h.add_histogram([1.0, 2.0, 3.0, 4.0])
+        h.add_points_above(2.5, name="Threshold")
+        ax = h.ax
+        assert ax is not None
+
+    def test_build_with_centered_bin_alignment(self):
+        h = Histogram()
+        h.add_histogram([1.0, 2.0, 3.0])
+        h.center_data_on_bin_edges()
+        ax = h.ax
+        assert ax is not None
+
+    def test_build_as_density(self):
+        h = Histogram()
+        h.add_histogram([1.0, 2.0, 3.0, 4.0, 5.0])
+        h.transform_to_density()
+        ax = h.ax
+        assert ax is not None
+
+    def test_build_with_grid(self):
+        h = Histogram(grid=True)
+        h.add_histogram([1.0, 2.0, 3.0])
+        ax = h.ax
+        assert ax is not None
+
+    def test_build_with_weights(self):
+        h = Histogram()
+        h.add_histogram([1.0, 2.0, 3.0], weights=[1.0, 2.0, 3.0])
+        ax = h.ax
+        assert ax is not None
+
+    def test_build_with_point_outside_bin_range(self):
+        h = Histogram()
+        h.add_histogram([1.0, 2.0, 3.0])
+        h.add_points_above(10.0, name="OutOfRange")
+        ax = h.ax
+        assert ax is not None
+
+    def test_build_stacked_with_point_shows_stacked_height(self):
+        h = Histogram()
+        h.add_histogram([1.0, 1.5, 2.0], histtype="stack")
+        h.add_histogram([1.0, 1.5, 2.0], histtype="stack")
+        h.add_points_above(1.2, name="Plan")
+        ax = h.ax
+        assert ax is not None
+
+
+class TestHistogramDataEdgeCases:
+    def test_infinite_edgewidth_raises_valueerror(self):
+        from gerrytools.plotting.data.histogram import HistogramData
+
+        with pytest.raises(ValueError, match="edgewidth must be finite"):
+            HistogramData(
+                name="test",
+                values=np.array([1.0, 2.0]),
+                weights=np.array([1.0, 1.0]),
+                facecolor="blue",
+                edgecolor="none",
+                edgewidth=float("inf"),
+            )

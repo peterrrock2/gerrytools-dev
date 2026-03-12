@@ -347,3 +347,32 @@ def test_clear_annotation_arrows_removes_all_arrows():
     plot.clear_annotation_arrows()
     ax = plot.ax
     assert all(text.get_text() not in {"A", "B"} for text in ax.texts)
+
+
+class TestLabelArrowStyleEdgeCases:
+    def test_infinite_arrowoutlinewidth_raises_valueerror(self):
+        from gerrytools.plotting.data._gerryplot_dataclasses import LabelArrowStyle
+
+        with pytest.raises(ValueError, match="arrowoutlinewidth must be finite"):
+            LabelArrowStyle(arrowoutlinewidth=float("inf"))
+
+
+class TestArrowDataEdgeCases:
+    def test_infinite_arrow_length_percentage_raises_valueerror(self):
+        from gerrytools.plotting.data._gerryplot_dataclasses import (
+            ArrowData,
+            ArrowPlacement,
+            ArrowTextStyle,
+            LabelArrowStyle,
+        )
+
+        with pytest.raises(ValueError, match="arrow_length_percentage must be finite"):
+            ArrowData(
+                arrowtip=(0.5, 0.5),
+                direction="right",
+                arrowtype="label",
+                labelarrowstyle=LabelArrowStyle(),
+                placement=ArrowPlacement(),
+                textstyle=ArrowTextStyle(),
+                arrow_length_percentage=float("inf"),
+            )

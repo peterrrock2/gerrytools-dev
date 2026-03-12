@@ -32,7 +32,9 @@ def show_figure(
         from IPython import get_ipython
 
         ip = get_ipython()
-        if ip is not None and getattr(ip, "kernel", None) is not None:
+        if (
+            ip is not None and getattr(ip, "kernel", None) is not None
+        ):  # pragma: no cover — only reachable inside a live Jupyter kernel
             from IPython.display import Image, display
 
             buf = BytesIO()
@@ -49,8 +51,10 @@ def show_figure(
         print(f"[{non_gui_prefix}] Non-GUI backend ({backend}); saved to {non_gui_filename}")
         return
 
-    plt.figure(fig.number)
-    plt.show(block=True)
+    # pragma: no cover — only reachable when an interactive GUI backend (e.g. TkAgg) is
+    # active; the test suite always uses the Agg (non-interactive) backend.
+    plt.figure(fig.number)  # pragma: no cover
+    plt.show(block=True)  # pragma: no cover
 
 
 def save_figure(fig: Figure, filepath: str, **kwargs: object) -> None:

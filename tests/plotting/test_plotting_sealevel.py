@@ -344,3 +344,67 @@ class TestSeaLevelCategoryCenters:
     def test_no_labels_returns_empty(self):
         sl = SeaLevel()
         assert len(sl._sealevel_centers) == 0
+
+
+class TestSeaLevelHorizontalJitterValidation:
+    def _make_sealevel_with_labels(self):
+        sl = SeaLevel(jitter_rng_seed=0)
+        sl.add_sealevel_set({"A": 0.5, "B": 0.7, "C": 0.3})
+        return sl
+
+    def test_non_dict_horizontal_jitter_raises_typeerror(self):
+        sl = self._make_sealevel_with_labels()
+        with pytest.raises(TypeError, match="dictionary"):
+            sl.set_max_horizontal_jitter_per_category(jitter_per_category=[0.1, 0.2])
+
+    def test_non_real_horizontal_jitter_raises_typeerror(self):
+        sl = self._make_sealevel_with_labels()
+        with pytest.raises(TypeError, match="real numbers"):
+            sl.set_max_horizontal_jitter_per_category(jitter_per_category={"A": "big"})
+
+    def test_negative_horizontal_jitter_raises_valueerror(self):
+        sl = self._make_sealevel_with_labels()
+        with pytest.raises(ValueError, match="nonnegative"):
+            sl.set_max_horizontal_jitter_per_category(jitter_per_category={"A": -0.1})
+
+    def test_infinite_horizontal_jitter_raises_valueerror(self):
+        sl = self._make_sealevel_with_labels()
+        with pytest.raises(ValueError, match="finite"):
+            sl.set_max_horizontal_jitter_per_category(jitter_per_category={"A": float("inf")})
+
+    def test_no_labels_horizontal_per_category_raises_valueerror(self):
+        sl = SeaLevel()
+        with pytest.raises(ValueError, match="No labels"):
+            sl.set_max_horizontal_jitter_per_category(jitter_per_category={"A": 0.1})
+
+    def test_extra_keys_horizontal_per_category_raises_valueerror(self):
+        sl = self._make_sealevel_with_labels()
+        with pytest.raises(ValueError, match="Extra keys"):
+            sl.set_max_horizontal_jitter_per_category(jitter_per_category={"A": 0.1, "Z": 0.2})
+
+    def test_negative_horizontal_jitter_all_raises_valueerror(self):
+        sl = self._make_sealevel_with_labels()
+        with pytest.raises(ValueError, match="nonnegative"):
+            sl.set_max_horizontal_jitter_all(-0.1)
+
+    def test_infinite_horizontal_jitter_all_raises_valueerror(self):
+        sl = self._make_sealevel_with_labels()
+        with pytest.raises(ValueError, match="nonnegative"):
+            sl.set_max_horizontal_jitter_all(float("inf"))
+
+    def test_no_labels_vertical_per_category_raises_valueerror(self):
+        """Direct call to set_max_vertical_jitter_per_category with no labels."""
+        sl = SeaLevel()
+        with pytest.raises(ValueError, match="No labels"):
+            sl.set_max_vertical_jitter_per_category(jitter_per_category={"A": 0.1})
+
+
+class TestSeaLevelDataConversionDuplicateRow:
+    def test_duplicate_row_index_raises_valueerror(self):
+        sl = SeaLevel()
+        df = pd.DataFrame(
+            {"A": [0.5, 0.6]},
+            index=["row1", "row1"],  # ty: ignore[invalid-argument-type]
+        )
+        with pytest.raises(ValueError, match="multiple rows"):
+            sl._convert_score_data_to_dictionary(df, df_row_index="row1")

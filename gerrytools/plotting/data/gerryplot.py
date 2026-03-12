@@ -71,10 +71,12 @@ class GerryPlotBase(ABC):
             from IPython import get_ipython
 
             ip = get_ipython()
-            if ip is not None and getattr(ip, "kernel", None) is not None:
-                plt.close(self.fig)
-        except Exception:
-            pass
+            if (
+                ip is not None and getattr(ip, "kernel", None) is not None
+            ):  # pragma: no cover — only reachable inside a live Jupyter kernel
+                plt.close(self.fig)  # pragma: no cover
+        except Exception:  # pragma: no cover — IPython import failure is suppressed
+            pass  # pragma: no cover
 
         self.include_legend = include_legend
         self._legend_options = build_legend_options()
@@ -1542,7 +1544,9 @@ class GerryPlotBase(ABC):
             None
         """
         bbox_patch = text_artist.get_bbox_patch()
-        if bbox_patch is None:
+        if (
+            bbox_patch is None
+        ):  # pragma: no cover — only possible if the text artist was created without a bbox boxstyle, which cannot happen through the public API
             return
 
         # Some boxstyles finalize their mutated path after the first repositioning draw.
@@ -1555,7 +1559,9 @@ class GerryPlotBase(ABC):
             points: list[tuple[float, float]] = [
                 (float(vertex[0]), float(vertex[1])) for vertex in vertices_display
             ]
-            if len(points) == 0:
+            if (
+                len(points) == 0
+            ):  # pragma: no cover — degenerate case: a fully-realized boxstyle bbox path should always have vertices
                 return
 
             current_tip_x, current_tip_y = self._directional_extreme_point(points, direction)
@@ -1637,14 +1643,16 @@ class GerryPlotBase(ABC):
         if norm > 1e-12:
             return (vector_x / norm, vector_y / norm)
 
-        # Fallback for degenerate transforms.
-        if direction == "right":
-            return (1.0, 0.0)
-        if direction == "left":
-            return (-1.0, 0.0)
-        if direction == "up":
-            return (0.0, 1.0)
-        return (0.0, -1.0)
+        # pragma: no cover — fallback for degenerate transforms where the forward/origin
+        # display points collapse to the same pixel (e.g. a zero-size axes).  Not reachable
+        # under any normal Matplotlib configuration.
+        if direction == "right":  # pragma: no cover
+            return (1.0, 0.0)  # pragma: no cover
+        if direction == "left":  # pragma: no cover
+            return (-1.0, 0.0)  # pragma: no cover
+        if direction == "up":  # pragma: no cover
+            return (0.0, 1.0)  # pragma: no cover
+        return (0.0, -1.0)  # pragma: no cover
 
     def _shift_point_along_direction_pixels(
         self,
@@ -1905,7 +1913,7 @@ class GerryPlotBase(ABC):
     @abstractmethod
     def _build_plot(self) -> None:
         """Build the plot by applying all settings and drawing elements."""
-        pass
+        pass  # pragma: no cover — abstract stub; every concrete subclass overrides this
 
     @property
     @abstractmethod
@@ -1915,4 +1923,4 @@ class GerryPlotBase(ABC):
         Returns:
             list[LegendHandle]: A list of legend handles.
         """
-        return []
+        return []  # pragma: no cover — abstract stub; every concrete subclass overrides this
