@@ -3,6 +3,7 @@ import logging
 import re
 import warnings
 from dataclasses import dataclass, field
+from numbers import Real
 from typing import Callable, Iterable, Optional, cast
 
 import pandas as pd
@@ -16,7 +17,13 @@ from gerrytools.latex._text import latex_escape
 from gerrytools.latex.document import TexDocument
 from gerrytools.latex.formatters import round_decimals
 from gerrytools.logging import get_logger
-from gerrytools.typing import CellWrapper, Color, TableCellValue
+from gerrytools.typing import (
+    CellWrapper,
+    Color,
+    IndexCellWrapper,
+    TableCellValue,
+    TableIndexValue,
+)
 
 logger = get_logger(__name__)
 
@@ -112,7 +119,7 @@ class TableOptions:
     str_fmt_fn: Optional[CellWrapper] = _latex_escape_wrapper
     col_formatters: dict[str, CellWrapper] = field(default_factory=dict)
     row_formatters: dict[int, CellWrapper] = field(default_factory=dict)
-    index_fmt_fn: Optional[CellWrapper] = None
+    index_fmt_fn: Optional[IndexCellWrapper] = None
 
     groups_to_cols: dict[str, list[str]] = field(default_factory=dict)
 
@@ -309,7 +316,6 @@ class TexTable:
         self.df = df.copy()
         self._document = TexDocument()
         self._document.add_packages("colortbl")
-        self.df.index = self.df.index.map(str)
         if use_defaults:
             self._options = TableOptions(
                 groups_to_cols={"": list(df.columns)},
@@ -871,48 +877,50 @@ class TexTable:
         self._options.group_vrule_counts = None
         self._options.group_boundary_extras = None
 
-    def set_index_formatter(self, fmt_fn: CellWrapper | Callable[[TableCellValue], str]) -> None:
+    def set_index_formatter(
+        self, fmt_fn: IndexCellWrapper | Callable[[TableIndexValue], str]
+    ) -> None:
         """Set a formatter function for the index column.
 
         Args:
-            fmt_fn (CellWrapper | Callable[[TableCellValue], str]): Either a full two-argument
-                ``CellWrapper`` or a one-argument formatter over the raw value.
+            fmt_fn (IndexCellWrapper | Callable[[TableIndexValue], str]): Either a full
+                two-argument formatter or a one-argument formatter over the raw index value.
 
         Returns:
             None
         """
         if len(inspect.signature(fmt_fn).parameters) == 1:
-            one_arg = cast(Callable[[TableCellValue], str], fmt_fn)
+            one_arg = cast(Callable[[TableIndexValue], str], fmt_fn)
 
-            def _wrapped(v: TableCellValue, s: str) -> tuple[TableCellValue, str]:
-                """Adapt a one-argument value formatter to ``CellWrapper`` form.
+            def _wrapped(v: TableIndexValue, s: str) -> tuple[TableIndexValue, str]:
+                """Adapt a one-argument value formatter to index-wrapper form.
 
                 Args:
-                    v (TableCellValue): Raw cell value.
+                    v (TableIndexValue): Raw index value.
                     s (str): Existing rendered string (ignored).
 
                 Returns:
-                    tuple[TableCellValue, str]: Original value and newly formatted string.
+                    tuple[TableIndexValue, str]: Original value and newly formatted string.
                 """
                 return v, one_arg(v)
 
             self._options.index_fmt_fn = _wrapped
         else:
-            self._options.index_fmt_fn = cast(CellWrapper, fmt_fn)
+            self._options.index_fmt_fn = cast(IndexCellWrapper, fmt_fn)
 
-    def set_number_formatter(self, fmt_fn: CellWrapper | Callable[[float], str]) -> None:
+    def set_number_formatter(self, fmt_fn: CellWrapper | Callable[[Real], str]) -> None:
         """Set the number formatter function for the LaTeX table.
 
-        Used as the default formatter for all float values in the table.
+        Used as the default formatter for all real-valued cells in the table.
 
         Args:
-            fmt_fn (Wrapper): Formatter function for float values.
+            fmt_fn (Wrapper): Formatter function for real-valued cells.
 
         Raises:
             ValueError: If the provided formatter is not callable.
         """
         if len(inspect.signature(fmt_fn).parameters) == 1:
-            one_arg = cast(Callable[[float], str], fmt_fn)
+            one_arg = cast(Callable[[Real], str], fmt_fn)
 
             def _wrapped(v: TableCellValue, s: str) -> tuple[TableCellValue, str]:
                 """Adapt a one-argument numeric formatter to ``CellWrapper`` form.
@@ -924,9 +932,9 @@ class TexTable:
                 Returns:
                     tuple[TableCellValue, str]: Original value and newly formatted string.
                 """
-                if not isinstance(v, (int, float)):
+                if not isinstance(v, Real):
                     return v, s
-                return v, one_arg(float(v))
+                return v, one_arg(v)
 
             new_fn: CellWrapper = _wrapped
         else:
@@ -1207,7 +1215,9 @@ class TexTable:
                 raw = str(df_row_idx)
                 esc = latex_escape(raw)
                 if self._options.index_fmt_fn is not None:
-                    row_items.append(self._options.index_fmt_fn(df_row_idx, esc)[1])
+                    row_items.append(
+                        self._options.index_fmt_fn(cast(TableIndexValue, df_row_idx), esc)[1]
+                    )
                 else:
                     row_items.append(esc)
 
@@ -1222,7 +1232,7 @@ class TexTable:
                         cell_str = self._options.row_formatters[row_idx](
                             cell_value, str(cell_value)
                         )[1]
-                    elif isinstance(cell_value, float) and self._options.number_fmt_fn is not None:
+                    elif isinstance(cell_value, Real) and self._options.number_fmt_fn is not None:
                         cell_str = self._options.number_fmt_fn(cell_value, str(cell_value))[1]
                     elif isinstance(cell_value, str) and self._options.str_fmt_fn is not None:
                         cell_str = self._options.str_fmt_fn(cell_value, cell_value)[1]

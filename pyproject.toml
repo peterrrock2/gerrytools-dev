@@ -127,5 +127,6 @@ python-version = "3.11"
 # addopts = "--cov=gerrytools --cov-report=term-missing"
 markers = [
   "slow: marks tests as slow (deselect with '-m \"not slow\"')",
-  "latex: marks tests that require LaTeX installation",
+  "latex: marks tests that require LaTeX installation and are included with '--with-latex'",
+  "snapshot: marks snapshot/image-regression tests and are included with '--with-snapshot'",
 ]

@@ -183,7 +183,7 @@ tasks:
       UPDATE_SNAPSHOTS: "1"
     cmds:
       - task: sync
-      - uv run pytest -m latex -v tests
+      - uv run pytest --marked-only -m snapshot -v tests
 
   precommit:
     desc: Install and run pre-commit hooks

@@ -58,8 +58,14 @@ NumericArrayLike: TypeAlias = Numeric | NumericIterable | NDArray | Series | Dat
 TableCellValue: TypeAlias = object
 """Arbitrary DataFrame cell value used by table/formatter pipelines."""
 
+TableIndexValue: TypeAlias = Hashable
+"""Hashable index value used by table index-formatting callbacks."""
+
 CellWrapper: TypeAlias = Callable[[TableCellValue, str], tuple[TableCellValue, str]]
 """Formatter callback that receives ``(raw_value, rendered_text)`` and returns updated pair."""
+
+IndexCellWrapper: TypeAlias = Callable[[TableIndexValue, str], tuple[TableIndexValue, str]]
+"""Formatter callback for table index values."""
 
 # Type alias for tick types in Matplotlib
 TickType = Literal["major", "minor", "both"]
