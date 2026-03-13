@@ -444,8 +444,9 @@ class SeaLevel(GerryPlotBase):
         Returns:
             list[str] | None: Category labels when the lengths match; otherwise ``None``.
         """
-        if self._labels is None:
-            return None
+        assert (
+            self._labels is not None
+        ), "Internal error: _labels should be set before _default_x_tick_labels is called."
         # Only apply category labels when lengths match; if the user overrides locations to
         # something else, leave labels alone unless they explicitly set them.
         if len(tick_locations) == len(self._labels):
@@ -456,9 +457,9 @@ class SeaLevel(GerryPlotBase):
         """Draw the sealevel sets on the plot."""
         centers = self._sealevel_centers
 
-        if self._labels is None:
-            raise ValueError("No labels defined yet.")
-
+        assert (
+            self._labels is not None
+        ), "Internal error: _labels should be set before _draw_sealevels is called."
         for sealevel_set in self._sealevel_data_list:
             x_positions = []
             y_positions = []

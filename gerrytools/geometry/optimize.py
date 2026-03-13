@@ -77,9 +77,9 @@ def populationoverlap(
     assignment: str = "DISTRICT",
 ) -> pd.DataFrame:
     """
-    Given two unit-level DataFrames — i.e. two dataframes where each row represents
+    Given two unit-level DataFrames - i.e. two dataframes where each row represents
     an atomic unit like Census blocks or VTDs, and each row contains a district
-    assignment — computes the amount of population shared by each pair of districts.
+    assignment - computes the amount of population shared by each pair of districts.
     `left` is the districting plan to be relabeled (e.g. a proposed districting
     plan) and `right` is the districting plan with district labels we're trying
     to match (e.g. an enacted districting plan). If `left` (denoted :math:`L`) has

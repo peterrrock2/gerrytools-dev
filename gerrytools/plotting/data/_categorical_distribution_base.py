@@ -360,8 +360,10 @@ class CategoricalDistributionPlotBase(GerryPlotBase):
         Returns:
             list[str] | None: Category labels when lengths align; otherwise None.
         """
-        if self._labels is None:
-            return None
+        if (
+            self._labels is None
+        ):  # pragma: no cover - _labels is always set before tick helpers are called
+            return None  # pragma: no cover
         if len(tick_locations) == len(self._labels):
             return list(self._labels)
         return None

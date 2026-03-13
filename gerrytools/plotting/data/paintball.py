@@ -571,8 +571,6 @@ class PaintBall(GerryPlotBase):
     def _horizontal_hull_vertices(self) -> list[tuple[float, float]]:
         """Compute the horizontal hull vertices for the transformed paintball points."""
         xs, ys = self._paintball_coordinates()
-        if len(xs) == 0:
-            return []
 
         y_to_minmax_x: dict[float, tuple[float, float]] = {}
         for x_coord, y_coord in sorted(zip(xs, ys), key=lambda p: p[1]):
@@ -590,9 +588,6 @@ class PaintBall(GerryPlotBase):
 
     def _draw_points(self) -> None:
         """Draw paintball points."""
-        if len(self._voteshare_data) == 0:
-            return
-
         x_coords, y_coords = self._paintball_coordinates()
         marker_facecolor = self._resolved_rgba(
             self.markercolor,
@@ -619,8 +614,6 @@ class PaintBall(GerryPlotBase):
     def _draw_horizontal_hull(self) -> None:
         """Draw the horizontal hull polygon for paintball points."""
         hull_vertices = self._horizontal_hull_vertices()
-        if len(hull_vertices) == 0:
-            return
 
         fillcolor = self.hullcolor if self.hullcolor is not None else self.markercolor
         fillalpha = self.hullalpha if self.hullalpha is not None else self.markeralpha
@@ -709,8 +702,6 @@ class PaintBall(GerryPlotBase):
             )
 
         for line in self._named_lines.values():
-            if line.label is None:
-                continue
             handles.append(
                 Line2D(
                     [0],

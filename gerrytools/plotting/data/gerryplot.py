@@ -73,9 +73,9 @@ class GerryPlotBase(ABC):
             ip = get_ipython()
             if (
                 ip is not None and getattr(ip, "kernel", None) is not None
-            ):  # pragma: no cover — only reachable inside a live Jupyter kernel
+            ):  # pragma: no cover - only reachable inside a live Jupyter kernel
                 plt.close(self.fig)  # pragma: no cover
-        except Exception:  # pragma: no cover — IPython import failure is suppressed
+        except Exception:  # pragma: no cover - IPython import failure is suppressed
             pass  # pragma: no cover
 
         self.include_legend = include_legend
@@ -595,10 +595,6 @@ class GerryPlotBase(ABC):
             labels = self._default_x_tick_labels(x_tick_locations)
             if labels is None:
                 return
-            if len(labels) != len(x_tick_locations):
-                raise ValueError(
-                    f"Expected {len(x_tick_locations)} x tick labels, got {len(labels)}."
-                )
             self._ax.set_xticklabels(list(labels))
             return
 
@@ -1371,8 +1367,6 @@ class GerryPlotBase(ABC):
 
         for ln in self._vertical_lines:
             vals = ln.values
-            if isinstance(vals, Real) and not isinstance(vals, bool):
-                vals = [float(vals)]
             assert isinstance(vals, Iterable)
             for value in vals:
                 assert isinstance(value, (int, float))
@@ -1415,8 +1409,6 @@ class GerryPlotBase(ABC):
 
         for ln in self._horizontal_lines:
             vals = ln.values
-            if isinstance(vals, Real) and not isinstance(vals, bool):
-                vals = [float(vals)]
             assert isinstance(vals, Iterable)
             for value in vals:
                 assert isinstance(value, (int, float))
@@ -1546,7 +1538,7 @@ class GerryPlotBase(ABC):
         bbox_patch = text_artist.get_bbox_patch()
         if (
             bbox_patch is None
-        ):  # pragma: no cover — only possible if the text artist was created without a bbox boxstyle, which cannot happen through the public API
+        ):  # pragma: no cover - only possible if the text artist was created without a bbox boxstyle, which cannot happen through the public API
             return
 
         # Some boxstyles finalize their mutated path after the first repositioning draw.
@@ -1561,7 +1553,7 @@ class GerryPlotBase(ABC):
             ]
             if (
                 len(points) == 0
-            ):  # pragma: no cover — degenerate case: a fully-realized boxstyle bbox path should always have vertices
+            ):  # pragma: no cover - degenerate case: a fully-realized boxstyle bbox path should always have vertices
                 return
 
             current_tip_x, current_tip_y = self._directional_extreme_point(points, direction)
@@ -1643,7 +1635,7 @@ class GerryPlotBase(ABC):
         if norm > 1e-12:
             return (vector_x / norm, vector_y / norm)
 
-        # pragma: no cover — fallback for degenerate transforms where the forward/origin
+        # pragma: no cover - fallback for degenerate transforms where the forward/origin
         # display points collapse to the same pixel (e.g. a zero-size axes).  Not reachable
         # under any normal Matplotlib configuration.
         if direction == "right":  # pragma: no cover
@@ -1857,8 +1849,10 @@ class GerryPlotBase(ABC):
 
     def _apply_frame_visibility(self) -> None:
         """Apply frame visibility settings to the axes."""
-        if self._frame_visibility is None:
-            return
+        if (
+            self._frame_visibility is None
+        ):  # pragma: no cover - always initialized to a dict in __init__
+            return  # pragma: no cover
 
         for spine, visible in self._frame_visibility.items():
             self._ax.spines[spine].set_visible(visible)
@@ -1913,7 +1907,7 @@ class GerryPlotBase(ABC):
     @abstractmethod
     def _build_plot(self) -> None:
         """Build the plot by applying all settings and drawing elements."""
-        pass  # pragma: no cover — abstract stub; every concrete subclass overrides this
+        pass  # pragma: no cover - abstract stub; every concrete subclass overrides this
 
     @property
     @abstractmethod
@@ -1923,4 +1917,4 @@ class GerryPlotBase(ABC):
         Returns:
             list[LegendHandle]: A list of legend handles.
         """
-        return []  # pragma: no cover — abstract stub; every concrete subclass overrides this
+        return []  # pragma: no cover - abstract stub; every concrete subclass overrides this

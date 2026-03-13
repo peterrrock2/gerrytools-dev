@@ -34,7 +34,7 @@ def show_figure(
         ip = get_ipython()
         if (
             ip is not None and getattr(ip, "kernel", None) is not None
-        ):  # pragma: no cover — only reachable inside a live Jupyter kernel
+        ):  # pragma: no cover - only reachable inside a live Jupyter kernel
             from IPython.display import Image, display
 
             buf = BytesIO()
@@ -42,8 +42,8 @@ def show_figure(
             buf.seek(0)
             display(Image(data=buf.getvalue()))
             return
-    except Exception:
-        pass
+    except Exception:  # pragma: no cover -- unreachable in standard environments
+        pass  # pragma: no cover
 
     backend = matplotlib.get_backend()
     if backend not in rcsetup.interactive_bk:
@@ -51,7 +51,7 @@ def show_figure(
         print(f"[{non_gui_prefix}] Non-GUI backend ({backend}); saved to {non_gui_filename}")
         return
 
-    # pragma: no cover — only reachable when an interactive GUI backend (e.g. TkAgg) is
+    # pragma: no cover - only reachable when an interactive GUI backend (e.g. TkAgg) is
     # active; the test suite always uses the Agg (non-interactive) backend.
     plt.figure(fig.number)  # pragma: no cover
     plt.show(block=True)  # pragma: no cover

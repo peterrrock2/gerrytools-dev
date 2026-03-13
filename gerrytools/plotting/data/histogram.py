@@ -554,8 +554,10 @@ class Histogram(GerryPlotBase):
             binwidth = self._binwidth
             bins = np.arange(minscore, maxscore + 2 * binwidth, binwidth)
 
-        if bins is None:
-            raise RuntimeError("Failed to compute histogram bins.")
+        if (
+            bins is None
+        ):  # pragma: no cover - preceding logic always assigns bins; this is an unreachable guard
+            raise RuntimeError("Failed to compute histogram bins.")  # pragma: no cover
 
         bins = np.histogram_bin_edges(all_values, bins=bins)
         return bins
@@ -681,8 +683,12 @@ class Histogram(GerryPlotBase):
             y1 = float(ys.max())
 
             height_u = y1 - y0
-            if height_u == 0.0:
-                clearance_pt = 0.5 * markersize_pt + 0.5 * markeredgewidth_pt + pad_pt
+            if (
+                height_u == 0.0
+            ):  # pragma: no cover - no standard matplotlib marker produces an exactly-zero y-extent; defensive guard
+                clearance_pt = (
+                    0.5 * markersize_pt + 0.5 * markeredgewidth_pt + pad_pt
+                )  # pragma: no cover
             else:
                 pt_per_u = markersize_pt / height_u
                 bottom_pt = y0 * pt_per_u

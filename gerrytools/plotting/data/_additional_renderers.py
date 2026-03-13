@@ -181,8 +181,6 @@ class _AnnotationArrowRenderer:
             )
 
         text_value = arrow.text if arrow.text is not None else "   "
-        if text_value == "":
-            text_value = "   "
         text_color = owner._resolved_rgba(
             arrow.textstyle.fontcolor,
             arrow.textstyle.fontalpha,

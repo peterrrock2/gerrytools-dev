@@ -25,7 +25,7 @@ from gerrytools.latex.formatters import (
     round_decimals,
     wrap_with_tex_command,
 )
-from tests.latex.table._table_image_snapshots import assert_image_snapshot
+from tests._image_snapshots import assert_image_snapshot
 
 
 def require_tex_engine():

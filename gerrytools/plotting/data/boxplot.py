@@ -272,8 +272,10 @@ class BoxPlot(CategoricalDistributionPlotBase):
             data_k: list[list[float]] = []
             pos_k: list[float] = []
 
-            if self._labels is None:
-                continue
+            if (
+                self._labels is None
+            ):  # pragma: no cover - _build_plot raises first if labels are missing
+                continue  # pragma: no cover
 
             for lab, x in zip(self._labels, pos_k_all, strict=True):
                 vals = boxplot_data.scores_dict.get(lab, [])

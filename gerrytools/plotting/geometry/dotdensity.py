@@ -29,34 +29,6 @@ logger = get_logger(__name__)
 MAX_CORES = max(int(os.cpu_count() or 1) - 2, 1)
 
 
-def _random_points_in_poly(
-    poly: shapely.Geometry,
-    n_points: int,
-    *,
-    rng: Generator,
-    batch_size: int = 4096,
-):
-    """Generate random points within a polygon.
-
-    Args:
-        poly (shapely.Geometry): The polygon within which to generate points.
-        n_points (int): The number of random points to generate.
-        rng (Generator): NumPy random generator used for point sampling.
-        batch_size (int, optional): The number of candidate points to generate in each batch.
-            Defaults to 4096.
-    """
-    minx, miny, maxx, maxy = poly.bounds
-    pts = []
-    while len(pts) < n_points:
-        k = max(batch_size, (n_points - len(pts)) * 2)
-        xs = rng.uniform(minx, maxx, size=k)
-        ys = rng.uniform(miny, maxy, size=k)
-        cand = shapely.points(xs, ys)
-        mask = shapely.contains(poly, cand)
-        pts.extend(cand[mask].tolist())
-    return pts[:n_points]
-
-
 def _random_xy_in_poly(poly: shapely.Geometry, n_points: int, *, rng: Generator):
     """Generate random x, y coordinates within a polygon.
 
@@ -314,11 +286,6 @@ class DotDensityPlot(GeoPlot):
 
         # Used for caching the dots so that you can iterate quickly when adjusting styles
         self.__temp_dir: tempfile.TemporaryDirectory | None = tempfile.TemporaryDirectory()
-        if not getattr(self.__temp_dir, "name", None):
-            raise ValueError("tempfile.TemporaryDirectory did not return a valid name attribute.")
-
-        if not os.path.exists(self.__temp_dir.name):
-            os.makedirs(self.__temp_dir.name)
 
         logger.debug(f"Created temporary directory for dot density plot: {self.__temp_dir.name}")
         self.__temp_dir_name = str(self.__temp_dir.name)

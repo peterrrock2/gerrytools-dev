@@ -95,7 +95,7 @@ def estimatecvap2020(state) -> pd.DataFrame:
         # block group.
         block[cvapcolumn] = block[colpct] * block["tmp"]
 
-        # If the above doesn't work — which is the case if the VAP column
+        # If the above doesn't work - which is the case if the VAP column
         # percent is NaN (0/0) or inf (k/0), we estimate the CVAP of the
         # block using the VAP ratio outright rather than the column-specific
         # VAP ratio.

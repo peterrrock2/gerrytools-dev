@@ -237,16 +237,11 @@ class _ContinuousColorLayer(_GeoLayer):
                             interval_i = 0
                         elif value > boundaries.right[-1]:
                             interval_i = len(boundaries) - 1
-                        else:
-                            interval_i = -1
 
-                if interval_i == -1:
-                    colors[idx] = missing_color
-                else:
-                    colors[idx] = resolve_color_and_alpha(
-                        interval_to_hex[boundaries[interval_i]],
-                        alpha=self.facealpha,
-                    )
+                colors[idx] = resolve_color_and_alpha(
+                    interval_to_hex[boundaries[interval_i]],
+                    alpha=self.facealpha,
+                )
 
         else:
             norm = Normalize(vmin=lower_bound, vmax=upper_bound)
@@ -604,18 +599,12 @@ class ColoredGeoPlot(GeoPlot):
     def _clear_colorbars_and_reset_layout(self) -> None:
         """Clear any existing colorbars and reset layout to default."""
         for cax in list(self._colorbar_axes):
-            try:
-                cax.remove()
-            except Exception:
-                pass
+            cax.remove()
         self._colorbar_axes = []
 
         # reset layout so we don't keep a shrunken main axes
         self.fig.subplots_adjust(right=0.98)
-        try:
-            self.fig.canvas.draw_idle()
-        except Exception:
-            pass
+        self.fig.canvas.draw_idle()
 
     def _draw_colorbars(self) -> None:
         """Draw colorbars for all requested layers."""
@@ -695,13 +684,10 @@ class ColoredGeoPlot(GeoPlot):
                 colorbar.set_ticklabels(cb_options.force_ticklabels)
 
             if cb_options.max_n_ticks is not None and cb_options.force_ticks is None:
-                try:
-                    ticks = list(colorbar.get_ticks())
-                    if len(ticks) > cb_options.max_n_ticks:
-                        step = max(1, len(ticks) // cb_options.max_n_ticks)
-                        colorbar.set_ticks(ticks[::step])
-                except Exception:
-                    pass
+                ticks = list(colorbar.get_ticks())
+                if len(ticks) > cb_options.max_n_ticks:
+                    step = max(1, len(ticks) // cb_options.max_n_ticks)
+                    colorbar.set_ticks(ticks[::step])
 
     def _build_plot(self) -> None:
         """Build the plot by rendering all layers and applying settings."""
@@ -712,7 +698,6 @@ class ColoredGeoPlot(GeoPlot):
 
         start_idx_to_layer_type: dict[int, tuple[str, int]] = {}
         if not self.silent:
-
             layer_order = [
                 ("choropleth", len(self._choropleth_layers)),
                 ("districting plan", len(self._districting_plan_layers)),

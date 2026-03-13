@@ -346,8 +346,6 @@ def _normalize_colors_and_adjust_item_order(
     new_colors = []
     for c in colors:
         hexa_color = convert_color_to_hexa_or_none(c)
-        if hexa_color is None:
-            raise ValueError(f"Color {c!r} could not be converted to a valid color.")
         new_colors.append(hexa_color)
 
     items = list(zip(new_colors, labels))

@@ -1,5 +1,5 @@
 from collections.abc import Hashable, Iterable
-from typing import Callable, Literal, Sequence, TypeAlias, TypedDict
+from typing import Callable, Literal, Mapping, Sequence, TypeAlias, TypedDict
 
 from geopandas import GeoDataFrame, GeoSeries
 from matplotlib.artist import Artist
@@ -41,7 +41,7 @@ ResolvedColor: TypeAlias = tuple[str, float]
 CategoryKey: TypeAlias = Hashable
 """Hashable category/group key used by categorical and geometry plot APIs."""
 
-CategoryColorMap: TypeAlias = dict[CategoryKey, Color]
+CategoryColorMap: TypeAlias = Mapping[CategoryKey, Color]
 """Mapping from category keys to explicit colors for categorical layers."""
 
 GeoColorMap: TypeAlias = str | Color | Colormap | CategoryColorMap | Series

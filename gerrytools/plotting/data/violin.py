@@ -237,9 +237,10 @@ class ViolinPlot(CategoricalDistributionPlotBase):
             data_k: list[list[float]] = []
             pos_k: list[float] = []
 
-            if self._labels is None:
-                continue
-
+            assert self._labels is not None, (
+                "Internal error: _labels should have been set by _sync_labels when adding "
+                "violinplot data."
+            )
             for lab, x in zip(self._labels, pos_k_all, strict=True):
                 vals = violinplot_data.scores_dict.get(lab, [])
                 if vals is None or len(vals) == 0:
