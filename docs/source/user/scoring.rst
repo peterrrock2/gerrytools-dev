@@ -178,7 +178,7 @@ Some partisan scores (``mean_median``, ``efficiency_gap``, ``partisan_bias``,
 is not because there isn't a POV party, but because these functions call GerryChain
 functions that automatically set the POV party to be the **first** party listed in the
 updater for that election. Since we always list ``Dem`` first in this notebook, this
-means ``Dem`` will be the POV party for these scores— but this is something you should
+means ``Dem`` will be the POV party for these scores- but this is something you should
 keep in mind when setting up your updaters and your partition.
 
 .. code-block:: python
@@ -216,7 +216,7 @@ scores of interest, like so:
         mean_median(elections),
         partisan_bias(elections),
         partisan_gini(elections),
-        # Note that `eguia` takes several more arguments — see the documentation for more details
+        # Note that `eguia` takes several more arguments - see the documentation for more details
         eguia(elections, "Dem", graph, updaters, "COUNTYFP20", "TOTPOP20"),
     ]
 
@@ -381,8 +381,8 @@ Our last demographic updater is :meth:`~gerrytools.scoring.gingles_districts`, w
 takes in a dictionary of the same type as ``demographic_tallies`` as well as a
 ``threshold`` between 0 and 1. Just like the other two demographic scores it returns a list
 of ``Score`` s, but here the ``Score`` s represent the number of districts where the
-demographic group's share is above the ``threshold``. (When the threshold is 0.5 — the
-default — these districts are called *Gingles' Districts*.
+demographic group's share is above the ``threshold``. (When the threshold is 0.5 - the
+default - these districts are called *Gingles' Districts*.
 
 .. code-block:: python
 

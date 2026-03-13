@@ -337,7 +337,7 @@ Which returns to us:
 We can see that our estimate for Black-alone Voting Age Population in Alabama in 2020
 is 970,120, down slightly from 970,239 in 2019.
 
-We can also make estimates of Black VAP in Alabama among ``APBVAP`` — Alabamians who
+We can also make estimates of Black VAP in Alabama among ``APBVAP`` - Alabamians who
 identified as Black alone or in combination with other races. This bumps up the
 estimate to around 1,007,363 as we can see below:
 

@@ -43,7 +43,7 @@ GerryPlot
         jitter=1 / 3,
     ) -> Axes:
         r"""
-        Plot boxplots, which takes `scores` — a dictionary where each value
+        Plot boxplots, which takes `scores` - a dictionary where each value
         (corresponding to an ensemble, citizens' ensemble, or proposed plans),
         will be a list of lists, where each sublist will be its own box. Proposed
         scores will be plotted as colored circles on their respective box. Color the
