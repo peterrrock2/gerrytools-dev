@@ -4,7 +4,7 @@
 [![codecov](https://codecov.io/gh/mggg/gerrytools/branch/main/graph/badge.svg?token=O09GYF7C9X)](https://codecov.io/gh/mggg/gerrytools)
 [![PyPI version](https://badge.fury.io/py/gerrytools.svg)](https://badge.fury.io/py/gerrytools)
 [![docs](https://img.shields.io/badge/%E2%93%98-Documentation-%230099cd)](https://gerrytools.readthedocs.io/en/latest/)
-[![website](https://img.shields.io/badge/%F0%9F%8C%90%20-MGGG%20Redistricting%20Lab-%230099cd)](https://mggg.org)
+[![website](https://img.shields.io/badge/%F0%9F%8C%90%20-DDRI%20Lab-%230099cd)](https://data-democracy.org)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![Imports: isort](https://img.shields.io/badge/%20imports-isort-%231674b1?style=flat&labelColor=ef8336)](https://pycqa.github.io/isort/)
 
@@ -118,7 +118,7 @@ demographic = pd.read_csv("~/project/AL-cvap.csv")
 merged = geometric.merge(demographic, left_on="GEOID20", right_on="TRACT20")
 ```
 
-And there we are — what once took hours of setup and parsing now takes less than a
+And there we are - what once took hours of setup and parsing now takes less than a
 minute. -->
 
 ## Contributing

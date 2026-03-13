@@ -11,7 +11,7 @@ version = "2.0.0"
 description = "Tools for processing and visualizing districting plans."
 readme = "README.md"
 authors = [
-  { name = "MGGG Redistricting Lab", email = "code@mggg.org" },
+  { name = "Data and Democracy Research Initiative", email = "code@mggg.org" },
 ]
 requires-python = ">=3.11"
 license = { text = "MIT" } 
