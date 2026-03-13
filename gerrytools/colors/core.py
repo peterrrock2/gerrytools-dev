@@ -5,7 +5,6 @@ from typing import Literal, TypeAlias, TypeGuard, cast
 
 import matplotlib.colors as mcolors
 
-from gerrytools.colors._regex import HEX8_OR_NONE_PATTERN
 from gerrytools.colors.districtr import DISTRICTR_COLOR_DICT
 from gerrytools.colors.latex import get_color_from_latex_string
 from gerrytools.colors.latex_full import LATEX_COLOR_DICT
@@ -231,9 +230,6 @@ def convert_color_to_hexa_or_none(
         else:
             a = a_raw
 
-        if not (0.0 <= a <= 1.0):
-            raise ValueError(f"Alpha must be in [0,1]: {color!r}")
-
         resolved_color = (r, g, b, a)
     elif _is_rgb_tuple(color):
         rgb = color  # type narrowed by _is_rgb_tuple
@@ -307,8 +303,6 @@ def resolve_color_and_alpha(
         ResolvedColor: A tuple of (hex6_or_none, resolved_alpha).
     """
     hex8 = convert_color_to_hexa_or_none(color)
-    if HEX8_OR_NONE_PATTERN.match(hex8) is None:
-        raise ValueError(f"{field} could not be converted to a valid color: {color!r} -> {hex8!r}")
 
     if hex8.lower() == "none":
         if not allow_none:

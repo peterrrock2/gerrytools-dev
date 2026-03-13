@@ -1,4 +1,4 @@
-"""Tests for LaTeX color helper utilities."""
+"""Tests for LaTeX color helper utilities (gerrytools/latex/_colors.py)."""
 
 import pytest
 
@@ -11,10 +11,11 @@ from gerrytools.latex._colors import (
     to_latex_xcolor_or_html_spec,
 )
 
-
 # ===================
 # == HEX UTILITIES ==
 # ===================
+
+
 class TestHexUtilities:
     def test_is_hex_color_accepts_hash_and_whitespace(self):
         assert is_hex_color(" #Aa00Ff ")
@@ -37,6 +38,8 @@ class TestHexUtilities:
 # ========================
 # == XCOLOR EXPRESSIONS ==
 # ========================
+
+
 class TestXcolorExpressions:
     def test_is_latex_color_expression_accepts_single_name(self):
         assert is_latex_color_expression("denim")
@@ -51,6 +54,10 @@ class TestXcolorExpressions:
         assert not is_latex_color_expression("denim!101!amber")
         assert not is_latex_color_expression("denim!-1!amber")
 
+    def test_is_latex_color_expression_rejects_non_numeric_percentage(self):
+        # "abc" cannot be parsed as float → returns False
+        assert not is_latex_color_expression("denim!abc!amber")
+
     def test_is_latex_color_expression_rejects_empty_or_malformed_tokens(self):
         assert not is_latex_color_expression("")
         assert not is_latex_color_expression("!!!")
@@ -60,6 +67,8 @@ class TestXcolorExpressions:
 # ========================
 # == COLOR SPEC PARSING ==
 # ========================
+
+
 class TestColorSpecParsing:
     def test_to_latex_color_spec_handles_name_and_hex(self):
         assert to_latex_color_spec("denim") == ("NAME", "denim")
@@ -83,19 +92,31 @@ class TestColorSpecParsing:
     def test_to_latex_xcolor_or_html_spec_preserves_xcolor_expressions(self):
         assert to_latex_xcolor_or_html_spec("denim!25!amber") == ("NAME", "denim!25!amber")
 
+    def test_to_latex_xcolor_or_html_spec_converts_hex_string_to_html(self):
+        # A bare hex string bypasses the xcolor-expression check and goes through is_hex_color
+        assert to_latex_xcolor_or_html_spec("#AABBCC") == ("HTML", "aabbcc")
+
     def test_to_latex_xcolor_or_html_spec_converts_named_colors_to_html(self):
         assert to_latex_xcolor_or_html_spec("tab:blue") == ("HTML", "1f77b4")
 
     def test_to_latex_xcolor_or_html_spec_preserves_none(self):
         assert to_latex_xcolor_or_html_spec("none") == ("NAME", "none")
 
+    def test_to_latex_xcolor_or_html_spec_delegates_rgb_tuple_to_color_spec(self):
+        assert to_latex_xcolor_or_html_spec((0.1, 0.2, 0.3)) == ("rgb", (0.1, 0.2, 0.3))
+
 
 # ======================
 # == CELLCOLOR PREFIX ==
 # ======================
+
+
 class TestCellcolorPrefix:
     def test_cellcolor_prefix_supports_name_html_rgb_and_RGB(self):
         assert cellcolor_prefix("denim!20!amber") == r"\cellcolor{denim!20!amber}"
         assert cellcolor_prefix("#ABCDEF") == r"\cellcolor[HTML]{abcdef}"
         assert cellcolor_prefix((0.1, 0.2, 0.3)) == r"\cellcolor[rgb]{0.10,0.20,0.30}"
         assert cellcolor_prefix((10, 20, 30)) == r"\cellcolor[RGB]{10,20,30}"
+
+    def test_cellcolor_prefix_none_produces_name_cellcolor(self):
+        assert cellcolor_prefix("none") == r"\cellcolor{none}"

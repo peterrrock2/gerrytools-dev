@@ -104,9 +104,9 @@ tasks:
     desc: Lint the codebase using Ruff
     silent: true
     vars:
-      CLI_ARGS: "{{.CLI_ARGS | default .TEST_PATHS}}"
+      CLI_ARGS: "{{.CLI_ARGS}}"
     cmds:
-      - uv run ruff check {{.PKG}} {{.CLI_ARGS}}
+      - uv run ruff check {{.PKG}} {{.TEST_PATHS}} {{.CLI_ARGS}}
 
   typecheck:
     desc: Run type checks using Ty

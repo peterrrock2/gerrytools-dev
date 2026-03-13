@@ -36,10 +36,6 @@ def _norm_hex(s: str) -> str:
         s = "#" + s.strip("#")[:6]
     elif len(s.strip("#")) == 6:
         s = "#" + s.strip("#")
-    else:
-        raise RuntimeError(
-            f"Unreachable code reached when trying to normalize the hex color {s!r})"
-        )
     return s.lower()
 
 
@@ -138,10 +134,7 @@ def get_color_from_latex_string(latex_color_string: str) -> str:
                 f"Unknown color name {name!r}. Available: {sorted(all_color_dict)[:12]} ..."
             )
 
-        try:
-            new_color = mcolors.to_hex(all_color_dict[key])
-        except KeyError:
-            new_color = mcolors.to_hex(all_color_dict[key.lower()])
+        new_color = mcolors.to_hex(all_color_dict[key])
         assert isinstance(new_color, str)  # All dictionaries should return hex strings
         return _norm_hex(new_color)
 
