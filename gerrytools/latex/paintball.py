@@ -643,7 +643,7 @@ class PaintBall:
             f"minimum size={self.options.markersize}pt, draw={marker_edge}, "
             f"line width={self.options.markeredgewidth}, "
             f"draw opacity={self.options.markeredgealpha}] \n"
-            "    at (1-\\votes, 1-\\seats) {{}};\n}"
+            "    at (\\votes, \\seats) {{}};\n}"
         )
         return tex_string
 
