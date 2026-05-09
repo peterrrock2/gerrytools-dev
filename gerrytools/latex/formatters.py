@@ -4,6 +4,7 @@ import math
 from numbers import Real
 from typing import Callable
 
+from gerrytools.colors import convert_color_to_hexa_or_none
 from gerrytools.latex._colors import cellcolor_prefix
 from gerrytools.latex.commands import validate_command_name
 from gerrytools.typing import CellWrapper, Color, TableCellValue
@@ -445,3 +446,66 @@ def wrap_between(
     low = float(lower_bound)
     high = float(upper_bound)
     return _make_numeric_wrapper(lambda x: low <= x <= high, wrap_cmd, round_to=round_to)
+
+
+def diverging_gradient_formatter(
+    lo: float = 0.0,
+    mid: float = 0.5,
+    hi: float = 1.0,
+    color_lo: Color = "darkpastelgreen",
+    color_hi: Color = "richlavender",
+    color_mid: Color = "white",
+) -> CellWrapper:
+    """Formatter that applies a diverging gradient cell background.
+
+    Computes the interpolated background color in Python and prepends a
+    ``\\cellcolor[HTML]{RRGGBB}`` to the rendered string.  Compatible with
+    both ``TexTable`` (via colortbl's ``\\cellcolor``) and ``TikzTable``
+    (where the ``\\cellcolor`` prefix is detected and converted to a
+    post-matrix TikZ ``\\fill`` command with correct column-width extent).
+
+    Args:
+        lo (float): Lower bound of the gradient range. Defaults to ``0.0``.
+        mid (float): Midpoint of the gradient range. Defaults to ``0.5``.
+        hi (float): Upper bound of the gradient range. Defaults to ``1.0``.
+        color_lo (Color): Color at the lower bound. Defaults to ``"darkpastelgreen"``.
+        color_hi (Color): Color at the upper bound. Defaults to ``"richlavender"``.
+        color_mid (Color): Color at the midpoint. Defaults to ``"white"``.
+
+    Returns:
+        CellWrapper: Formatter that prepends a gradient ``\\cellcolor`` to matching cells.
+    """
+
+    def _resolve(c: Color) -> tuple[int, int, int]:
+        hex_str = convert_color_to_hexa_or_none(c)
+        h = hex_str.lstrip("#")[:6]
+        return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+
+    rgb_lo = _resolve(color_lo)
+    rgb_mid = _resolve(color_mid)
+    rgb_hi = _resolve(color_hi)
+    lo_f, mid_f, hi_f = float(lo), float(mid), float(hi)
+    left_w = max(mid_f - lo_f, 1e-12)
+    right_w = max(hi_f - mid_f, 1e-12)
+
+    def _lerp(c1: tuple[int, int, int], c2: tuple[int, int, int], t: float) -> tuple[int, int, int]:
+        t = max(0.0, min(1.0, t))
+        return (
+            round(c1[0] + (c2[0] - c1[0]) * t),
+            round(c1[1] + (c2[1] - c1[1]) * t),
+            round(c1[2] + (c2[2] - c1[2]) * t),
+        )
+
+    def _inner(v: TableCellValue, s: str) -> tuple[TableCellValue, str]:
+        if not isinstance(v, Real):
+            return v, s
+        x = float(v)
+        x = max(lo_f, min(hi_f, x))
+        if x < mid_f:
+            rgb = _lerp(rgb_lo, rgb_mid, (x - lo_f) / left_w)
+        else:
+            rgb = _lerp(rgb_mid, rgb_hi, (x - mid_f) / right_w)
+        hex_color = f"{rgb[0]:02X}{rgb[1]:02X}{rgb[2]:02X}"
+        return v, rf"\cellcolor[HTML]{{{hex_color}}}{s}"
+
+    return _inner
