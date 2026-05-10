@@ -194,18 +194,18 @@ tasks:
       - uv run pre-commit run
 
   docs:
-    desc: Build the documentation
+    desc: Build the user guide documentation
     silent: true
     cmds:
       - task: sync-contributing-doc
-      - uv run jupyter nbconvert --to rst docs/notebooks/*.ipynb --output-dir docs/user/tutorial/
-      - uv run sphinx-build -b dirhtml docs/source docs/build
+      - uv run jupyter nbconvert --to rst user_guide/notebooks/*.ipynb --output-dir user_guide/user/tutorial/
+      - uv run sphinx-build -b dirhtml user_guide/source user_guide/build
 
   sync-contributing-doc:
-    desc: Sync the docs contributing page from CONTRIBUTING.md
+    desc: Sync the user_guide contributing page from CONTRIBUTING.md
     silent: true
     cmds:
-      - uv run python docs/sync_contributing.py
+      - uv run python user_guide/sync_contributing.py
 
   clean:
     desc: Clean build artifacts
@@ -217,7 +217,7 @@ tasks:
     internal: true
     silent: true
     cmds: &clean-unix
-      - rm -rf dist build docs/build docs/build "{{.VENV_DIR}}" .pytest_cache .mypy_cache .ruff_cache
+      - rm -rf dist build user_guide/build user_guide/build "{{.VENV_DIR}}" .pytest_cache .mypy_cache .ruff_cache
       - find . -type d -name "*.egg-info" -exec rm -rf {} +
       - find . -type d -name "__pycache__" -exec rm -rf {} +
       - find . -type d -name ".ipynb_checkpoints" -exec rm -rf {} +
@@ -234,7 +234,7 @@ tasks:
     cmds:
       - cmd /c "if exist dist rmdir /s /q dist"
       - cmd /c "if exist build rmdir /s /q build"
-      - cmd /c "if exist docs\\build rmdir /s /q docs\\build"
+      - cmd /c "if exist user_guide\\build rmdir /s /q user_guide\\build"
       - cmd /c "if exist {{.VENV_DIR}} rmdir /s /q {{.VENV_DIR}}"
       - cmd /c "if exist .pytest_cache rmdir /s /q .pytest_cache"
       - cmd /c "if exist .mypy_cache rmdir /s /q .mypy_cache"
