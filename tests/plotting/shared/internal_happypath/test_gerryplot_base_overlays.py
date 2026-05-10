@@ -22,19 +22,19 @@ class TestVerticalLines:
     def test_add_single_vertical_line(self):
         sp = _make_plot()
         sp.add_vertical_lines(0.5)
-        assert len(sp._vertical_lines) == 1
+        assert len(sp._annotations.vertical_lines) == 1
 
     def test_add_multiple_vertical_lines_from_list(self):
         sp = _make_plot()
         sp.add_vertical_lines([0.2, 0.4, 0.6])
-        assert len(sp._vertical_lines) == 1
+        assert len(sp._annotations.vertical_lines) == 1
         # The single LineData stores all three values
-        assert sp._vertical_lines[0].values == [0.2, 0.4, 0.6]
+        assert sp._annotations.vertical_lines[0].values == [0.2, 0.4, 0.6]
 
     def test_add_vertical_lines_from_int(self):
         sp = _make_plot()
         sp.add_vertical_lines(5)
-        assert sp._vertical_lines[0].values == [5.0]
+        assert sp._annotations.vertical_lines[0].values == [5.0]
 
     def test_string_x_values_raises_typeerror(self):
         sp = _make_plot()
@@ -49,7 +49,7 @@ class TestVerticalLines:
     def test_named_vertical_line(self):
         sp = _make_plot()
         sp.add_vertical_lines(0.5, name="Threshold")
-        assert sp._vertical_lines[0].name == "Threshold"
+        assert sp._annotations.vertical_lines[0].name == "Threshold"
 
 
 # ======================
@@ -61,12 +61,12 @@ class TestHorizontalLines:
     def test_add_single_horizontal_line(self):
         sp = _make_plot()
         sp.add_horizontal_lines(0.5)
-        assert len(sp._horizontal_lines) == 1
+        assert len(sp._annotations.horizontal_lines) == 1
 
     def test_add_multiple_horizontal_lines(self):
         sp = _make_plot()
         sp.add_horizontal_lines([0.25, 0.75])
-        assert sp._horizontal_lines[0].values == [0.25, 0.75]
+        assert sp._annotations.horizontal_lines[0].values == [0.25, 0.75]
 
     def test_string_y_values_raises_typeerror(self):
         sp = _make_plot()
@@ -88,20 +88,20 @@ class TestVerticalBands:
     def test_add_vertical_band(self):
         sp = _make_plot()
         sp.add_vertical_band(0.3, 0.7)
-        assert len(sp._vertical_bands) == 1
-        assert sp._vertical_bands[0].lower_bound == 0.3
-        assert sp._vertical_bands[0].upper_bound == 0.7
+        assert len(sp._annotations.vertical_bands) == 1
+        assert sp._annotations.vertical_bands[0].lower_bound == 0.3
+        assert sp._annotations.vertical_bands[0].upper_bound == 0.7
 
     def test_vertical_band_auto_sorts_bounds(self):
         sp = _make_plot()
         sp.add_vertical_band(0.9, 0.1)
-        assert sp._vertical_bands[0].lower_bound == 0.1
-        assert sp._vertical_bands[0].upper_bound == 0.9
+        assert sp._annotations.vertical_bands[0].lower_bound == 0.1
+        assert sp._annotations.vertical_bands[0].upper_bound == 0.9
 
     def test_named_vertical_band(self):
         sp = _make_plot()
         sp.add_vertical_band(0.3, 0.7, name="Confidence Interval")
-        assert sp._vertical_bands[0].name == "Confidence Interval"
+        assert sp._annotations.vertical_bands[0].name == "Confidence Interval"
 
 
 # ======================
@@ -113,13 +113,13 @@ class TestHorizontalBands:
     def test_add_horizontal_band(self):
         sp = _make_plot()
         sp.add_horizontal_band(0.4, 0.6)
-        assert len(sp._horizontal_bands) == 1
+        assert len(sp._annotations.horizontal_bands) == 1
 
     def test_horizontal_band_auto_sorts_bounds(self):
         sp = _make_plot()
         sp.add_horizontal_band(0.8, 0.2)
-        assert sp._horizontal_bands[0].lower_bound == 0.2
-        assert sp._horizontal_bands[0].upper_bound == 0.8
+        assert sp._annotations.horizontal_bands[0].lower_bound == 0.2
+        assert sp._annotations.horizontal_bands[0].upper_bound == 0.8
 
 
 # ===================
@@ -133,23 +133,23 @@ class TestClearMethods:
         sp.add_vertical_lines(0.5)
         sp.add_vertical_band(0.3, 0.7)
         sp.clear_vertical_lines_and_bands()
-        assert len(sp._vertical_lines) == 0
-        assert len(sp._vertical_bands) == 0
+        assert len(sp._annotations.vertical_lines) == 0
+        assert len(sp._annotations.vertical_bands) == 0
 
     def test_clear_horizontal_lines_and_bands(self):
         sp = _make_plot()
         sp.add_horizontal_lines(0.5)
         sp.add_horizontal_band(0.3, 0.7)
         sp.clear_horizontal_lines_and_bands()
-        assert len(sp._horizontal_lines) == 0
-        assert len(sp._horizontal_bands) == 0
+        assert len(sp._annotations.horizontal_lines) == 0
+        assert len(sp._annotations.horizontal_bands) == 0
 
     def test_clear_annotation_arrows(self):
         sp = _make_plot()
         sp.add_text_arrow((0.5, 0.5), "right")
-        assert len(sp._annotation_arrows) == 1
+        assert len(sp._annotations.annotation_arrows) == 1
         sp.clear_annotation_arrows()
-        assert len(sp._annotation_arrows) == 0
+        assert len(sp._annotations.annotation_arrows) == 0
 
 
 # =====================

@@ -344,8 +344,7 @@ class CategoricalDistributionPlotBase(GerryPlotBase):
     def clear_vertical_lines_and_bands(self) -> None:
         """Clear all vertical overlays and disable category-center guide lines."""
         self._include_group_vlines = False
-        self._vertical_lines.clear()
-        self._vertical_bands.clear()
+        self._annotations.clear_vertical_lines_and_bands()
 
     def _default_x_tick_locations(self) -> list[float] | None:
         """Get default x-tick locations at the center of each category group."""

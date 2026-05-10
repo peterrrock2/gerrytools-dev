@@ -22,29 +22,29 @@ class TestAnnotationArrows:
     def test_add_text_arrow_stores_arrow(self):
         sp = _make_plot()
         sp.add_text_arrow((0.5, 0.5), "right")
-        assert len(sp._annotation_arrows) == 1
-        assert sp._annotation_arrows[0].arrowtype == "text"
+        assert len(sp._annotations.annotation_arrows) == 1
+        assert sp._annotations.annotation_arrows[0].arrowtype == "text"
 
     def test_add_label_arrow_stores_arrow(self):
         sp = _make_plot()
         sp.add_label_arrow((0.5, 0.5), "up")
-        assert len(sp._annotation_arrows) == 1
-        assert sp._annotation_arrows[0].arrowtype == "label"
+        assert len(sp._annotations.annotation_arrows) == 1
+        assert sp._annotations.annotation_arrows[0].arrowtype == "label"
 
     def test_text_arrow_empty_text_normalized_to_spaces(self):
         sp = _make_plot()
         sp.add_text_arrow((0.5, 0.5), "right", text="")
-        assert sp._annotation_arrows[0].text == "   "
+        assert sp._annotations.annotation_arrows[0].text == "   "
 
     def test_text_arrow_textrotation_overrides_style_rotation(self):
         sp = _make_plot()
         sp.add_text_arrow((0.5, 0.5), "right", textrotation=45.0)
-        assert sp._annotation_arrows[0].textstyle.rotation == 45.0
+        assert sp._annotations.annotation_arrows[0].textstyle.rotation == 45.0
 
     def test_label_arrow_with_arrow_length(self):
         sp = _make_plot()
         sp.add_label_arrow((0.5, 0.5), "down", arrow_length=50.0)
-        assert sp._annotation_arrows[0].arrow_length_percentage == 50.0
+        assert sp._annotations.annotation_arrows[0].arrow_length_percentage == 50.0
 
     def test_label_arrow_length_with_explicit_tail_raises_valueerror(self):
         from gerrytools.plotting.data._gerryplot_dataclasses import ArrowPlacement
@@ -66,19 +66,19 @@ class TestAnnotationArrows:
     def test_add_text_arrow_with_custom_facecolor(self):
         sp = _make_plot()
         sp.add_text_arrow((0.5, 0.5), "left", arrowfacecolor="red")
-        style = sp._annotation_arrows[0].textarrowstyle
+        style = sp._annotations.annotation_arrows[0].textarrowstyle
         assert style.arrowfacecolor != "#5c676f"  # not the default
 
     def test_add_label_arrow_with_custom_outlinecolor(self):
         sp = _make_plot()
         sp.add_label_arrow((0.5, 0.5), "right", arrowoutlinecolor="blue")
-        style = sp._annotation_arrows[0].labelarrowstyle
+        style = sp._annotations.annotation_arrows[0].labelarrowstyle
         assert style.arrowoutlinecolor != "black"  # overridden
 
     def test_add_text_arrow_name_stored(self):
         sp = _make_plot()
         sp.add_text_arrow((0.5, 0.5), "right", name="my_arrow")
-        assert sp._annotation_arrows[0].name == "my_arrow"
+        assert sp._annotations.annotation_arrows[0].name == "my_arrow"
 
 
 # =========================

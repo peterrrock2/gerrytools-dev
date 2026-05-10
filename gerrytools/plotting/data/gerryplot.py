@@ -6,20 +6,17 @@ from numbers import Real
 from typing import Literal, Sequence
 
 import matplotlib.colors as mcolors
-import matplotlib.patheffects as patheffects
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
-from matplotlib.patheffects import AbstractPathEffect
 from matplotlib.text import Text
-from matplotlib.transforms import Transform
 
 from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
 from gerrytools.plotting._figure_io import save_figure, show_figure
 from gerrytools.plotting._legend_utils import build_legend_options, save_legend_handles
-from gerrytools.plotting.data._additional_renderers import _AnnotationArrowRenderer
+from gerrytools.plotting.data._annotations import _Annotations
 from gerrytools.plotting.data._gerryplot_dataclasses import (
     ArrowData,
     ArrowPlacement,
@@ -99,11 +96,7 @@ class GerryPlotBase(ABC):
         self._y_limits: tuple[float, float] | None = None
         self._y_tick_style: TickStyle | None = None
 
-        self._vertical_lines: list[LineData] = []
-        self._vertical_bands: list[BandData] = []
-        self._horizontal_lines: list[LineData] = []
-        self._horizontal_bands: list[BandData] = []
-        self._annotation_arrows: list[ArrowData] = []
+        self._annotations = _Annotations()
 
         self._frame_visibility: dict[str, bool] = {
             "top": True,
@@ -150,7 +143,7 @@ class GerryPlotBase(ABC):
             x_values = [float(x_values)]
 
         xs = _coerce_real_iter(x_values, field="x_values")
-        self._vertical_lines.append(
+        self._annotations.vertical_lines.append(
             LineData(
                 values=xs,
                 linecolor=linecolor,
@@ -199,7 +192,7 @@ class GerryPlotBase(ABC):
         Returns:
             None
         """
-        self._vertical_bands.append(
+        self._annotations.vertical_bands.append(
             BandData(
                 lower_bound=min(x_low, x_high),
                 upper_bound=max(x_low, x_high),
@@ -251,7 +244,7 @@ class GerryPlotBase(ABC):
 
         ys = _coerce_real_iter(y_values, field="y_values")
 
-        self._horizontal_lines.append(
+        self._annotations.horizontal_lines.append(
             LineData(
                 values=ys,
                 linecolor=linecolor,
@@ -301,7 +294,7 @@ class GerryPlotBase(ABC):
         Returns:
             None
         """
-        self._horizontal_bands.append(
+        self._annotations.horizontal_bands.append(
             BandData(
                 lower_bound=min(y_low, y_high),
                 upper_bound=max(y_low, y_high),
@@ -404,7 +397,7 @@ class GerryPlotBase(ABC):
         )
 
         text_value = text if text != "" else "   "
-        self._annotation_arrows.append(
+        self._annotations.annotation_arrows.append(
             ArrowData(
                 arrowtip=arrowtip,
                 direction=direction,
@@ -519,7 +512,7 @@ class GerryPlotBase(ABC):
             linestyle=style.linestyle,
         )
 
-        self._annotation_arrows.append(
+        self._annotations.annotation_arrows.append(
             ArrowData(
                 arrowtip=arrowtip,
                 direction=direction,
@@ -539,17 +532,15 @@ class GerryPlotBase(ABC):
 
     def clear_annotation_arrows(self) -> None:
         """Clear all annotation arrows from the figure."""
-        self._annotation_arrows.clear()
+        self._annotations.clear_annotation_arrows()
 
     def clear_vertical_lines_and_bands(self) -> None:
         """Clear all vertical lines and bands from the figure."""
-        self._vertical_lines.clear()
-        self._vertical_bands.clear()
+        self._annotations.clear_vertical_lines_and_bands()
 
     def clear_horizontal_lines_and_bands(self) -> None:
         """Clear all horizontal lines and bands from the figure."""
-        self._horizontal_lines.clear()
-        self._horizontal_bands.clear()
+        self._annotations.clear_horizontal_lines_and_bands()
 
     def _default_x_tick_locations(self) -> list[float] | None:
         """Get subclass-provided default x-tick locations.
@@ -1340,352 +1331,6 @@ class GerryPlotBase(ABC):
             "bottom": show_bottom,
         }
 
-    def _draw_verticals(self) -> None:
-        """Draw vertical lines and bands on the plot."""
-        for band in self._vertical_bands:
-            if band.linecolor is None or band.linewidth == 0.0:
-                edgecolor = "none"
-            else:
-                edgecolor = self._resolved_rgba(
-                    band.linecolor,
-                    band.linealpha,
-                    field="linecolor",
-                )
-            self._ax.axvspan(
-                band.lower_bound,
-                band.upper_bound,
-                facecolor=self._resolved_rgba(
-                    band.bandcolor,
-                    band.bandalpha,
-                    field="bandcolor",
-                ),
-                edgecolor=edgecolor,
-                linestyle=band.linestyle,
-                linewidth=band.linewidth,
-                zorder=band.zorder,
-            )
-
-        for ln in self._vertical_lines:
-            vals = ln.values
-            assert isinstance(vals, Iterable)
-            for value in vals:
-                assert isinstance(value, (int, float))
-                self._ax.axvline(
-                    value,
-                    color=self._resolved_rgba(
-                        ln.linecolor,
-                        ln.linealpha,
-                        field="linecolor",
-                    ),
-                    linestyle=ln.linestyle,
-                    linewidth=ln.linewidth,
-                    zorder=ln.zorder,
-                )
-
-    def _draw_horizontals(self) -> None:
-        """Draw horizontal lines and bands on the plot."""
-        for band in self._horizontal_bands:
-            if band.linecolor is None or band.linewidth == 0.0:
-                edgecolor = "none"
-            else:
-                edgecolor = self._resolved_rgba(
-                    band.linecolor,
-                    band.linealpha,
-                    field="linecolor",
-                )
-            self._ax.axhspan(
-                band.lower_bound,
-                band.upper_bound,
-                facecolor=self._resolved_rgba(
-                    band.bandcolor,
-                    band.bandalpha,
-                    field="bandcolor",
-                ),
-                edgecolor=edgecolor,
-                linestyle=band.linestyle,
-                linewidth=band.linewidth,
-                zorder=band.zorder,
-            )
-
-        for ln in self._horizontal_lines:
-            vals = ln.values
-            assert isinstance(vals, Iterable)
-            for value in vals:
-                assert isinstance(value, (int, float))
-                self._ax.axhline(
-                    value,
-                    color=self._resolved_rgba(
-                        ln.linecolor,
-                        ln.linealpha,
-                        field="linecolor",
-                    ),
-                    linestyle=ln.linestyle,
-                    linewidth=ln.linewidth,
-                    zorder=ln.zorder,
-                )
-
-    @staticmethod
-    def _direction_unit_vector(
-        direction: Literal["right", "left", "up", "down"],
-    ) -> tuple[float, float]:
-        """Map a cardinal arrow direction to a unit vector.
-
-        Args:
-            direction (Literal["right", "left", "up", "down"]): Arrow direction.
-
-        Returns:
-            tuple[float, float]: Unit vector in the requested direction.
-        """
-        mapping: dict[Literal["right", "left", "up", "down"], tuple[float, float]] = {
-            "right": (1.0, 0.0),
-            "left": (-1.0, 0.0),
-            "up": (0.0, 1.0),
-            "down": (0.0, -1.0),
-        }
-        return mapping[direction]
-
-    @staticmethod
-    def _default_text_alignment_for_direction(
-        direction: Literal["right", "left", "up", "down"],
-    ) -> tuple[Literal["left", "center", "right"], Literal["bottom", "center", "top"]]:
-        """Get default text alignment for a direction.
-
-        Args:
-            direction (Literal["right", "left", "up", "down"]): Arrow direction.
-
-        Returns:
-            tuple[Literal["left", "center", "right"], Literal["bottom", "center", "top"]]:
-                Default ``(ha, va)`` pair.
-        """
-        mapping: dict[
-            Literal["right", "left", "up", "down"],
-            tuple[Literal["left", "center", "right"], Literal["bottom", "center", "top"]],
-        ] = {
-            "right": ("right", "center"),
-            "left": ("left", "center"),
-            "up": ("center", "bottom"),
-            "down": ("center", "top"),
-        }
-        return mapping[direction]
-
-    @staticmethod
-    def _default_text_arrow_boxstyle_and_rotation(
-        direction: Literal["right", "left", "up", "down"],
-    ) -> tuple[str, float]:
-        """Get direction-aware defaults for text-arrow boxstyle and text rotation.
-
-        Args:
-            direction (Literal["right", "left", "up", "down"]): Arrow direction.
-
-        Returns:
-            tuple[str, float]: ``(boxstyle_base, rotation_degrees)``.
-        """
-        # Box orientation follows direction; visible text rotation is handled separately.
-        mapping: dict[Literal["right", "left", "up", "down"], tuple[str, float]] = {
-            "right": ("rarrow", 0.0),
-            "left": ("larrow", 0.0),
-            "up": ("__gerryplot_uparrow__", 0.0),
-            "down": ("__gerryplot_downarrow__", 0.0),
-        }
-        return mapping[direction]
-
-    @staticmethod
-    def _directional_extreme_point(
-        points: list[tuple[float, float]],
-        direction: Literal["right", "left", "up", "down"],
-    ) -> tuple[float, float]:
-        """Return the directional-extreme point from a list of 2D points.
-
-        Used for aligning text-arrow tips by finding the point with the extreme x/y value in the
-        arrow direction.
-
-        Args:
-            points (list[tuple[float, float]]): Candidate points in display coordinates.
-            direction (Literal["right", "left", "up", "down"]): Direction used for selecting
-                an extreme.
-
-        Returns:
-            tuple[float, float]: The point with extreme x/y value for ``direction``.
-        """
-        if direction == "right":
-            return max(points, key=lambda point: point[0])
-        if direction == "left":
-            return min(points, key=lambda point: point[0])
-        if direction == "up":
-            return max(points, key=lambda point: point[1])
-        return min(points, key=lambda point: point[1])
-
-    def _align_text_arrow_tip_to_position(
-        self,
-        text_artist: Text,
-        *,
-        desired_tip: tuple[float, float],
-        coordinate_transform: Transform,
-        direction: Literal["right", "left", "up", "down"],
-    ) -> None:
-        """Shift a text-arrow artist so its arrow tip matches ``desired_tip``.
-
-        Args:
-            text_artist (Text): Text artist with a bbox arrow boxstyle.
-            desired_tip (tuple[float, float]): Desired tip coordinate in ``coordinate_transform``.
-            coordinate_transform (Transform): Transform for the coordinate system used by
-                ``desired_tip`` and ``text_artist``.
-            direction (Literal["right", "left", "up", "down"]): Arrow direction.
-
-        Returns:
-            None
-        """
-        bbox_patch = text_artist.get_bbox_patch()
-        if (
-            bbox_patch is None
-        ):  # pragma: no cover - only possible if the text artist was created without a bbox boxstyle, which cannot happen through the public API
-            return
-
-        # Some boxstyles finalize their mutated path after the first repositioning draw.
-        # A short fixed-point iteration keeps tip placement stable across boxstyle types.
-        for _ in range(2):
-            # Ensure the bbox path is fully realized before reading transformed vertices.
-            self.fig.canvas.draw()
-
-            vertices_display = bbox_patch.get_transform().transform(bbox_patch.get_path().vertices)
-            points: list[tuple[float, float]] = [
-                (float(vertex[0]), float(vertex[1])) for vertex in vertices_display
-            ]
-            if (
-                len(points) == 0
-            ):  # pragma: no cover - degenerate case: a fully-realized boxstyle bbox path should always have vertices
-                return
-
-            current_tip_x, current_tip_y = self._directional_extreme_point(points, direction)
-            desired_tip_display = coordinate_transform.transform((desired_tip[0], desired_tip[1]))
-            desired_tip_x = float(desired_tip_display[0])
-            desired_tip_y = float(desired_tip_display[1])
-
-            delta_x = desired_tip_x - current_tip_x
-            delta_y = desired_tip_y - current_tip_y
-            if abs(delta_x) < 1e-8 and abs(delta_y) < 1e-8:
-                return
-
-            current_position = text_artist.get_position()
-            current_display = coordinate_transform.transform(
-                (float(current_position[0]), float(current_position[1]))
-            )
-            moved_display = (
-                float(current_display[0]) + delta_x,
-                float(current_display[1]) + delta_y,
-            )
-            moved_position = coordinate_transform.inverted().transform(moved_display)
-            text_artist.set_position((float(moved_position[0]), float(moved_position[1])))
-
-    def _annotation_text_outline_effects(
-        self,
-        textstyle: ArrowTextStyle,
-    ) -> list[AbstractPathEffect] | None:
-        """Build path effects for annotation text outlines from text style settings.
-
-        Args:
-            textstyle (AnnotationArrowTextStyle): Text style settings.
-
-        Returns:
-            list[object] | None: Path effects for Matplotlib text artists, or None when
-                outline rendering is disabled.
-        """
-        if textstyle.fontoutlinecolor is None:
-            return None
-        if textstyle.fontoutlinewidth <= 0:
-            return None
-
-        outline_color = self._resolved_rgba(
-            textstyle.fontoutlinecolor,
-            textstyle.fontoutlinealpha,
-            field="annotation_arrow_text_outlinecolor",
-        )
-        return [
-            patheffects.Stroke(
-                linewidth=float(textstyle.fontoutlinewidth),
-                foreground=outline_color,
-            ),
-            patheffects.Normal(),
-        ]
-
-    def _direction_display_unit_vector(
-        self,
-        *,
-        origin: tuple[float, float],
-        direction: Literal["right", "left", "up", "down"],
-        coordinate_transform: Transform,
-    ) -> tuple[float, float]:
-        """Get a unit direction vector in display space for a coordinate-space direction.
-
-        Args:
-            origin (tuple[float, float]): Origin point in coordinate space.
-            direction (Literal["right", "left", "up", "down"]): Direction in coordinate space.
-            coordinate_transform (Transform): Transform mapping coordinate space to display space.
-
-        Returns:
-            tuple[float, float]: Unit vector in display coordinates.
-        """
-        unit_x, unit_y = self._direction_unit_vector(direction)
-        origin_display = coordinate_transform.transform((origin[0], origin[1]))
-        forward_display = coordinate_transform.transform((origin[0] + unit_x, origin[1] + unit_y))
-
-        vector_x = float(forward_display[0] - origin_display[0])
-        vector_y = float(forward_display[1] - origin_display[1])
-        norm = math.hypot(vector_x, vector_y)
-        if norm > 1e-12:
-            return (vector_x / norm, vector_y / norm)
-
-        # pragma: no cover - fallback for degenerate transforms where the forward/origin
-        # display points collapse to the same pixel (e.g. a zero-size axes).  Not reachable
-        # under any normal Matplotlib configuration.
-        if direction == "right":  # pragma: no cover
-            return (1.0, 0.0)  # pragma: no cover
-        if direction == "left":  # pragma: no cover
-            return (-1.0, 0.0)  # pragma: no cover
-        if direction == "up":  # pragma: no cover
-            return (0.0, 1.0)  # pragma: no cover
-        return (0.0, -1.0)  # pragma: no cover
-
-    def _shift_point_along_direction_pixels(
-        self,
-        point: tuple[float, float],
-        *,
-        direction: Literal["right", "left", "up", "down"],
-        signed_pixels: float,
-        coordinate_transform: Transform,
-    ) -> tuple[float, float]:
-        """Shift a coordinate-space point by a signed number of display pixels.
-
-        Args:
-            point (tuple[float, float]): Starting point in coordinate space.
-            direction (Literal["right", "left", "up", "down"]): Direction in coordinate space.
-            signed_pixels (float): Signed distance in display pixels. Positive values shift in
-                ``direction``; negative values shift opposite ``direction``.
-            coordinate_transform (Transform): Transform mapping coordinate space to display space.
-
-        Returns:
-            tuple[float, float]: Shifted point in coordinate space.
-        """
-        direction_display_x, direction_display_y = self._direction_display_unit_vector(
-            origin=point,
-            direction=direction,
-            coordinate_transform=coordinate_transform,
-        )
-        start_display = coordinate_transform.transform((point[0], point[1]))
-        shifted_display = (
-            float(start_display[0]) + (direction_display_x * signed_pixels),
-            float(start_display[1]) + (direction_display_y * signed_pixels),
-        )
-        shifted = coordinate_transform.inverted().transform(shifted_display)
-        return (float(shifted[0]), float(shifted[1]))
-
-    def _draw_annotation_arrows(self) -> None:
-        """Draw all deferred annotation arrows."""
-        if len(self._annotation_arrows) == 0:
-            return
-
-        _AnnotationArrowRenderer(self).render_all(self._annotation_arrows)
-
     def _get_named_line_legend_handles(self) -> list[LegendHandle]:
         """Get legend handles for all named lines.
 
@@ -1693,7 +1338,7 @@ class GerryPlotBase(ABC):
             list[LegendHandle]: A list of legend handles.
         """
         handles: list[LegendHandle] = []
-        for line in self._vertical_lines + self._horizontal_lines:
+        for line in self._annotations.vertical_lines + self._annotations.horizontal_lines:
             if line.name is not None:
                 handle = Line2D(
                     [0],
@@ -1718,7 +1363,7 @@ class GerryPlotBase(ABC):
             list[LegendHandle]: A list of legend handles.
         """
         handles: list[LegendHandle] = []
-        for band in self._vertical_bands + self._horizontal_bands:
+        for band in self._annotations.vertical_bands + self._annotations.horizontal_bands:
             if band.name is None:
                 continue
 
@@ -1861,11 +1506,13 @@ class GerryPlotBase(ABC):
         """Build the plot and apply all settings."""
         self._ax.clear()
         self._build_plot()
-        self._draw_verticals()
-        self._draw_horizontals()
         self._set_x_axis()
         self._set_y_axis()
-        self._draw_annotation_arrows()
+        self._annotations.apply(
+            self._ax,
+            fig=self.fig,
+            color_resolver=self._resolved_rgba,
+        )
         self._apply_frame_visibility()
         self._apply_deferred_tick_styles()
         self._apply_deferred_label_styles()

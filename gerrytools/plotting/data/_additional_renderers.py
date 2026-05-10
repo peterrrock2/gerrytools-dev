@@ -1,17 +1,23 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal, Sequence
+import math
+from typing import Callable, Literal, Sequence
 
 import matplotlib.patheffects as patheffects
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
 from matplotlib.path import Path
 from matplotlib.patheffects import AbstractPathEffect
+from matplotlib.text import Text
 from matplotlib.transforms import Transform
 
 from gerrytools.colors import resolve_color_and_alpha
-from gerrytools.plotting.data._gerryplot_dataclasses import ArrowData
+from gerrytools.plotting.data._gerryplot_dataclasses import ArrowData, ArrowTextStyle
 
-if TYPE_CHECKING:
-    from gerrytools.plotting.data.gerryplot import GerryPlotBase
+# A color resolver: ``(color, alpha=None, *, field="color") -> RGBA``. The
+# annotation renderer is decoupled from `GerryPlotBase` and asks for one of
+# these so it can resolve colors without holding a back-reference to the plot.
+ColorResolver = Callable[..., tuple[float, float, float, float]]
 
 
 class _VerticalTextArrowBoxStyle:
@@ -83,26 +89,218 @@ class _VerticalTextArrowBoxStyle:
 
 
 class _AnnotationArrowRenderer:
-    """Internal helper for rendering deferred annotation arrows."""
+    """Internal helper for rendering deferred annotation arrows.
 
-    def __init__(self, owner: GerryPlotBase) -> None:
-        self._owner = owner
+    Decoupled from `GerryPlotBase`: it takes the matplotlib axes and figure
+    plus a color resolver and owns its direction/alignment helpers itself.
+    """
+
+    def __init__(
+        self,
+        *,
+        ax: Axes,
+        fig: Figure,
+        color_resolver: ColorResolver,
+    ) -> None:
+        self._ax = ax
+        self._fig = fig
+        self._resolved_rgba = color_resolver
+
+    # -- public ---------------------------------------------------------
 
     def render_all(self, arrows: Sequence[ArrowData]) -> None:
-        """Render all deferred arrows onto the owner axes."""
+        """Render all deferred arrows onto the configured axes."""
         for arrow in arrows:
             self._render_arrow(arrow)
 
+    # -- direction / alignment helpers (pure, no instance state) --------
+
+    @staticmethod
+    def _direction_unit_vector(
+        direction: Literal["right", "left", "up", "down"],
+    ) -> tuple[float, float]:
+        mapping: dict[Literal["right", "left", "up", "down"], tuple[float, float]] = {
+            "right": (1.0, 0.0),
+            "left": (-1.0, 0.0),
+            "up": (0.0, 1.0),
+            "down": (0.0, -1.0),
+        }
+        return mapping[direction]
+
+    @staticmethod
+    def _default_text_alignment_for_direction(
+        direction: Literal["right", "left", "up", "down"],
+    ) -> tuple[Literal["left", "center", "right"], Literal["bottom", "center", "top"]]:
+        mapping: dict[
+            Literal["right", "left", "up", "down"],
+            tuple[Literal["left", "center", "right"], Literal["bottom", "center", "top"]],
+        ] = {
+            "right": ("right", "center"),
+            "left": ("left", "center"),
+            "up": ("center", "bottom"),
+            "down": ("center", "top"),
+        }
+        return mapping[direction]
+
+    @staticmethod
+    def _default_text_arrow_boxstyle_and_rotation(
+        direction: Literal["right", "left", "up", "down"],
+    ) -> tuple[str, float]:
+        mapping: dict[Literal["right", "left", "up", "down"], tuple[str, float]] = {
+            "right": ("rarrow", 0.0),
+            "left": ("larrow", 0.0),
+            "up": ("__gerryplot_uparrow__", 0.0),
+            "down": ("__gerryplot_downarrow__", 0.0),
+        }
+        return mapping[direction]
+
+    @staticmethod
+    def _directional_extreme_point(
+        points: list[tuple[float, float]],
+        direction: Literal["right", "left", "up", "down"],
+    ) -> tuple[float, float]:
+        if direction == "right":
+            return max(points, key=lambda point: point[0])
+        if direction == "left":
+            return min(points, key=lambda point: point[0])
+        if direction == "up":
+            return max(points, key=lambda point: point[1])
+        return min(points, key=lambda point: point[1])
+
+    # -- helpers needing fig / color resolver ---------------------------
+
+    def _direction_display_unit_vector(
+        self,
+        *,
+        origin: tuple[float, float],
+        direction: Literal["right", "left", "up", "down"],
+        coordinate_transform: Transform,
+    ) -> tuple[float, float]:
+        unit_x, unit_y = self._direction_unit_vector(direction)
+        origin_display = coordinate_transform.transform((origin[0], origin[1]))
+        forward_display = coordinate_transform.transform((origin[0] + unit_x, origin[1] + unit_y))
+
+        vector_x = float(forward_display[0] - origin_display[0])
+        vector_y = float(forward_display[1] - origin_display[1])
+        norm = math.hypot(vector_x, vector_y)
+        if norm > 1e-12:
+            return (vector_x / norm, vector_y / norm)
+
+        # pragma: no cover - fallback for degenerate transforms where the forward/origin
+        # display points collapse to the same pixel (e.g. a zero-size axes).  Not reachable
+        # under any normal Matplotlib configuration.
+        if direction == "right":  # pragma: no cover
+            return (1.0, 0.0)  # pragma: no cover
+        if direction == "left":  # pragma: no cover
+            return (-1.0, 0.0)  # pragma: no cover
+        if direction == "up":  # pragma: no cover
+            return (0.0, 1.0)  # pragma: no cover
+        return (0.0, -1.0)  # pragma: no cover
+
+    def _shift_point_along_direction_pixels(
+        self,
+        point: tuple[float, float],
+        *,
+        direction: Literal["right", "left", "up", "down"],
+        signed_pixels: float,
+        coordinate_transform: Transform,
+    ) -> tuple[float, float]:
+        direction_display_x, direction_display_y = self._direction_display_unit_vector(
+            origin=point,
+            direction=direction,
+            coordinate_transform=coordinate_transform,
+        )
+        start_display = coordinate_transform.transform((point[0], point[1]))
+        shifted_display = (
+            float(start_display[0]) + (direction_display_x * signed_pixels),
+            float(start_display[1]) + (direction_display_y * signed_pixels),
+        )
+        shifted = coordinate_transform.inverted().transform(shifted_display)
+        return (float(shifted[0]), float(shifted[1]))
+
+    def _align_text_arrow_tip_to_position(
+        self,
+        text_artist: Text,
+        *,
+        desired_tip: tuple[float, float],
+        coordinate_transform: Transform,
+        direction: Literal["right", "left", "up", "down"],
+    ) -> None:
+        bbox_patch = text_artist.get_bbox_patch()
+        if (
+            bbox_patch is None
+        ):  # pragma: no cover - only possible if the text artist was created without a bbox boxstyle, which cannot happen through the public API
+            return
+
+        # Some boxstyles finalize their mutated path after the first repositioning draw.
+        # A short fixed-point iteration keeps tip placement stable across boxstyle types.
+        for _ in range(2):
+            # Ensure the bbox path is fully realized before reading transformed vertices.
+            self._fig.canvas.draw()
+
+            vertices_display = bbox_patch.get_transform().transform(bbox_patch.get_path().vertices)
+            points: list[tuple[float, float]] = [
+                (float(vertex[0]), float(vertex[1])) for vertex in vertices_display
+            ]
+            if (
+                len(points) == 0
+            ):  # pragma: no cover - degenerate case: a fully-realized boxstyle bbox path should always have vertices
+                return
+
+            current_tip_x, current_tip_y = self._directional_extreme_point(points, direction)
+            desired_tip_display = coordinate_transform.transform((desired_tip[0], desired_tip[1]))
+            desired_tip_x = float(desired_tip_display[0])
+            desired_tip_y = float(desired_tip_display[1])
+
+            delta_x = desired_tip_x - current_tip_x
+            delta_y = desired_tip_y - current_tip_y
+            if abs(delta_x) < 1e-8 and abs(delta_y) < 1e-8:
+                return
+
+            current_position = text_artist.get_position()
+            current_display = coordinate_transform.transform(
+                (float(current_position[0]), float(current_position[1]))
+            )
+            moved_display = (
+                float(current_display[0]) + delta_x,
+                float(current_display[1]) + delta_y,
+            )
+            moved_position = coordinate_transform.inverted().transform(moved_display)
+            text_artist.set_position((float(moved_position[0]), float(moved_position[1])))
+
+    def _annotation_text_outline_effects(
+        self,
+        textstyle: ArrowTextStyle,
+    ) -> list[AbstractPathEffect] | None:
+        if textstyle.fontoutlinecolor is None:
+            return None
+        if textstyle.fontoutlinewidth <= 0:
+            return None
+
+        outline_color = self._resolved_rgba(
+            textstyle.fontoutlinecolor,
+            textstyle.fontoutlinealpha,
+            field="annotation_arrow_text_outlinecolor",
+        )
+        return [
+            patheffects.Stroke(
+                linewidth=float(textstyle.fontoutlinewidth),
+                foreground=outline_color,
+            ),
+            patheffects.Normal(),
+        ]
+
+    # -- arrow rendering ------------------------------------------------
+
     def _render_arrow(self, arrow: ArrowData) -> None:
-        owner = self._owner
         placement = arrow.placement
         coordinate_system = placement.coordinate_system
-        transform = owner._ax.transData if coordinate_system == "data" else owner._ax.transAxes
+        transform = self._ax.transData if coordinate_system == "data" else self._ax.transAxes
 
         tip_x, tip_y = arrow.arrowtip
         offset_x, offset_y = placement.text_offset
 
-        default_ha, default_va = owner._default_text_alignment_for_direction(arrow.direction)
+        default_ha, default_va = self._default_text_alignment_for_direction(arrow.direction)
         ha = (
             arrow.textstyle.horizontalalignment
             if arrow.textstyle.horizontalalignment is not None
@@ -151,12 +349,11 @@ class _AnnotationArrowRenderer:
         ha: Literal["left", "center", "right"],
         va: Literal["bottom", "center", "top"],
     ) -> None:
-        owner = self._owner
         style = arrow.textarrowstyle
         if style is None:  # pragma: no cover
             raise RuntimeError("Text arrow missing textarrowstyle.")
 
-        boxstyle_base, box_rotation = owner._default_text_arrow_boxstyle_and_rotation(
+        boxstyle_base, box_rotation = self._default_text_arrow_boxstyle_and_rotation(
             arrow.direction
         )
         text_rotation = (
@@ -174,26 +371,26 @@ class _AnnotationArrowRenderer:
         if isinstance(style.arrowoutlinecolor, str) and style.arrowoutlinecolor.lower() == "none":
             edgecolor: str | tuple[float, float, float, float] = "none"
         else:
-            edgecolor = owner._resolved_rgba(
+            edgecolor = self._resolved_rgba(
                 style.arrowoutlinecolor,
                 style.arrowoutlinealpha,
                 field="annotation_arrow_outlinecolor",
             )
 
         text_value = arrow.text if arrow.text is not None else "   "
-        text_color = owner._resolved_rgba(
+        text_color = self._resolved_rgba(
             arrow.textstyle.fontcolor,
             arrow.textstyle.fontalpha,
             field="annotation_arrow_text_color",
         )
-        face_color = owner._resolved_rgba(
+        face_color = self._resolved_rgba(
             style.arrowfacecolor,
             style.arrowfacealpha,
             field="annotation_arrow_facecolor",
         )
 
         if abs(text_rotation - box_rotation) > 1e-8:
-            bbox_artist = owner._ax.text(
+            bbox_artist = self._ax.text(
                 tip_x + offset_x,
                 tip_y + offset_y,
                 text_value,
@@ -215,14 +412,14 @@ class _AnnotationArrowRenderer:
                     lw=style.arrowoutlinewidth,
                 ),
             )
-            owner._align_text_arrow_tip_to_position(
+            self._align_text_arrow_tip_to_position(
                 bbox_artist,
                 desired_tip=(tip_x + offset_x, tip_y + offset_y),
                 coordinate_transform=transform,
                 direction=arrow.direction,
             )
             aligned_x, aligned_y = bbox_artist.get_position()
-            text_artist = owner._ax.text(
+            text_artist = self._ax.text(
                 aligned_x,
                 aligned_y,
                 text_value,
@@ -238,12 +435,12 @@ class _AnnotationArrowRenderer:
                 clip_on=arrow.placement.clip_on,
                 zorder=float(arrow.placement.zorder) + 0.01,
             )
-            text_effects = owner._annotation_text_outline_effects(arrow.textstyle)
+            text_effects = self._annotation_text_outline_effects(arrow.textstyle)
             if text_effects is not None:
                 text_artist.set_path_effects(text_effects)
             return
 
-        text_artist = owner._ax.text(
+        text_artist = self._ax.text(
             tip_x + offset_x,
             tip_y + offset_y,
             text_value,
@@ -265,13 +462,13 @@ class _AnnotationArrowRenderer:
                 lw=style.arrowoutlinewidth,
             ),
         )
-        owner._align_text_arrow_tip_to_position(
+        self._align_text_arrow_tip_to_position(
             text_artist,
             desired_tip=(tip_x + offset_x, tip_y + offset_y),
             coordinate_transform=transform,
             direction=arrow.direction,
         )
-        text_effects = owner._annotation_text_outline_effects(arrow.textstyle)
+        text_effects = self._annotation_text_outline_effects(arrow.textstyle)
         if text_effects is not None:
             text_artist.set_path_effects(text_effects)
 
@@ -288,17 +485,16 @@ class _AnnotationArrowRenderer:
         ha: Literal["left", "center", "right"],
         va: Literal["bottom", "center", "top"],
     ) -> None:
-        owner = self._owner
         style = arrow.labelarrowstyle
         if style is None:  # pragma: no cover
             raise RuntimeError("Label arrow missing labelarrowstyle.")
 
         placement = arrow.placement
-        unit_x, unit_y = owner._direction_unit_vector(arrow.direction)
+        unit_x, unit_y = self._direction_unit_vector(arrow.direction)
         if placement.arrowtail is None:
             if arrow.arrow_length_percentage is not None:
-                owner.fig.canvas.draw()
-                axes_bbox = owner._ax.get_window_extent()
+                self._fig.canvas.draw()
+                axes_bbox = self._ax.get_window_extent()
                 if arrow.direction in {"left", "right"}:
                     direction_span_pixels = float(axes_bbox.width)
                 else:
@@ -306,7 +502,7 @@ class _AnnotationArrowRenderer:
                 arrow_length_pixels = (
                     float(arrow.arrow_length_percentage) / 100.0
                 ) * direction_span_pixels
-                tail_x, tail_y = owner._shift_point_along_direction_pixels(
+                tail_x, tail_y = self._shift_point_along_direction_pixels(
                     (tip_x, tip_y),
                     direction=arrow.direction,
                     signed_pixels=-arrow_length_pixels,
@@ -321,13 +517,13 @@ class _AnnotationArrowRenderer:
         if isinstance(style.arrowoutlinecolor, str) and style.arrowoutlinecolor.lower() == "none":
             regular_edgecolor: str | tuple[float, float, float, float] = "none"
         else:
-            regular_edgecolor = owner._resolved_rgba(
+            regular_edgecolor = self._resolved_rgba(
                 style.arrowoutlinecolor,
                 style.arrowoutlinealpha,
                 field="annotation_arrow_outlinecolor",
             )
 
-        owner._ax.annotate(
+        self._ax.annotate(
             "",
             xy=(tip_x, tip_y),
             xytext=(tail_x, tail_y),
@@ -341,7 +537,7 @@ class _AnnotationArrowRenderer:
                 mutation_scale=style.arrowhead_scale,
                 shrinkA=style.shrink_a,
                 shrinkB=style.shrink_b,
-                facecolor=owner._resolved_rgba(
+                facecolor=self._resolved_rgba(
                     style.arrowfacecolor,
                     style.arrowfacealpha,
                     field="annotation_arrow_facecolor",
@@ -380,7 +576,7 @@ class _AnnotationArrowRenderer:
                 ),
                 patheffects.Normal(),
             ]
-            text_artist = owner._ax.text(
+            text_artist = self._ax.text(
                 text_x,
                 text_y,
                 text_value,
@@ -394,8 +590,8 @@ class _AnnotationArrowRenderer:
                 **arrow.labelfont_options.to_mpl_text_kwargs(),
             )
         else:
-            text_effects = owner._annotation_text_outline_effects(arrow.textstyle)
-            text_artist = owner._ax.text(
+            text_effects = self._annotation_text_outline_effects(arrow.textstyle)
+            text_artist = self._ax.text(
                 text_x,
                 text_y,
                 text_value,
@@ -406,7 +602,7 @@ class _AnnotationArrowRenderer:
                 clip_on=placement.clip_on,
                 zorder=placement.zorder,
                 bbox=bbox,
-                color=owner._resolved_rgba(
+                color=self._resolved_rgba(
                     arrow.textstyle.fontcolor,
                     arrow.textstyle.fontalpha,
                     field="annotation_arrow_text_color",
@@ -416,6 +612,6 @@ class _AnnotationArrowRenderer:
                 fontstyle=arrow.textstyle.fontstyle,
                 fontfamily=arrow.textstyle.fontfamily,
             )
-        text_artist.set_clip_path(owner._ax.patch)
+        text_artist.set_clip_path(self._ax.patch)
         if text_effects is not None:
             text_artist.set_path_effects(text_effects)
