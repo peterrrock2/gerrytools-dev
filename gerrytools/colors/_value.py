@@ -5,6 +5,9 @@ surface in `core.py` is unchanged. The point of this file is to collect every
 "what counts as a valid color, and how do we normalize it" decision into one
 place — replacing the polyglot conversion logic and the five type guards that
 previously lived inside ``convert_color_to_hexa_or_none``.
+
+Named-color resolution itself lives in ``_sources.py`` (the registry); this
+module just calls into it.
 """
 
 from __future__ import annotations
@@ -17,69 +20,11 @@ from typing import TypeAlias, TypeGuard, cast
 
 import matplotlib.colors as mcolors
 
-from gerrytools.colors.districtr import DISTRICTR_COLOR_DICT
+from gerrytools.colors._sources import _resolve_named_color
 from gerrytools.colors.latex import get_color_from_latex_string
-from gerrytools.colors.latex_full import LATEX_COLOR_DICT
-from gerrytools.typing import Color, HexColor, MplBaseColor, MplCompatibleColor
+from gerrytools.typing import Color, HexColor, MplBaseColor, MplCompatibleColor, MplRGBAColor
 
 _MplBaseColorWithAlpha: TypeAlias = tuple[MplBaseColor, Real]
-
-
-# ---------------------------------------------------------------------------
-# Public constants (re-exported by core.py — this is the single source).
-# ---------------------------------------------------------------------------
-
-DEFAULT_GREY = "#5c676f"
-"""Default grey plotting color; used in histograms, violin plots, and arrows."""
-
-CITIZEN_BLUE = "#4693b3"
-"""Citizen ensemble blue color; used in histograms, violin plots, and arrows."""
-
-OVERLAYS = ("gainsboro", "silver", "darkgray", "gray", "dimgrey")
-"""Overlay colors for choropleth maps."""
-
-
-ENSEMBLE_COLORS = {
-    "ensemble:smc": "#ffca5d",
-    "ensemble:forest": "#00cd99",
-    "ensemble:rrc": "#0099cd",
-    "ensemble:revrecom": "#0099cd",
-    "ensemble:recom": "#0099cd",
-    "ensemble:recoma": "#99cd00",
-    "ensemble:recomb": "#cd0099",
-    "ensemble:recomc": "#9900cd",
-    "ensemble:recomd": "#8dd3c7",
-}
-"""A dictionary mapping ensemble abbreviations to their corresponding standard colors."""
-
-
-COLOR_CORECTED_BASESET = {
-    "cc:applegreen": "#73b900",
-    "cc:denim": "#0064bd",
-    "cc:cherryblossompink": "#ffb0c5",
-    "cc:darktangerine": "#ff9f0f",
-    "cc:cadmiumgreen": "#006f3c",
-    "cc:purpleheart": "#872f9c",
-    "cc:alizarin": "#d91b00",
-    "cc:greenishcyan": "#009983",
-    "cc:lightblue": "#92dbe6",
-    "cc:amber": "#ffb900",
-    "cc:muddy": "#9b3200",
-    "cc:lostinspace": "#003e64",
-    "cc:teagreen": "#d0f0c0",
-}
-"""A small set of colors color-corrected for visibility by color-blind users."""
-
-
-GERRYTOOLS_EXTRA_COLORS_DICT = (
-    {
-        "default_grey": DEFAULT_GREY,
-        "default_gray": DEFAULT_GREY,
-        "citizen_blue": CITIZEN_BLUE,
-    }
-    | {name: mcolors.to_hex(name) for name in OVERLAYS}
-    | ENSEMBLE_COLORS
-)
 
 
 # ---------------------------------------------------------------------------
@@ -119,48 +64,6 @@ def _validate_alpha(alpha: float, *, field: str = "alpha") -> float:
     if not (0.0 <= a <= 1.0):
         raise ValueError(f"{field} must be between 0.0 and 1.0")
     return a
-
-
-# ---------------------------------------------------------------------------
-# Named-color resolution cascade. Public-facing as get_named_color via core.py.
-# ---------------------------------------------------------------------------
-
-
-def get_all_supported_colors_dict() -> dict[str, Color]:
-    """Get a dictionary of all supported color names mapping to their values."""
-    result: dict[str, Color] = cast(dict[str, Color], dict(mcolors.get_named_colors_mapping()))
-    result.update(DISTRICTR_COLOR_DICT)
-    result.update(LATEX_COLOR_DICT)
-    result.update(GERRYTOOLS_EXTRA_COLORS_DICT)
-    result["green"] = "#00ff00"  # Override matplotlib's dark "green"
-    result["none"] = "none"
-    return result
-
-
-def _resolve_named_color(name: str) -> Color:
-    """Resolve a named color through the gerrytools / districtr / latex / mpl cascade."""
-    key = name.lower()
-
-    if key == "green":
-        return "#00ff00"
-
-    for color_map in (GERRYTOOLS_EXTRA_COLORS_DICT, DISTRICTR_COLOR_DICT, LATEX_COLOR_DICT):
-        value = color_map.get(name)
-        if value is not None:
-            return value
-        value = color_map.get(key)
-        if value is not None:
-            return value
-
-    mpl_named_colors = mcolors.get_named_colors_mapping()
-    value = mpl_named_colors.get(name)
-    if value is not None:
-        return mcolors.to_hex(value)
-    value = mpl_named_colors.get(key)
-    if value is not None:
-        return mcolors.to_hex(value)
-
-    raise KeyError(f"Unknown color name: {name!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -262,7 +165,7 @@ class _Color:
         raise ValueError(f"Unknown color value: {color_string!r}")
 
     @classmethod
-    def _from_resolved(cls, resolved_value: object) -> "_Color":
+    def _from_resolved(cls, resolved_value: Color | MplRGBAColor) -> "_Color":
         """Normalize an already-resolved hex string or RGBA tuple into ``_Color``."""
         hex8_string = mcolors.to_hex(mcolors.to_rgba(resolved_value), keep_alpha=True)
         normalized_hex6 = hex8_string[:7].lower()
@@ -273,7 +176,7 @@ class _Color:
     def _from_base_with_alpha(cls, base_alpha_pair: tuple[object, object]) -> "_Color":
         base_color_input, requested_alpha = base_alpha_pair
         validated_alpha = _validate_alpha(
-            float(requested_alpha), field="alpha in (base, alpha) color tuple"
+            float(cast(float, requested_alpha)), field="alpha in (base, alpha) color tuple"
         )
         base_color = cls.from_any(cast(MplCompatibleColor, base_color_input))
         if base_color.is_none:

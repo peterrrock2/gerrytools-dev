@@ -1,18 +1,18 @@
 import logging
 import math
 
-from gerrytools.colors._value import (
+from gerrytools.colors._sources import (
     CITIZEN_BLUE,
     COLOR_CORECTED_BASESET,
     DEFAULT_GREY,
     ENSEMBLE_COLORS,
     GERRYTOOLS_EXTRA_COLORS_DICT,
     OVERLAYS,
-    _Color,
     _resolve_named_color,
-    _validate_alpha,
+    _which_color_source,
     get_all_supported_colors_dict,
 )
+from gerrytools.colors._value import _Color, _validate_alpha
 from gerrytools.logging import get_logger
 from gerrytools.typing import Color, HexColor, MplCompatibleColor, ResolvedColor
 
@@ -27,6 +27,7 @@ __all__ = [
     "get_all_supported_colors_dict",
     "get_named_color",
     "resolve_color_and_alpha",
+    "which_color_source",
 ]
 
 gt_logger = get_logger(__name__)
@@ -45,6 +46,26 @@ def get_named_color(name: str) -> Color:
         KeyError: If the color name is not recognized.
     """
     return _resolve_named_color(name)
+
+
+def which_color_source(name: str) -> str:
+    """Return the name of the registry source that owns ``name``.
+
+    Useful for diagnosing precedence: when two palettes both define a name,
+    this answers which one the resolver actually returns. Source names
+    currently include ``"overrides"``, ``"gerrytools"``, ``"color-corrected"``,
+    ``"districtr"``, ``"latex"``, and ``"matplotlib"``.
+
+    Args:
+        name (str): The name of the color.
+
+    Returns:
+        str: The name of the source that resolves the color name.
+
+    Raises:
+        KeyError: If the color name is not recognized by any source.
+    """
+    return _which_color_source(name)
 
 
 def convert_color_to_hexa_or_none(color: MplCompatibleColor | None) -> HexColor:

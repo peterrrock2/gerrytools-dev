@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from numbers import Real
-from typing import Callable
+from typing import Callable, cast
 
 from gerrytools.colors import convert_color_to_hexa_or_none
 from gerrytools.latex._colors import cellcolor_prefix
@@ -192,8 +192,8 @@ def compose_formatters(*funcs: CellWrapper) -> CellWrapper:
         commands.extend(getattr(formatter, _LATEX_COMMANDS_ATTR, ()))
         specs.extend(latex_command_specs_for(formatter))
 
-    run = _with_latex_commands(run, tuple(commands))
-    return _with_latex_command_specs(run, tuple(specs))
+    composed: CellWrapper = _with_latex_commands(run, tuple(commands))
+    return _with_latex_command_specs(composed, tuple(specs))
 
 
 def round_decimals(decimal_places: int) -> CellWrapper:
@@ -658,6 +658,9 @@ def diverging_gradient_formatter(
         if not all(isinstance(c, str) for c in (color_lo, color_mid, color_hi)):
             raise ValueError("command-based gradients require LaTeX color names/expressions")
 
+        color_lo_str = cast(str, color_lo)
+        color_mid_str = cast(str, color_mid)
+        color_hi_str = cast(str, color_hi)
         spec = LatexCommandSpec(
             base_name=command_name,
             selected_name=command_name,
@@ -666,9 +669,9 @@ def diverging_gradient_formatter(
                 lo=lo,
                 mid=mid,
                 hi=hi,
-                color_lo=color_lo,
-                color_mid=color_mid,
-                color_hi=color_hi,
+                color_lo=color_lo_str,
+                color_mid=color_mid_str,
+                color_hi=color_hi_str,
                 precision=precision,
             ),
         )

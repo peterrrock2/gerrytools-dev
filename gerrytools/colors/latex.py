@@ -1,14 +1,9 @@
 from __future__ import annotations
 
-from typing import Mapping
 from warnings import warn
 
-import matplotlib.colors as mcolors
-from matplotlib.typing import ColorType
-
 from gerrytools.colors._regex import VALID_COLOR_HEX_RE
-from gerrytools.colors.districtr import DISTRICTR_COLOR_DICT
-from gerrytools.colors.latex_full import LATEX_COLOR_DICT
+from gerrytools.colors._sources import _resolve_named_color
 
 
 def _norm_hex(s: str) -> str:
@@ -115,28 +110,9 @@ def get_color_from_latex_string(latex_color_string: str) -> str:
     Returns:
         str: The resulting hex color string, in the form "#RRGGBB"
     """
-    # Case-insensitive lookup
-    matplotlib_color_dict_lc: Mapping[str, ColorType] = {
-        k.lower(): v for k, v in dict(mcolors.get_named_colors_mapping()).items()
-    }
-    districtr_color_dict_lc: Mapping[str, str] = {
-        k.lower(): v for k, v in DISTRICTR_COLOR_DICT.items()
-    }
-    latex_color_dict = {k.strip(): v for k, v in LATEX_COLOR_DICT.items()}
-
-    all_color_dict = matplotlib_color_dict_lc | districtr_color_dict_lc | latex_color_dict
-    all_color_dict["green"] = "#00ff00"  # override green to be bright green for latex compatibility
 
     def resolve_color_name_to_hex(name: str) -> str:
-        key = name.strip()
-        if key not in all_color_dict:
-            raise KeyError(
-                f"Unknown color name {name!r}. Available: {sorted(all_color_dict)[:12]} ..."
-            )
-
-        new_color = mcolors.to_hex(all_color_dict[key])
-        assert isinstance(new_color, str)  # All dictionaries should return hex strings
-        return _norm_hex(new_color)
+        return _norm_hex(_resolve_named_color(name.strip()))
 
     tokens = [t.strip() for t in latex_color_string.strip().split("!") if t.strip()]
 
