@@ -191,7 +191,7 @@ tasks:
     cmds:
       - task: sync
       - uv run pre-commit install
-      - uv run pre-commit run --all-files
+      - uv run pre-commit run
 
   docs:
     desc: Build the documentation
