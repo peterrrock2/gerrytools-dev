@@ -6,11 +6,13 @@ from gerrytools.latex.formatters import (
     _safe_round,
     boxed_center,
     compose_formatters,
+    diverging_gradient_formatter,
     highlight_between,
     highlight_ge,
     highlight_gt,
     highlight_le,
     highlight_lt,
+    latex_commands_for,
     round_decimals,
     wrap_between,
     wrap_ge,
@@ -62,6 +64,52 @@ class TestBasicFormatters:
         assert formatter(1.2349, "ignored") == (1.2349, "1.23")
         assert formatter("text", "text") == ("text", "text")
 
+    def test_compose_formatters_preserves_latex_command_metadata(self):
+        formatter = compose_formatters(
+            diverging_gradient_formatter(),
+            round_decimals(3),
+        )
+
+        commands = latex_commands_for(formatter)
+
+        assert len(commands) == 1
+        assert r"\newcommand{\divgrad}[1]{%" in commands[0]
+
+    def test_diverging_gradient_formatter_defaults_to_divgrad_command(self):
+        formatter = diverging_gradient_formatter(precision=3)
+
+        value, rendered = formatter(0.75, "ignored")
+
+        assert value == 0.75
+        assert rendered == r"\divgrad{0.750}"
+        assert r"\newcommand{\divgrad}[1]{%" in latex_commands_for(formatter)[0]
+
+    def test_diverging_gradient_formatter_can_emit_compact_command_call(self):
+        formatter = diverging_gradient_formatter(
+            command_name="scoreheat",
+            color_lo="steelblue",
+            color_mid="white",
+            color_hi="firebrick",
+            precision=3,
+        )
+
+        value, rendered = formatter(0.75, "0.750")
+
+        assert value == 0.75
+        assert rendered == r"\scoreheat{0.750}"
+        assert r"\colorlet{scoreheatLosteelblue}{steelblue}%" in latex_commands_for(formatter)[0]
+
+    def test_diverging_gradient_command_uses_precision_without_rounding_formatter(self):
+        formatter = diverging_gradient_formatter(command_name="scoreheat", precision=2)
+
+        assert formatter(0.756, "0.756")[1] == r"\scoreheat{0.76}"
+
+    def test_diverging_gradient_formatter_can_emit_literal_cellcolor(self):
+        formatter = diverging_gradient_formatter(command_name=None)
+
+        assert formatter(0.75, "0.750")[1].startswith(r"\cellcolor[HTML]{")
+        assert latex_commands_for(formatter) == ()
+
 
 # ======================
 # == ROUNDING HELPERS ==
@@ -84,15 +132,24 @@ class TestSafeRound:
 # == NUMERIC HIGHLIGHTERS ==
 # ==========================
 class TestNumericHighlighters:
-    def test_highlight_gt_prefixes_matching_values(self):
+    def test_highlight_gt_wraps_matching_values_with_command(self):
         formatter = highlight_gt(10, color="denim")
-        assert formatter(11, "11") == (11, r"\cellcolor{denim}11")
+        assert formatter(11, "11") == (11, r"\gta{11}")
         assert formatter(10, "10") == (10, "10")
+        assert latex_commands_for(formatter) == (r"\newcommand{\gta}[1]{\cellcolor{denim}#1}",)
 
     def test_highlight_ge_respects_rounding(self):
         formatter = highlight_ge(1.23, color="#00FF00", round_to=2)
+        assert formatter(1.234, "1.234") == (1.234, r"\gea{1.234}")
+        assert formatter(1.225, "1.225") == (1.225, r"\gea{1.225}")
+        assert latex_commands_for(formatter) == (
+            r"\newcommand{\gea}[1]{\cellcolor[HTML]{00ff00}#1}",
+        )
+
+    def test_highlight_ge_can_emit_literal_cellcolor(self):
+        formatter = highlight_ge(1.23, color="#00FF00", round_to=2, command_prefix=None)
         assert formatter(1.234, "1.234") == (1.234, r"\cellcolor[HTML]{00ff00}1.234")
-        assert formatter(1.225, "1.225") == (1.225, r"\cellcolor[HTML]{00ff00}1.225")
+        assert latex_commands_for(formatter) == ()
 
     def test_highlight_lt_and_le_leave_strings_unchanged(self):
         assert highlight_lt(5)("text", "text") == ("text", "text")
@@ -102,8 +159,8 @@ class TestNumericHighlighters:
         inclusive = highlight_between(1, 2, color="amber")
         exclusive = highlight_between(1, 2, color="amber", include_lower=False, include_upper=False)
 
-        assert inclusive(1, "1") == (1, r"\cellcolor{amber}1")
-        assert inclusive(2, "2") == (2, r"\cellcolor{amber}2")
+        assert inclusive(1, "1") == (1, r"\btwa{1}")
+        assert inclusive(2, "2") == (2, r"\btwa{2}")
         assert exclusive(1, "1") == (1, "1")
         assert exclusive(2, "2") == (2, "2")
 

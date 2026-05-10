@@ -1,13 +1,107 @@
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from numbers import Real
 from typing import Callable
 
 from gerrytools.colors import convert_color_to_hexa_or_none
 from gerrytools.latex._colors import cellcolor_prefix
-from gerrytools.latex.commands import validate_command_name
+from gerrytools.latex.commands import (
+    tex_cell_highlight_command,
+    tex_diverging_gradient_command,
+    validate_command_name,
+)
 from gerrytools.typing import CellWrapper, Color, TableCellValue
+
+_LATEX_COMMANDS_ATTR = "_gerrytools_latex_commands"
+_LATEX_COMMAND_SPECS_ATTR = "_gerrytools_latex_command_specs"
+
+
+@dataclass
+class LatexCommandSpec:
+    """LaTeX command required by a formatter.
+
+    ``selected_name`` is intentionally mutable: ``TexTable`` may rename a
+    formatter's command during registration to avoid command-name collisions.
+    """
+
+    base_name: str
+    selected_name: str
+    command_factory: Callable[[str], str]
+    suffix_sequence: bool = False
+
+    def command(self) -> str:
+        """Generate the LaTeX command for the currently selected command name."""
+        return self.command_factory(self.selected_name)
+
+
+def latex_commands_for(formatter: Callable) -> tuple[str, ...]:
+    """Return LaTeX preamble commands required by a formatter.
+
+    Args:
+        formatter (Callable): Formatter callable to inspect.
+
+    Returns:
+        tuple[str, ...]: Required LaTeX preamble command definitions.
+    """
+    commands = list(getattr(formatter, _LATEX_COMMANDS_ATTR, ()))
+    commands.extend(spec.command() for spec in latex_command_specs_for(formatter))
+    return tuple(commands)
+
+
+def static_latex_commands_for(formatter: Callable) -> tuple[str, ...]:
+    """Return static LaTeX commands required by a formatter.
+
+    Unlike :func:`latex_commands_for`, this excludes mutable command specs that
+    may need table-local renaming.
+    """
+    return tuple(getattr(formatter, _LATEX_COMMANDS_ATTR, ()))
+
+
+def latex_command_specs_for(formatter: Callable) -> tuple[LatexCommandSpec, ...]:
+    """Return mutable LaTeX command specs required by a formatter.
+
+    Args:
+        formatter (Callable): Formatter callable to inspect.
+
+    Returns:
+        tuple[LatexCommandSpec, ...]: Required command specs.
+    """
+    return tuple(getattr(formatter, _LATEX_COMMAND_SPECS_ATTR, ()))
+
+
+def _with_latex_commands(formatter: CellWrapper, commands: tuple[str, ...]) -> CellWrapper:
+    """Attach required LaTeX preamble commands to a formatter.
+
+    Args:
+        formatter (CellWrapper): Formatter to annotate.
+        commands (tuple[str, ...]): LaTeX command definitions required by ``formatter``.
+
+    Returns:
+        CellWrapper: The same formatter, annotated with command metadata.
+    """
+    if commands:
+        setattr(formatter, _LATEX_COMMANDS_ATTR, commands)
+    return formatter
+
+
+def _with_latex_command_specs(
+    formatter: CellWrapper,
+    specs: tuple[LatexCommandSpec, ...],
+) -> CellWrapper:
+    """Attach mutable LaTeX command specs to a formatter.
+
+    Args:
+        formatter (CellWrapper): Formatter to annotate.
+        specs (tuple[LatexCommandSpec, ...]): Required LaTeX command specs.
+
+    Returns:
+        CellWrapper: The same formatter, annotated with command metadata.
+    """
+    if specs:
+        setattr(formatter, _LATEX_COMMAND_SPECS_ATTR, specs)
+    return formatter
 
 
 def boxed_center(width: int, height: int | None = None, unit: str = "mm") -> CellWrapper:
@@ -92,7 +186,14 @@ def compose_formatters(*funcs: CellWrapper) -> CellWrapper:
             v, s = formatter(v, s)
         return v, s
 
-    return run
+    commands: list[str] = []
+    specs: list[LatexCommandSpec] = []
+    for formatter in funcs:
+        commands.extend(getattr(formatter, _LATEX_COMMANDS_ATTR, ()))
+        specs.extend(latex_command_specs_for(formatter))
+
+    run = _with_latex_commands(run, tuple(commands))
+    return _with_latex_command_specs(run, tuple(specs))
 
 
 def round_decimals(decimal_places: int) -> CellWrapper:
@@ -148,6 +249,7 @@ def _make_numeric_highlighter(
     color: Color,
     *,
     round_to: int | None,
+    command_prefix: str | None,
 ) -> CellWrapper:
     """Build a numeric highlighter formatter from a predicate.
 
@@ -155,13 +257,33 @@ def _make_numeric_highlighter(
         predicate (Callable[[float], bool]): Comparison predicate.
         color (Color): Highlight color.
         round_to (int | None): Decimal places to round values before comparison.
+        command_prefix (str | None): Command-name prefix for compact command
+            output. Pass ``None`` to emit literal ``\\cellcolor`` prefixes.
 
     Returns:
         CellWrapper: Formatter that prepends a LaTeX ``\\cellcolor`` command when matched.
     """
+    if command_prefix is not None:
+        validate_command_name(command_prefix)
+        spec = LatexCommandSpec(
+            base_name=command_prefix,
+            selected_name=f"{command_prefix}a",
+            command_factory=lambda selected_name: tex_cell_highlight_command(selected_name, color),
+            suffix_sequence=True,
+        )
+
+        def _inner_command(v: TableCellValue, s: str) -> tuple[TableCellValue, str]:
+            if isinstance(v, Real):
+                rounded_value = _safe_round(v, round_to)
+                if isinstance(rounded_value, Real) and predicate(float(rounded_value)):
+                    return v, rf"\{spec.selected_name}{{{s}}}"
+            return v, s
+
+        return _with_latex_command_specs(_inner_command, (spec,))
+
     prefix = cellcolor_prefix(color)
 
-    def _inner(v: TableCellValue, s: str) -> tuple[TableCellValue, str]:
+    def _inner_literal(v: TableCellValue, s: str) -> tuple[TableCellValue, str]:
         """Apply conditional cell highlighting to one value/string pair.
 
         Args:
@@ -177,7 +299,7 @@ def _make_numeric_highlighter(
                 return v, f"{prefix}{s}"
         return v, s
 
-    return _inner
+    return _inner_literal
 
 
 def _make_numeric_wrapper(
@@ -223,6 +345,7 @@ def highlight_gt(
     color: Color = "yellow",
     *,
     round_to: int | None = None,
+    command_prefix: str | None = "gt",
 ) -> CellWrapper:
     """Highlight values strictly greater than a threshold.
 
@@ -231,11 +354,19 @@ def highlight_gt(
         color (Color, optional): Highlight color. Defaults to ``"yellow"``.
         round_to (int | None, optional): Decimal places for comparison rounding.
             Defaults to None.
+        command_prefix (str | None, optional): Prefix for generated compact
+            LaTeX commands. Pass ``None`` for literal ``\\cellcolor`` output.
+            Defaults to ``"gt"``.
 
     Returns:
         CellWrapper: Highlight formatter.
     """
-    return _make_numeric_highlighter(lambda x: x > float(thresh), color, round_to=round_to)
+    return _make_numeric_highlighter(
+        lambda x: x > float(thresh),
+        color,
+        round_to=round_to,
+        command_prefix=command_prefix,
+    )
 
 
 def wrap_gt(
@@ -263,6 +394,7 @@ def highlight_ge(
     color: Color = "yellow",
     *,
     round_to: int | None = None,
+    command_prefix: str | None = "ge",
 ) -> CellWrapper:
     """Highlight values greater than or equal to a threshold.
 
@@ -271,11 +403,19 @@ def highlight_ge(
         color (Color, optional): Highlight color. Defaults to ``"yellow"``.
         round_to (int | None, optional): Decimal places for comparison rounding.
             Defaults to None.
+        command_prefix (str | None, optional): Prefix for generated compact
+            LaTeX commands. Pass ``None`` for literal ``\\cellcolor`` output.
+            Defaults to ``"ge"``.
 
     Returns:
         CellWrapper: Highlight formatter.
     """
-    return _make_numeric_highlighter(lambda x: x >= float(thresh), color, round_to=round_to)
+    return _make_numeric_highlighter(
+        lambda x: x >= float(thresh),
+        color,
+        round_to=round_to,
+        command_prefix=command_prefix,
+    )
 
 
 def wrap_ge(
@@ -303,6 +443,7 @@ def highlight_lt(
     color: Color = "yellow",
     *,
     round_to: int | None = None,
+    command_prefix: str | None = "lt",
 ) -> CellWrapper:
     """Highlight values strictly less than a threshold.
 
@@ -311,11 +452,19 @@ def highlight_lt(
         color (Color, optional): Highlight color. Defaults to ``"yellow"``.
         round_to (int | None, optional): Decimal places for comparison rounding.
             Defaults to None.
+        command_prefix (str | None, optional): Prefix for generated compact
+            LaTeX commands. Pass ``None`` for literal ``\\cellcolor`` output.
+            Defaults to ``"lt"``.
 
     Returns:
         CellWrapper: Highlight formatter.
     """
-    return _make_numeric_highlighter(lambda x: x < float(thresh), color, round_to=round_to)
+    return _make_numeric_highlighter(
+        lambda x: x < float(thresh),
+        color,
+        round_to=round_to,
+        command_prefix=command_prefix,
+    )
 
 
 def wrap_lt(
@@ -343,6 +492,7 @@ def highlight_le(
     color: Color = "yellow",
     *,
     round_to: int | None = None,
+    command_prefix: str | None = "le",
 ) -> CellWrapper:
     """Highlight values less than or equal to a threshold.
 
@@ -351,11 +501,19 @@ def highlight_le(
         color (Color, optional): Highlight color. Defaults to ``"yellow"``.
         round_to (int | None, optional): Decimal places for comparison rounding.
             Defaults to None.
+        command_prefix (str | None, optional): Prefix for generated compact
+            LaTeX commands. Pass ``None`` for literal ``\\cellcolor`` output.
+            Defaults to ``"le"``.
 
     Returns:
         CellWrapper: Highlight formatter.
     """
-    return _make_numeric_highlighter(lambda x: x <= float(thresh), color, round_to=round_to)
+    return _make_numeric_highlighter(
+        lambda x: x <= float(thresh),
+        color,
+        round_to=round_to,
+        command_prefix=command_prefix,
+    )
 
 
 def wrap_le(
@@ -386,6 +544,7 @@ def highlight_between(
     round_to: int | None = None,
     include_lower: bool = True,
     include_upper: bool = True,
+    command_prefix: str | None = "btw",
 ) -> CellWrapper:
     """Highlight values between lower and upper bounds.
 
@@ -399,6 +558,9 @@ def highlight_between(
             Defaults to True.
         include_upper (bool, optional): Whether the upper bound is inclusive.
             Defaults to True.
+        command_prefix (str | None, optional): Prefix for generated compact
+            LaTeX commands. Pass ``None`` for literal ``\\cellcolor`` output.
+            Defaults to ``"btw"``.
 
     Returns:
         CellWrapper: Highlight formatter.
@@ -410,7 +572,12 @@ def highlight_between(
 
     low = float(lower_bound)
     high = float(upper_bound)
-    return _make_numeric_highlighter(lambda x: low <= x <= high, color, round_to=round_to)
+    return _make_numeric_highlighter(
+        lambda x: low <= x <= high,
+        color,
+        round_to=round_to,
+        command_prefix=command_prefix,
+    )
 
 
 def wrap_between(
@@ -455,14 +622,21 @@ def diverging_gradient_formatter(
     color_lo: Color = "darkpastelgreen",
     color_hi: Color = "richlavender",
     color_mid: Color = "white",
+    *,
+    command_name: str | None = "divgrad",
+    precision: int = 4,
 ) -> CellWrapper:
     """Formatter that applies a diverging gradient cell background.
 
-    Computes the interpolated background color in Python and prepends a
-    ``\\cellcolor[HTML]{RRGGBB}`` to the rendered string.  Compatible with
-    both ``TexTable`` (via colortbl's ``\\cellcolor``) and ``TikzTable``
-    (where the ``\\cellcolor`` prefix is detected and converted to a
-    post-matrix TikZ ``\\fill`` command with correct column-width extent).
+    By default, renders numeric cells as compact LaTeX command calls like
+    ``\\divgrad{0.774}`` and exposes the matching preamble command so
+    ``TexTable`` can add it automatically when the formatter is set.
+
+    Pass ``command_name=None`` to use the literal-color path instead.  That
+    computes the interpolated background color in Python and prepends a
+    ``\\cellcolor[HTML]{RRGGBB}`` to the rendered string.  This is the preferred
+    path for ``TikzTable``, where literal ``\\cellcolor`` prefixes are converted
+    to post-matrix TikZ ``\\fill`` commands with correct column-width extent.
 
     Args:
         lo (float): Lower bound of the gradient range. Defaults to ``0.0``.
@@ -471,10 +645,40 @@ def diverging_gradient_formatter(
         color_lo (Color): Color at the lower bound. Defaults to ``"darkpastelgreen"``.
         color_hi (Color): Color at the upper bound. Defaults to ``"richlavender"``.
         color_mid (Color): Color at the midpoint. Defaults to ``"white"``.
+        command_name (str | None): LaTeX command name for compact command-based
+            output. Pass ``None`` for literal ``\\cellcolor[HTML]{...}``
+            prefixes. Defaults to ``"divgrad"``.
+        precision (int): ``siunitx`` round precision used by the generated
+            command when ``command_name`` is provided. Defaults to ``4``.
 
     Returns:
-        CellWrapper: Formatter that prepends a gradient ``\\cellcolor`` to matching cells.
+        CellWrapper: Formatter that applies gradient coloring to numeric cells.
     """
+    if command_name is not None:
+        if not all(isinstance(c, str) for c in (color_lo, color_mid, color_hi)):
+            raise ValueError("command-based gradients require LaTeX color names/expressions")
+
+        spec = LatexCommandSpec(
+            base_name=command_name,
+            selected_name=command_name,
+            command_factory=lambda selected_name: tex_diverging_gradient_command(
+                selected_name,
+                lo=lo,
+                mid=mid,
+                hi=hi,
+                color_lo=color_lo,
+                color_mid=color_mid,
+                color_hi=color_hi,
+                precision=precision,
+            ),
+        )
+
+        def _inner_command(v: TableCellValue, s: str) -> tuple[TableCellValue, str]:
+            if not isinstance(v, Real):
+                return v, s
+            return v, rf"\{spec.selected_name}{{{float(v):.{precision}f}}}"
+
+        return _with_latex_command_specs(_inner_command, (spec,))
 
     def _resolve(c: Color) -> tuple[int, int, int]:
         hex_str = convert_color_to_hexa_or_none(c)

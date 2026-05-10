@@ -15,7 +15,11 @@ from gerrytools.latex._table_preamble import (
 )
 from gerrytools.latex._text import latex_escape
 from gerrytools.latex.document import TexDocument
-from gerrytools.latex.formatters import round_decimals
+from gerrytools.latex.formatters import (
+    latex_command_specs_for,
+    round_decimals,
+    static_latex_commands_for,
+)
 from gerrytools.logging import get_logger
 from gerrytools.typing import (
     CellWrapper,
@@ -364,6 +368,72 @@ class TexTable:
             None
         """
         self.document.preview()
+
+    def _register_formatter_latex_commands(self, fmt_fn: Callable) -> None:
+        """Add any LaTeX preamble commands required by a formatter.
+
+        Args:
+            fmt_fn (Callable): Formatter callable that may carry LaTeX command metadata.
+
+        Returns:
+            None
+        """
+        for command in static_latex_commands_for(fmt_fn):
+            if command not in self._document.command_list:
+                self._document.add_command(command)
+
+        for spec in latex_command_specs_for(fmt_fn):
+            self._register_formatter_latex_command_spec(spec)
+
+    def _register_formatter_latex_command_spec(self, spec) -> None:
+        """Add a formatter command spec, renaming it when necessary.
+
+        Args:
+            spec: Mutable formatter command spec.
+
+        Returns:
+            None
+        """
+        for candidate in self._command_name_candidates(
+            spec.base_name,
+            suffix_sequence=spec.suffix_sequence,
+        ):
+            spec.selected_name = candidate
+            command = spec.command()
+
+            if command in self._document.command_list:
+                return
+
+            if not self._document_defines_command(candidate):
+                self._document.add_command(command)
+                return
+
+        raise RuntimeError(f"Could not allocate a LaTeX command name for {spec.base_name!r}.")
+
+    def _document_defines_command(self, command_name: str) -> bool:
+        """Return whether the document already defines a command name."""
+        pattern = re.compile(rf"\\(?:re)?newcommand\{{\\{re.escape(command_name)}\}}")
+        return any(pattern.search(command) for command in self._document.command_list)
+
+    @staticmethod
+    def _command_name_candidates(base_name: str, *, suffix_sequence: bool = False):
+        """Yield valid command names.
+
+        Default sequence: base, baseb, basec, ..., baseaa, ...
+        Suffix sequence: basea, baseb, basec, ..., baseaa, ...
+        """
+        if not suffix_sequence:
+            yield base_name
+        index = 1 if suffix_sequence else 2
+        while True:
+            n = index
+            suffix = ""
+            while n > 0:
+                n -= 1
+                suffix = chr(ord("a") + (n % 26)) + suffix
+                n //= 26
+            yield base_name + suffix
+            index += 1
 
     # ====================
     #   FEATURE ADDITION
@@ -889,6 +959,7 @@ class TexTable:
         Returns:
             None
         """
+        self._register_formatter_latex_commands(fmt_fn)
         if len(inspect.signature(fmt_fn).parameters) == 1:
             one_arg = cast(Callable[[TableIndexValue], str], fmt_fn)
 
@@ -919,6 +990,7 @@ class TexTable:
         Raises:
             ValueError: If the provided formatter is not callable.
         """
+        self._register_formatter_latex_commands(fmt_fn)
         if len(inspect.signature(fmt_fn).parameters) == 1:
             one_arg = cast(Callable[[Real], str], fmt_fn)
 
@@ -952,6 +1024,7 @@ class TexTable:
         Raises:
             ValueError: If the provided formatter is not callable.
         """
+        self._register_formatter_latex_commands(fmt_fn)
         if len(inspect.signature(fmt_fn).parameters) == 1:
             one_arg = cast(Callable[[str], str], fmt_fn)
 
@@ -992,6 +1065,7 @@ class TexTable:
         if col not in self.df.columns:
             raise ValueError(f"Column '{col}' does not exist in DataFrame.")
 
+        self._register_formatter_latex_commands(fmt_fn)
         if len(inspect.signature(fmt_fn).parameters) == 1:
             one_arg = cast(Callable[[TableCellValue], str], fmt_fn)
 
@@ -1053,6 +1127,7 @@ class TexTable:
                 f"Row index {row_idx} is out of bounds for DataFrame with {len(self.df)} rows."
             )
 
+        self._register_formatter_latex_commands(fmt_fn)
         if len(inspect.signature(fmt_fn).parameters) == 1:
             one_arg = cast(Callable[[TableCellValue], str], fmt_fn)
 

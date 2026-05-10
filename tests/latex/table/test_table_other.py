@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import pandas as pd
 import pytest
 
+from gerrytools.latex.formatters import diverging_gradient_formatter, highlight_ge
 from gerrytools.latex.table import TexTable
 
 
@@ -616,6 +617,56 @@ class TestTexTableFormatters:
         table.set_number_formatter(fmt)
         body = table._generate_body()
         assert "VAL=" in body
+
+    def test_set_number_formatter_registers_required_latex_commands(self):
+        df = pd.DataFrame({"a": [0.75]})
+        table = TexTable(df)
+
+        table.set_number_formatter(diverging_gradient_formatter(precision=3))
+
+        doc = str(table.document)
+
+        assert r"\newcommand{\divgrad}[1]{%" in doc
+        assert r"\divgrad{0.750}" in doc
+        assert r"\cellcolor[HTML]" not in doc
+
+    def test_conflicting_formatter_commands_are_renamed(self):
+        df = pd.DataFrame({"a": [0.25], "b": [0.75]})
+        table = TexTable(df)
+
+        table.set_column_formatter(
+            "a",
+            diverging_gradient_formatter(color_lo="steelblue", color_hi="firebrick", precision=2),
+        )
+        table.set_column_formatter(
+            "b",
+            diverging_gradient_formatter(
+                color_lo="darkpastelgreen",
+                color_hi="richlavender",
+                precision=2,
+            ),
+        )
+
+        doc = str(table.document)
+
+        assert r"\newcommand{\divgrad}[1]{%" in doc
+        assert r"\newcommand{\divgradb}[1]{%" in doc
+        assert r"\divgrad{0.25}" in doc
+        assert r"\divgradb{0.75}" in doc
+
+    def test_conflicting_highlight_commands_use_suffix_sequence(self):
+        df = pd.DataFrame({"a": [0.8], "b": [0.9]})
+        table = TexTable(df)
+
+        table.set_column_formatter("a", highlight_ge(0.7, color="teal"))
+        table.set_column_formatter("b", highlight_ge(0.7, color="salmon"))
+
+        doc = str(table.document)
+
+        assert r"\newcommand{\gea}[1]{\cellcolor{teal}#1}" in doc
+        assert r"\newcommand{\geb}[1]{\cellcolor{salmon}#1}" in doc
+        assert r"\gea{0.8}" in doc
+        assert r"\geb{0.9}" in doc
 
     def test_set_string_formatter_one_arg_and_used(self):
         df = pd.DataFrame({"a": ["hello"]})

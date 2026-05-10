@@ -67,6 +67,7 @@ class TestTikzTableGeometry:
                     color_lo="steelblue",
                     color_mid="white",
                     color_hi="firebrick",
+                    command_name=None,
                 ),
                 round_decimals(3),
             )

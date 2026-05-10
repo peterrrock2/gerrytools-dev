@@ -4,6 +4,7 @@ import pytest
 
 from gerrytools.latex.commands import (
     _tex_ident,
+    tex_cell_highlight_command,
     tex_diverging_gradient_command,
     tex_gradient_command,
     tex_twocolor_gradient_command,
@@ -66,6 +67,11 @@ class TestCommandGeneration:
         assert r"\edef\heatlo{-1.0}\edef\heathi{1.0}%" in out
         assert r"\edef\heatcolorspec{denim!\heatpct!amber}%" in out
         assert r"\num[round-precision=3]{#1}%" in out
+
+    def test_cell_highlight_command_wraps_cellcolor(self):
+        out = tex_cell_highlight_command("gea", color="denim")
+
+        assert out == r"\newcommand{\gea}[1]{\cellcolor{denim}#1}"
 
     def test_diverging_gradient_command_defines_colorlets_and_command(self):
         out = tex_diverging_gradient_command(

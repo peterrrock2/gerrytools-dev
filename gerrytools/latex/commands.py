@@ -1,5 +1,8 @@
 import re
 
+from gerrytools.latex._colors import cellcolor_prefix
+from gerrytools.typing import Color
+
 # LaTeX control sequence names are letters only;
 _CMD_RE = re.compile(r"^[A-Za-z]+$")
 
@@ -126,6 +129,23 @@ def tex_twocolor_gradient_command(
         "\n"
         r"}"
     )
+
+
+def tex_cell_highlight_command(cmd_str: str, color: Color = "yellow") -> str:
+    """Generates a LaTeX command that applies a cell background color.
+
+    Emits ``\\<cmd_str>{x}``, which renders ``x`` with a ``\\cellcolor`` prefix.
+
+    Args:
+        cmd_str (str): The name of the LaTeX command to create.
+        color (Color, optional): Cell background color. Defaults to ``"yellow"``.
+
+    Returns:
+        str: A string containing the LaTeX command definition.
+    """
+    validate_command_name(cmd_str)
+    prefix = cellcolor_prefix(color)
+    return rf"\newcommand{{\{cmd_str}}}[1]{{{prefix}#1}}"
 
 
 def _tex_ident(s: str) -> str:
