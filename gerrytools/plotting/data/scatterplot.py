@@ -74,14 +74,15 @@ class ScatterPlot(GerryPlotBase):
         xy_pairs: list[tuple[float, float]] | None = None,
         *,
         label: str | None = None,
-        markerfacecolor: Color = "#b0b0b0",
+        marker_options: PointMarkerOptions | None = None,
+        markerfacecolor: Color | None = None,
         markerfacealpha: float | None = None,
-        marker: str = "o",
-        markersize: float = 6.0,
+        marker: str | None = None,
+        markersize: float | None = None,
         markeredgecolor: Color | None = None,
         markeredgealpha: float | None = None,
-        markeredgewidth: float = 0.0,
-        zorder: int = 1,
+        markeredgewidth: float | None = None,
+        zorder: int | None = None,
     ) -> None:
         """Add a set of points to the scatterplot.
 
@@ -115,20 +116,44 @@ class ScatterPlot(GerryPlotBase):
         if x is None or y is None:
             raise ValueError("Both x and y must be provided.")
 
+        # The scatter-set default style: medium gray, no edge.
+        base = (
+            marker_options
+            if marker_options is not None
+            else PointMarkerOptions(
+                markerfacecolor="#b0b0b0",
+                markersize=6.0,
+                markeredgecolor="none",
+                markeredgewidth=0.0,
+                zorder=1,
+            )
+        )
+        resolved_marker_options = PointMarkerOptions(
+            marker=marker if marker is not None else base.marker,
+            markersize=markersize if markersize is not None else base.markersize,
+            markerfacecolor=(
+                markerfacecolor if markerfacecolor is not None else base.markerfacecolor
+            ),
+            markerfacealpha=(
+                markerfacealpha if markerfacealpha is not None else base.markerfacealpha
+            ),
+            markeredgecolor=(
+                markeredgecolor if markeredgecolor is not None else base.markeredgecolor
+            ),
+            markeredgealpha=(
+                markeredgealpha if markeredgealpha is not None else base.markeredgealpha
+            ),
+            markeredgewidth=(
+                markeredgewidth if markeredgewidth is not None else base.markeredgewidth
+            ),
+            zorder=zorder if zorder is not None else base.zorder,
+        )
+
         pointset_data = ScatterData(
             x=np.array(x),
             y=np.array(y),
             label=label,
-            marker_options=PointMarkerOptions(
-                marker=marker,
-                markersize=markersize,
-                markerfacecolor=markerfacecolor,
-                markerfacealpha=markerfacealpha,
-                markeredgecolor=markeredgecolor if markeredgecolor is not None else "none",
-                markeredgealpha=markeredgealpha,
-                markeredgewidth=markeredgewidth,
-                zorder=zorder,
-            ),
+            marker_options=resolved_marker_options,
         )
         self._scatter_data_list.append(pointset_data)
 
@@ -138,14 +163,15 @@ class ScatterPlot(GerryPlotBase):
         y: float,
         *,
         label: str,
-        markerfacecolor: Color = "denim",
+        marker_options: PointMarkerOptions | None = None,
+        markerfacecolor: Color | None = None,
         markerfacealpha: float | None = None,
-        marker: str = "o",
-        markersize: float = 6.0,
+        marker: str | None = None,
+        markersize: float | None = None,
         markeredgecolor: Color | None = None,
         markeredgealpha: float | None = None,
-        markeredgewidth: float = 0.0,
-        zorder: int = 1,
+        markeredgewidth: float | None = None,
+        zorder: int | None = None,
     ) -> None:
         """Add a single point to the scatterplot.
 
@@ -165,10 +191,24 @@ class ScatterPlot(GerryPlotBase):
             markeredgewidth (float, optional): The width of the marker edge. Defaults to 0.0.
             zorder (int, optional): The z-order of the marker. Defaults to 1.
         """
+        # Default for a single labelled point: solid denim fill (distinct from
+        # the medium-gray default used by add_scatter for crowds of points).
+        base = (
+            marker_options
+            if marker_options is not None
+            else PointMarkerOptions(
+                markerfacecolor="denim",
+                markersize=6.0,
+                markeredgecolor="none",
+                markeredgewidth=0.0,
+                zorder=1,
+            )
+        )
         self.add_scatter(
             x=[x],
             y=[y],
             label=label,
+            marker_options=base,
             markerfacecolor=markerfacecolor,
             markerfacealpha=markerfacealpha,
             marker=marker,

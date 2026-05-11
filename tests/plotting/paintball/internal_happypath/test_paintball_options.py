@@ -220,7 +220,7 @@ class TestPaintBallMarkerOptions:
     def test_set_color(self):
         pb = _simple_paintball()
         pb.set_marker_options(color="red")
-        assert pb.markercolor == "red"
+        assert pb.markerfacecolor == "red"
 
     def test_set_marker_string(self):
         pb = _simple_paintball()
@@ -230,7 +230,7 @@ class TestPaintBallMarkerOptions:
     def test_set_alpha(self):
         pb = _simple_paintball()
         pb.set_marker_options(alpha=0.5)
-        assert pb.markeralpha == 0.5
+        assert pb.markerfacealpha == 0.5
 
     def test_set_edgecolor(self):
         pb = _simple_paintball()
@@ -300,10 +300,10 @@ class TestPaintBallMarkerOptions:
     def test_partial_update_preserves_other_fields(self):
         pb = _simple_paintball()
         original_marker = pb.marker
-        original_alpha = pb.markeralpha
+        original_alpha = pb.markerfacealpha
         pb.set_marker_options(size=99.0)
         assert pb.marker == original_marker
-        assert pb.markeralpha == original_alpha
+        assert pb.markerfacealpha == original_alpha
 
 
 # ======================

@@ -13,6 +13,7 @@ from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
 from gerrytools.plotting._rng import resolve_numpy_rng
 from gerrytools.plotting.data.gerryplot import GerryPlotBase
+from gerrytools.plotting.data.options import SeaLevelLineOptions
 from gerrytools.plotting.mpl.marker_options import PointMarkerOptions
 from gerrytools.typing import CategoryKey, Color, LegendHandle
 
@@ -327,18 +328,20 @@ class SeaLevel(GerryPlotBase):
         scores_labels: list[str] | None = None,
         df_row_index: CategoryKey | None = None,
         name: str | None = None,
-        linecolor: Color = "black",
+        line_options: SeaLevelLineOptions | None = None,
+        marker_options: PointMarkerOptions | None = None,
+        linecolor: Color | None = None,
         linealpha: float | None = None,
-        linewidth: float = 1.5,
-        linestyle: str = "-",
-        marker: str = "o",
+        linewidth: float | None = None,
+        linestyle: str | None = None,
+        marker: str | None = None,
         markerfacecolor: Color | None = None,
         markerfacealpha: float | None = None,
-        markersize: float = 7.0,
+        markersize: float | None = None,
         markeredgecolor: Color | None = None,
         markeredgealpha: float | None = None,
-        markeredgewidth: float = 0.8,
-        zorder: int = 2,
+        markeredgewidth: float | None = None,
+        zorder: int | None = None,
     ) -> None:
         """Add a set of points to the figure.
 
@@ -379,14 +382,53 @@ class SeaLevel(GerryPlotBase):
         """
         scores_dict = self._convert_score_data_to_dictionary(scores, scores_labels, df_row_index)
 
-        if markerfacecolor is None:
-            markerfacecolor = linecolor
-        if markerfacealpha is None:
-            markerfacealpha = linealpha
-        if markeredgecolor is None:
-            markeredgecolor = markerfacecolor if markerfacecolor is not None else linecolor
-        if markeredgealpha is None:
-            markeredgealpha = markerfacealpha if markerfacealpha is not None else linealpha
+        # Resolve line styling: kwargs override line_options, which falls back to defaults.
+        line_base = line_options if line_options is not None else SeaLevelLineOptions()
+        resolved_linecolor = linecolor if linecolor is not None else line_base.linecolor
+        resolved_linealpha = linealpha if linealpha is not None else line_base.linealpha
+        resolved_linewidth = linewidth if linewidth is not None else line_base.linewidth
+        resolved_linestyle = linestyle if linestyle is not None else line_base.linestyle
+        resolved_zorder = zorder if zorder is not None else line_base.zorder
+
+        # Resolve marker styling: kwargs override marker_options, which falls back to a
+        # set of defaults that mimic the previous "marker inherits from line" semantics
+        # (face=linecolor, edge=face, etc.) when neither is explicitly provided.
+        marker_base = (
+            marker_options
+            if marker_options is not None
+            else PointMarkerOptions(
+                markerfacecolor=resolved_linecolor,
+                markerfacealpha=resolved_linealpha,
+                marker="o",
+                markersize=7.0,
+                markeredgecolor=resolved_linecolor,
+                markeredgealpha=resolved_linealpha,
+                markeredgewidth=0.8,
+            )
+        )
+        resolved_markerfacecolor = (
+            markerfacecolor if markerfacecolor is not None else marker_base.markerfacecolor
+        )
+        resolved_markerfacealpha = (
+            markerfacealpha if markerfacealpha is not None else marker_base.markerfacealpha
+        )
+        resolved_marker = marker if marker is not None else marker_base.marker
+        resolved_markersize = markersize if markersize is not None else marker_base.markersize
+        resolved_markeredgecolor = (
+            markeredgecolor
+            if markeredgecolor is not None
+            else (
+                marker_base.markeredgecolor
+                if marker_base.markeredgecolor != "black"  # PointMarkerOptions default
+                else resolved_markerfacecolor
+            )
+        )
+        resolved_markeredgealpha = (
+            markeredgealpha if markeredgealpha is not None else marker_base.markeredgealpha
+        )
+        resolved_markeredgewidth = (
+            markeredgewidth if markeredgewidth is not None else marker_base.markeredgewidth
+        )
 
         if self._labels is None:
             self._labels = list(scores_dict.keys())
@@ -404,20 +446,20 @@ class SeaLevel(GerryPlotBase):
             SeaLevelSetData(
                 name=set_name,
                 scores_dict=scores_dict,
-                linecolor=linecolor,
-                linealpha=linealpha,
-                linewidth=linewidth,
-                linestyle=linestyle,
+                linecolor=resolved_linecolor,
+                linealpha=resolved_linealpha,
+                linewidth=resolved_linewidth,
+                linestyle=resolved_linestyle,
                 markersettings=PointMarkerOptions(
-                    markerfacecolor=markerfacecolor,
-                    markerfacealpha=markerfacealpha,
-                    marker=marker,
-                    markersize=markersize,
-                    markeredgecolor=markeredgecolor,
-                    markeredgealpha=markeredgealpha,
-                    markeredgewidth=markeredgewidth,
+                    markerfacecolor=resolved_markerfacecolor,
+                    markerfacealpha=resolved_markerfacealpha,
+                    marker=resolved_marker,
+                    markersize=resolved_markersize,
+                    markeredgecolor=resolved_markeredgecolor,
+                    markeredgealpha=resolved_markeredgealpha,
+                    markeredgewidth=resolved_markeredgewidth,
                 ),
-                zorder=zorder,
+                zorder=resolved_zorder,
             )
         )
 

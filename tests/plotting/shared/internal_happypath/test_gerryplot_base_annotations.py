@@ -71,9 +71,9 @@ class TestAnnotationArrows:
 
     def test_add_label_arrow_with_custom_outlinecolor(self):
         sp = _make_plot()
-        sp.add_label_arrow((0.5, 0.5), "right", arrowoutlinecolor="blue")
+        sp.add_label_arrow((0.5, 0.5), "right", arrowedgecolor="blue")
         style = sp._annotations.annotation_arrows[0].labelarrowstyle
-        assert style.arrowoutlinecolor != "black"  # overridden
+        assert style.arrowedgecolor != "black"  # overridden
 
     def test_add_text_arrow_name_stored(self):
         sp = _make_plot()

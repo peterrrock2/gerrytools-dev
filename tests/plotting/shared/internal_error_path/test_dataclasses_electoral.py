@@ -17,7 +17,7 @@ class TestSeatsVotesData:
             total_vote_counts=np.array([1000, 1000, 1000]),
             name="SEN20",
             linecolor="blue",
-            markercolor="gold",
+            markerfacecolor="gold",
             markerlabel="Result",
         )
         defaults.update(overrides)
@@ -44,9 +44,9 @@ class TestSeatsVotesData:
         with pytest.raises(ValueError, match="finite"):
             self._make_basic(linewidth=float("inf"))
 
-    def test_markeralpha_out_of_range_raises_valueerror(self):
-        with pytest.raises(ValueError, match="markeralpha"):
-            self._make_basic(markeralpha=2.0)
+    def test_markerfacealpha_out_of_range_raises_valueerror(self):
+        with pytest.raises(ValueError, match="markerfacealpha"):
+            self._make_basic(markerfacealpha=2.0)
 
     def test_markersize_negative_raises_valueerror(self):
         with pytest.raises(ValueError, match="nonnegative"):
@@ -78,14 +78,14 @@ class TestSeatsVotesData:
 
     def test_resolved_markeredgecolor_defaults_to_markercolor(self):
         svd = self._make_basic(markeredgecolor=None)
-        assert svd.resolved_markeredgecolor() == svd.markercolor
+        assert svd.resolved_markeredgecolor() == svd.markerfacecolor
 
     def test_resolved_markeredgecolor_uses_override(self):
         svd = self._make_basic(markeredgecolor="red")
         assert svd.resolved_markeredgecolor() == "red"
 
     def test_resolved_markeredgealpha_defaults_to_markeralpha(self):
-        svd = self._make_basic(markeralpha=0.7, markeredgealpha=None)
+        svd = self._make_basic(markerfacealpha=0.7, markeredgealpha=None)
         assert svd.resolved_markeredgealpha() == 0.7
 
     def test_seats_votes_curve_values_positive_total_votes(self):
@@ -106,7 +106,7 @@ class TestSeatsVotesData:
             total_vote_counts=np.array([1000, 1000, 1000]),
             name="bad",
             linecolor="blue",
-            markercolor="gold",
+            markerfacecolor="gold",
             markerlabel="Result",
         )
         with pytest.raises(ValueError, match="same shape"):

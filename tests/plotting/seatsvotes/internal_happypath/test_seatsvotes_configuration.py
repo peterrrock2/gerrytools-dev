@@ -94,38 +94,6 @@ class TestSeatsVotesVisibility:
         assert sv._display_line_legend is True
 
 
-# =======================
-# == FONT/SIZE SETTERS ==
-# =======================
-
-
-class TestSeatsVotesSetters:
-    def test_set_tick_fontsize(self):
-        sv = SeatsVotes()
-        sv.set_tick_fontsize(20.0)
-        assert sv._x_tick_style is not None
-        assert sv._y_tick_style is not None
-        assert sv._x_tick_style.size == 20.0
-        assert sv._y_tick_style.size == 20.0
-
-    def test_set_fontsize_sets_ticks_and_legend(self):
-        sv = SeatsVotes()
-        sv.set_fontsize(18.0)
-        assert sv._x_tick_style is not None
-        assert sv._x_tick_style.size == 18.0
-        assert sv._legend_options.fontsize == 18.0
-
-    def test_set_markersize(self):
-        sv = SeatsVotes()
-        sv.set_markersize(12.0)
-        assert sv.markersize == 12.0
-
-    def test_set_linewidth(self):
-        sv = SeatsVotes()
-        sv.set_linewidth(3.0)
-        assert sv.linewidth == 3.0
-
-
 # ================================
 # == LEGEND HANDLES COMPOSITION ==
 # ================================

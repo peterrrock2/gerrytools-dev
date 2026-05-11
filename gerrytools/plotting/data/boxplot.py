@@ -12,6 +12,7 @@ from matplotlib.patches import Patch
 from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
 from gerrytools.plotting.data._categorical_distribution_base import CategoricalDistributionPlotBase
+from gerrytools.plotting.data.options import BoxPlotOptions
 from gerrytools.plotting.mpl.marker_options import PointMarkerOptions
 from gerrytools.typing import Color, LegendHandle
 
@@ -186,16 +187,17 @@ class BoxPlot(CategoricalDistributionPlotBase):
         *,
         scores_labels: list[str] | None = None,
         name: str | None = None,
-        facecolor: Color = "denim",
+        options: BoxPlotOptions | None = None,
+        facecolor: Color | None = None,
         facealpha: float | None = None,
-        edgecolor: Color = "black",
+        edgecolor: Color | None = None,
         edgealpha: float | None = None,
-        edgewidth: float = 0.8,
-        percentiles: tuple[float, float] = (1, 99),
-        showfliers: bool = False,
+        edgewidth: float | None = None,
+        percentiles: tuple[float, float] | None = None,
+        showfliers: bool | None = None,
         flier_options: PointMarkerOptions | None = None,
         add_extra_labels: bool = False,
-        zorder: int = 1,
+        zorder: int | None = None,
     ) -> None:
         """Add one boxplot dataset (one box per category) to the figure.
 
@@ -222,8 +224,16 @@ class BoxPlot(CategoricalDistributionPlotBase):
         Returns:
             None
         """
-        if flier_options is None:
-            flier_options = PointMarkerOptions()
+        base = options if options is not None else BoxPlotOptions()
+        resolved_facecolor = facecolor if facecolor is not None else base.facecolor
+        resolved_facealpha = facealpha if facealpha is not None else base.facealpha
+        resolved_edgecolor = edgecolor if edgecolor is not None else base.edgecolor
+        resolved_edgealpha = edgealpha if edgealpha is not None else base.edgealpha
+        resolved_edgewidth = edgewidth if edgewidth is not None else base.edgewidth
+        resolved_percentiles = percentiles if percentiles is not None else base.percentiles
+        resolved_showfliers = showfliers if showfliers is not None else base.showfliers
+        resolved_flier_options = flier_options if flier_options is not None else base.flier_options
+        resolved_zorder = zorder if zorder is not None else base.zorder
 
         scores_dict = self._convert_boxplot_data_to_dictionary(scores, scores_labels)
         self._sync_labels(
@@ -237,15 +247,15 @@ class BoxPlot(CategoricalDistributionPlotBase):
             BoxPlotSetData(
                 scores_dict=scores_dict,
                 name=set_name,
-                facecolor=facecolor,
-                facealpha=facealpha,
-                edgecolor=edgecolor,
-                edgealpha=edgealpha,
-                edgewidth=edgewidth,
-                percentiles=percentiles,
-                showfliers=showfliers,
-                flier_options=flier_options,
-                zorder=zorder,
+                facecolor=resolved_facecolor,
+                facealpha=resolved_facealpha,
+                edgecolor=resolved_edgecolor,
+                edgealpha=resolved_edgealpha,
+                edgewidth=resolved_edgewidth,
+                percentiles=resolved_percentiles,
+                showfliers=resolved_showfliers,
+                flier_options=resolved_flier_options,
+                zorder=resolved_zorder,
             )
         )
 

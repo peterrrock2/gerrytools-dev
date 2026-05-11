@@ -321,7 +321,7 @@ def test_annotation_arrow_direct_color_overrides_style_colors():
         text="Override",
         arrowstyle=TextArrowStyle(
             arrowfacecolor="alizarin",
-            arrowoutlinecolor="black",
+            arrowedgecolor="black",
         ),
         arrowfacecolor="denim",
     )
@@ -354,11 +354,11 @@ def test_clear_annotation_arrows_removes_all_arrows():
 
 
 class TestLabelArrowStyleEdgeCases:
-    def test_infinite_arrowoutlinewidth_raises_valueerror(self):
+    def test_infinite_arrowedgewidth_raises_valueerror(self):
         from gerrytools.plotting.data._gerryplot_dataclasses import LabelArrowStyle
 
-        with pytest.raises(ValueError, match="arrowoutlinewidth must be finite"):
-            LabelArrowStyle(arrowoutlinewidth=float("inf"))
+        with pytest.raises(ValueError, match="arrowedgewidth must be finite"):
+            LabelArrowStyle(arrowedgewidth=float("inf"))
 
 
 class TestArrowDataEdgeCases:
@@ -401,14 +401,14 @@ class TestTextArrowRendererBranches:
         bbox_patch = arrow_text.get_bbox_patch()
         assert bbox_patch is not None
 
-    def test_arrowoutlinecolor_none_string_triggers_line_175(self):
-        """Passing arrowoutlinecolor='none' activates the lowercase-none edgecolor branch."""
+    def test_arrowedgecolor_none_string_triggers_line_175(self):
+        """Passing arrowedgecolor='none' activates the lowercase-none edgecolor branch."""
         plot = _simple_scatter()
         plot.add_text_arrow(
             arrowtip=(0.5, 0.5),
             direction="right",
             text="NoOutlineText",
-            arrowstyle=TextArrowStyle(arrowoutlinecolor="none"),
+            arrowstyle=TextArrowStyle(arrowedgecolor="none"),
         )
         ax = plot.ax
         arrow_text = next((t for t in ax.texts if t.get_text() == "NoOutlineText"), None)
@@ -463,7 +463,7 @@ class TestLabelArrowRendererBranches:
             arrowtip=(0.8, 0.5),
             direction="right",
             text="NoneOutlineLabel",
-            arrowstyle=_LAS(arrowoutlinecolor="none"),
+            arrowstyle=_LAS(arrowedgecolor="none"),
         )
         ax = plot.ax
         label_text = next((t for t in ax.texts if t.get_text() == "NoneOutlineLabel"), None)

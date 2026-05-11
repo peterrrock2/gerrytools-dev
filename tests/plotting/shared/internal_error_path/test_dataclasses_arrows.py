@@ -73,16 +73,16 @@ class TestArrowTextStyle:
 class TestTextArrowStyle:
     def test_default_construction(self):
         style = TextArrowStyle()
-        assert style.arrowoutlinewidth == 1.0
+        assert style.arrowedgewidth == 1.0
         assert style.boxpad == 0.3
 
-    def test_negative_arrowoutlinewidth_raises_valueerror(self):
+    def test_negative_arrowedgewidth_raises_valueerror(self):
         with pytest.raises(ValueError, match="nonnegative"):
-            TextArrowStyle(arrowoutlinewidth=-1.0)
+            TextArrowStyle(arrowedgewidth=-1.0)
 
-    def test_infinite_arrowoutlinewidth_raises_valueerror(self):
+    def test_infinite_arrowedgewidth_raises_valueerror(self):
         with pytest.raises(ValueError, match="finite"):
-            TextArrowStyle(arrowoutlinewidth=float("inf"))
+            TextArrowStyle(arrowedgewidth=float("inf"))
 
     def test_negative_boxpad_raises_valueerror(self):
         with pytest.raises(ValueError, match="nonnegative"):
@@ -93,8 +93,8 @@ class TestTextArrowStyle:
             TextArrowStyle(boxpad=float("inf"))
 
     def test_outlinecolor_none_string_resets_outlinewidth_to_zero(self):
-        style = TextArrowStyle(arrowoutlinecolor="none", arrowoutlinewidth=2.0)
-        assert style.arrowoutlinewidth == 0.0
+        style = TextArrowStyle(arrowedgecolor="none", arrowedgewidth=2.0)
+        assert style.arrowedgewidth == 0.0
 
     def test_zero_boxpad_is_valid(self):
         style = TextArrowStyle(boxpad=0.0)
@@ -132,13 +132,13 @@ class TestLabelArrowStyle:
         with pytest.raises(ValueError, match="finite"):
             LabelArrowStyle(shrink_a=float("inf"))
 
-    def test_negative_arrowoutlinewidth_raises_valueerror(self):
+    def test_negative_arrowedgewidth_raises_valueerror(self):
         with pytest.raises(ValueError, match="nonnegative"):
-            LabelArrowStyle(arrowoutlinewidth=-0.5)
+            LabelArrowStyle(arrowedgewidth=-0.5)
 
     def test_outlinecolor_none_resets_outlinewidth_to_zero(self):
-        style = LabelArrowStyle(arrowoutlinecolor="none", arrowoutlinewidth=3.0)
-        assert style.arrowoutlinewidth == 0.0
+        style = LabelArrowStyle(arrowedgecolor="none", arrowedgewidth=3.0)
+        assert style.arrowedgewidth == 0.0
 
     def test_zero_shrink_values_are_valid(self):
         style = LabelArrowStyle(shrink_a=0.0, shrink_b=0.0)

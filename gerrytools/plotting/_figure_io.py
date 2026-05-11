@@ -16,6 +16,7 @@ def show_figure(
     *,
     non_gui_filename: str,
     non_gui_prefix: str,
+    **kwargs: object,
 ) -> None:
     """Display a figure inline in notebooks or via GUI backend in scripts.
 
@@ -26,7 +27,13 @@ def show_figure(
         fig (Figure): Matplotlib figure to display.
         non_gui_filename (str): Filepath used when no GUI backend is available.
         non_gui_prefix (str): Prefix used in the printed non-GUI status message.
+        **kwargs (object): Additional keyword arguments passed to ``Figure.savefig``.
+            Defaults: ``bbox_inches="tight"``, ``dpi=fig.dpi``.
     """
+    savefig_kwargs: MplKwargs = dict(kwargs)  # type: ignore[arg-type]
+    savefig_kwargs.setdefault("bbox_inches", "tight")
+    savefig_kwargs.setdefault("dpi", fig.dpi)
+
     # Notebook: display PNG inline
     try:
         from IPython import get_ipython
@@ -38,7 +45,7 @@ def show_figure(
             from IPython.display import Image, display
 
             buf = BytesIO()
-            fig.savefig(buf, format="png", bbox_inches="tight", dpi=fig.dpi)
+            fig.savefig(buf, format="png", **cast(dict[str, Any], savefig_kwargs))
             buf.seek(0)
             display(Image(data=buf.getvalue()))
             return
@@ -47,7 +54,7 @@ def show_figure(
 
     backend = matplotlib.get_backend()
     if backend not in rcsetup.interactive_bk:
-        fig.savefig(non_gui_filename, bbox_inches="tight", dpi=fig.dpi)
+        fig.savefig(non_gui_filename, **cast(dict[str, Any], savefig_kwargs))
         print(f"[{non_gui_prefix}] Non-GUI backend ({backend}); saved to {non_gui_filename}")
         return
 

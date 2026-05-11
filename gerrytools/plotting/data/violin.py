@@ -13,6 +13,7 @@ from matplotlib.patches import Patch
 from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
 from gerrytools.plotting.data._categorical_distribution_base import CategoricalDistributionPlotBase
+from gerrytools.plotting.data.options import ViolinPlotOptions
 from gerrytools.typing import Color, LegendHandle
 
 logger = get_logger(__name__)
@@ -165,13 +166,14 @@ class ViolinPlot(CategoricalDistributionPlotBase):
         *,
         scores_labels: list[str] | None = None,
         name: str | None = None,
-        facecolor: Color = "denim",
+        options: ViolinPlotOptions | None = None,
+        facecolor: Color | None = None,
         facealpha: float | None = None,
-        edgecolor: Color = "black",
+        edgecolor: Color | None = None,
         edgealpha: float | None = None,
-        edgewidth: float = 0.8,
+        edgewidth: float | None = None,
         add_extra_labels: bool = False,
-        zorder: int = 1,
+        zorder: int | None = None,
     ) -> None:
         """Add one violinplot dataset (one violin per category) to the figure.
 
@@ -193,6 +195,14 @@ class ViolinPlot(CategoricalDistributionPlotBase):
         Returns:
             None
         """
+        base = options if options is not None else ViolinPlotOptions()
+        resolved_facecolor = facecolor if facecolor is not None else base.facecolor
+        resolved_facealpha = facealpha if facealpha is not None else base.facealpha
+        resolved_edgecolor = edgecolor if edgecolor is not None else base.edgecolor
+        resolved_edgealpha = edgealpha if edgealpha is not None else base.edgealpha
+        resolved_edgewidth = edgewidth if edgewidth is not None else base.edgewidth
+        resolved_zorder = zorder if zorder is not None else base.zorder
+
         scores_dict = self._convert_violinplot_data_to_dictionary(scores, scores_labels)
         self._sync_labels(
             list(scores_dict.keys()),
@@ -205,12 +215,12 @@ class ViolinPlot(CategoricalDistributionPlotBase):
             ViolinPlotSetData(
                 scores_dict=scores_dict,
                 name=set_name,
-                facecolor=facecolor,
-                facealpha=facealpha,
-                edgecolor=edgecolor,
-                edgealpha=edgealpha,
-                edgewidth=edgewidth,
-                zorder=zorder,
+                facecolor=resolved_facecolor,
+                facealpha=resolved_facealpha,
+                edgecolor=resolved_edgecolor,
+                edgealpha=resolved_edgealpha,
+                edgewidth=resolved_edgewidth,
+                zorder=resolved_zorder,
             )
         )
 

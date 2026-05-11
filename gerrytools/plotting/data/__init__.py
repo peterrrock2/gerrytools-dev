@@ -7,40 +7,47 @@ from gerrytools.plotting.data._gerryplot_dataclasses import (
     BandData,
     LabelArrowStyle,
     LineData,
-    PointSetData,
     TextArrowStyle,
 )
-from gerrytools.plotting.data.boxplot import BoxPlot, BoxPlotSetData
-from gerrytools.plotting.data.histogram import Histogram, HistogramData, HistPointList
-from gerrytools.plotting.data.paintball import PaintBall, PaintBallLine
-from gerrytools.plotting.data.scatterplot import ScatterData, ScatterPlot
-from gerrytools.plotting.data.sealevel import SeaLevel, SeaLevelSetData
-from gerrytools.plotting.data.seatsvotes import SeatsVotes, SeatsVotesData, SVPlotLine
-from gerrytools.plotting.data.violin import ViolinPlot, ViolinPlotSetData
+from gerrytools.plotting.data.boxplot import BoxPlot
+from gerrytools.plotting.data.histogram import Histogram
+from gerrytools.plotting.data.options import (
+    BandOptions,
+    BoxPlotOptions,
+    HistogramOptions,
+    LineOptions,
+    SeaLevelLineOptions,
+    SeatsVotesLineOptions,
+    SeatsVotesMarkerOptions,
+    ViolinPlotOptions,
+)
+from gerrytools.plotting.data.paintball import PaintBall
+from gerrytools.plotting.data.scatterplot import ScatterPlot
+from gerrytools.plotting.data.sealevel import SeaLevel
+from gerrytools.plotting.data.seatsvotes import SeatsVotes
+from gerrytools.plotting.data.violin import ViolinPlot
 
 __all__ = [
-    "BandData",
-    "LineData",
-    "PointSetData",
     "ArrowData",
     "ArrowPlacement",
     "ArrowTextStyle",
-    "TextArrowStyle",
-    "LabelArrowStyle",
+    "BandData",
+    "BandOptions",
     "BoxPlot",
-    "BoxPlotSetData",
-    "HistPointList",
+    "BoxPlotOptions",
     "Histogram",
-    "HistogramData",
+    "HistogramOptions",
+    "LabelArrowStyle",
+    "LineData",
+    "LineOptions",
     "PaintBall",
-    "PaintBallLine",
-    "ScatterData",
     "ScatterPlot",
     "SeaLevel",
-    "SeaLevelSetData",
-    "SVPlotLine",
+    "SeaLevelLineOptions",
     "SeatsVotes",
-    "SeatsVotesData",
+    "SeatsVotesLineOptions",
+    "SeatsVotesMarkerOptions",
+    "TextArrowStyle",
     "ViolinPlot",
-    "ViolinPlotSetData",
+    "ViolinPlotOptions",
 ]

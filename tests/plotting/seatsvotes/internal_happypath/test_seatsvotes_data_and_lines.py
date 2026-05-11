@@ -63,10 +63,10 @@ class TestAddSeatVotesData:
         sv.add_seat_votes_data([0.5, 0.6])
         assert sv._sv_data_list[0].linecolor == sv.standard_election_color
 
-    def test_markercolor_defaults_to_standard_color(self):
+    def test_markerfacecolor_defaults_to_standard_color(self):
         sv = SeatsVotes()
         sv.add_seat_votes_data([0.5, 0.6])
-        assert sv._sv_data_list[0].markercolor == sv.standard_marker_color
+        assert sv._sv_data_list[0].markerfacecolor == sv.standard_marker_color
 
     def test_custom_linecolor(self):
         sv = SeatsVotes()

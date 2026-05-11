@@ -26,6 +26,7 @@ from gerrytools.plotting.data._gerryplot_dataclasses import (
     LineData,
     TextArrowStyle,
 )
+from gerrytools.plotting.data.options import BandOptions, LineOptions
 from gerrytools.plotting.mpl.axis_title_style import AxisLabelStyle, TitleStyle
 from gerrytools.plotting.mpl.label_text_options import LabelBoxOptions, LabelFontOptions
 from gerrytools.plotting.mpl.tick_style import TickStyle
@@ -111,11 +112,12 @@ class GerryPlotBase(ABC):
         self,
         x_values: float | Iterable[float],
         *,
-        linecolor: Color = "#cccccc",
+        line_options: LineOptions | None = None,
+        linecolor: Color | None = None,
         linealpha: float | None = None,
-        linestyle: str = "-",
-        linewidth: float = 1.0,
-        zorder: int = 3,
+        linestyle: str | None = None,
+        linewidth: float | None = None,
+        zorder: int | None = None,
         name: str | None = None,
     ) -> None:
         """Add a vertical line to the figure.
@@ -123,6 +125,9 @@ class GerryPlotBase(ABC):
         Args:
             x_values (float | Iterable[float]): The x-value(s) where the vertical line(s) should be
                 drawn.
+            line_options (LineOptions | None, optional): Optional pre-built styling. Any styling
+                kwarg passed explicitly overrides the corresponding field on ``line_options``.
+                Defaults to None.
             linecolor (Color, optional): The color of the vertical line. Defaults to "#cccccc".
             linealpha (float | None, optional): The alpha transparency of the vertical line.
                 Defaults to None in which case the alpha from linecolor is used if specified.
@@ -142,15 +147,22 @@ class GerryPlotBase(ABC):
         if isinstance(x_values, Real):
             x_values = [float(x_values)]
 
+        base = line_options if line_options is not None else LineOptions()
+        resolved_linecolor = linecolor if linecolor is not None else base.linecolor
+        resolved_linealpha = linealpha if linealpha is not None else base.linealpha
+        resolved_linestyle = linestyle if linestyle is not None else base.linestyle
+        resolved_linewidth = linewidth if linewidth is not None else base.linewidth
+        resolved_zorder = zorder if zorder is not None else base.zorder
+
         xs = _coerce_real_iter(x_values, field="x_values")
         self._annotations.vertical_lines.append(
             LineData(
                 values=xs,
-                linecolor=linecolor,
-                linealpha=linealpha,
-                linestyle=linestyle,
-                linewidth=float(linewidth),
-                zorder=zorder,
+                linecolor=resolved_linecolor,
+                linealpha=resolved_linealpha,
+                linestyle=resolved_linestyle,
+                linewidth=float(resolved_linewidth),
+                zorder=resolved_zorder,
                 name=name,
             )
         )
@@ -160,13 +172,14 @@ class GerryPlotBase(ABC):
         x_low: float,
         x_high: float,
         *,
-        bandcolor: Color = "#cccccc",
+        band_options: BandOptions | None = None,
+        bandcolor: Color | None = None,
         bandalpha: float | None = None,
         linecolor: Color | None = None,
         linealpha: float | None = None,
-        linestyle: str = "-",
-        linewidth: float = 1.0,
-        zorder: int = 3,
+        linestyle: str | None = None,
+        linewidth: float | None = None,
+        zorder: int | None = None,
         name: str | None = None,
     ) -> None:
         """Add a vertical band to the figure.
@@ -192,17 +205,26 @@ class GerryPlotBase(ABC):
         Returns:
             None
         """
+        base = band_options if band_options is not None else BandOptions()
+        resolved_bandcolor = bandcolor if bandcolor is not None else base.bandcolor
+        resolved_bandalpha = bandalpha if bandalpha is not None else base.bandalpha
+        resolved_linecolor = linecolor if linecolor is not None else base.linecolor
+        resolved_linealpha = linealpha if linealpha is not None else base.linealpha
+        resolved_linestyle = linestyle if linestyle is not None else base.linestyle
+        resolved_linewidth = linewidth if linewidth is not None else base.linewidth
+        resolved_zorder = zorder if zorder is not None else base.zorder
+
         self._annotations.vertical_bands.append(
             BandData(
                 lower_bound=min(x_low, x_high),
                 upper_bound=max(x_low, x_high),
-                bandcolor=bandcolor,
-                bandalpha=bandalpha,
-                linecolor=linecolor,
-                linealpha=linealpha,
-                linestyle=linestyle,
-                linewidth=linewidth,
-                zorder=zorder,
+                bandcolor=resolved_bandcolor,
+                bandalpha=resolved_bandalpha,
+                linecolor=resolved_linecolor,
+                linealpha=resolved_linealpha,
+                linestyle=resolved_linestyle,
+                linewidth=resolved_linewidth,
+                zorder=resolved_zorder,
                 name=name,
             )
         )
@@ -211,11 +233,12 @@ class GerryPlotBase(ABC):
         self,
         y_values: float | Iterable[float],
         *,
-        linecolor: Color = "#cccccc",
+        line_options: LineOptions | None = None,
+        linecolor: Color | None = None,
         linealpha: float | None = None,
-        linestyle: str = "-",
-        linewidth: float = 1.0,
-        zorder: int = 4,
+        linestyle: str | None = None,
+        linewidth: float | None = None,
+        zorder: int | None = None,
         name: str | None = None,
     ) -> None:
         """Add a horizontal line to the figure.
@@ -244,14 +267,21 @@ class GerryPlotBase(ABC):
 
         ys = _coerce_real_iter(y_values, field="y_values")
 
+        base = line_options if line_options is not None else LineOptions(zorder=4)
+        resolved_linecolor = linecolor if linecolor is not None else base.linecolor
+        resolved_linealpha = linealpha if linealpha is not None else base.linealpha
+        resolved_linestyle = linestyle if linestyle is not None else base.linestyle
+        resolved_linewidth = linewidth if linewidth is not None else base.linewidth
+        resolved_zorder = zorder if zorder is not None else base.zorder
+
         self._annotations.horizontal_lines.append(
             LineData(
                 values=ys,
-                linecolor=linecolor,
-                linealpha=linealpha,
-                linestyle=linestyle,
-                linewidth=float(linewidth),
-                zorder=zorder,
+                linecolor=resolved_linecolor,
+                linealpha=resolved_linealpha,
+                linestyle=resolved_linestyle,
+                linewidth=float(resolved_linewidth),
+                zorder=resolved_zorder,
                 name=name,
             )
         )
@@ -262,13 +292,14 @@ class GerryPlotBase(ABC):
         y_low: float,
         y_high: float,
         *,
-        bandcolor: Color = "#cccccc",
+        band_options: BandOptions | None = None,
+        bandcolor: Color | None = None,
         bandalpha: float | None = None,
         linecolor: Color | None = None,
         linealpha: float | None = None,
-        linestyle: str = "-",
-        linewidth: float = 1.0,
-        zorder: int = 4,
+        linestyle: str | None = None,
+        linewidth: float | None = None,
+        zorder: int | None = None,
         name: str | None = None,
     ) -> None:
         """Add a horizontal band to the figure.
@@ -294,17 +325,26 @@ class GerryPlotBase(ABC):
         Returns:
             None
         """
+        base = band_options if band_options is not None else BandOptions(zorder=4)
+        resolved_bandcolor = bandcolor if bandcolor is not None else base.bandcolor
+        resolved_bandalpha = bandalpha if bandalpha is not None else base.bandalpha
+        resolved_linecolor = linecolor if linecolor is not None else base.linecolor
+        resolved_linealpha = linealpha if linealpha is not None else base.linealpha
+        resolved_linestyle = linestyle if linestyle is not None else base.linestyle
+        resolved_linewidth = linewidth if linewidth is not None else base.linewidth
+        resolved_zorder = zorder if zorder is not None else base.zorder
+
         self._annotations.horizontal_bands.append(
             BandData(
                 lower_bound=min(y_low, y_high),
                 upper_bound=max(y_low, y_high),
-                bandcolor=bandcolor,
-                bandalpha=bandalpha,
-                linecolor=linecolor,
-                linealpha=linealpha,
-                linestyle=linestyle,
-                linewidth=linewidth,
-                zorder=zorder,
+                bandcolor=resolved_bandcolor,
+                bandalpha=resolved_bandalpha,
+                linecolor=resolved_linecolor,
+                linealpha=resolved_linealpha,
+                linestyle=resolved_linestyle,
+                linewidth=resolved_linewidth,
+                zorder=resolved_zorder,
                 name=name,
             )
         )
@@ -318,9 +358,9 @@ class GerryPlotBase(ABC):
         textrotation: float | None = None,
         arrowfacecolor: Color | None = None,
         arrowfacealpha: float | None = None,
-        arrowoutlinecolor: Color | None = None,
-        arrowoutlinealpha: float | None = None,
-        arrowoutlinewidth: float | None = None,
+        arrowedgecolor: Color | None = None,
+        arrowedgealpha: float | None = None,
+        arrowedgewidth: float | None = None,
         arrowtextstyle: ArrowTextStyle | None = None,
         arrowplacement: ArrowPlacement | None = None,
         arrowstyle: TextArrowStyle | None = None,
@@ -343,12 +383,12 @@ class GerryPlotBase(ABC):
                 ``arrowstyle.arrowfacecolor``. Defaults to None.
             arrowfacealpha (float | None, optional): Optional override for
                 ``arrowstyle.arrowfacealpha``. Defaults to None.
-            arrowoutlinecolor (Color | None, optional): Optional override for
-                ``arrowstyle.arrowoutlinecolor``. Defaults to None.
-            arrowoutlinealpha (float | None, optional): Optional override for
-                ``arrowstyle.arrowoutlinealpha``. Defaults to None.
-            arrowoutlinewidth (float | None, optional): Optional override for
-                ``arrowstyle.arrowoutlinewidth``. Defaults to None.
+            arrowedgecolor (Color | None, optional): Optional override for
+                ``arrowstyle.arrowedgecolor``. Defaults to None.
+            arrowedgealpha (float | None, optional): Optional override for
+                ``arrowstyle.arrowedgealpha``. Defaults to None.
+            arrowedgewidth (float | None, optional): Optional override for
+                ``arrowstyle.arrowedgewidth``. Defaults to None.
             arrowtextstyle (AnnotationArrowTextStyle | None, optional): Text styling options
                 (font, alignment, outline, and rotation). Defaults to None.
             arrowplacement (AnnotationArrowPlacement | None, optional): Placement options
@@ -383,15 +423,9 @@ class GerryPlotBase(ABC):
         merged_textarrowstyle = TextArrowStyle(
             arrowfacecolor=arrowfacecolor if arrowfacecolor is not None else style.arrowfacecolor,
             arrowfacealpha=arrowfacealpha if arrowfacealpha is not None else style.arrowfacealpha,
-            arrowoutlinecolor=(
-                arrowoutlinecolor if arrowoutlinecolor is not None else style.arrowoutlinecolor
-            ),
-            arrowoutlinealpha=(
-                arrowoutlinealpha if arrowoutlinealpha is not None else style.arrowoutlinealpha
-            ),
-            arrowoutlinewidth=(
-                arrowoutlinewidth if arrowoutlinewidth is not None else style.arrowoutlinewidth
-            ),
+            arrowedgecolor=(arrowedgecolor if arrowedgecolor is not None else style.arrowedgecolor),
+            arrowedgealpha=(arrowedgealpha if arrowedgealpha is not None else style.arrowedgealpha),
+            arrowedgewidth=(arrowedgewidth if arrowedgewidth is not None else style.arrowedgewidth),
             boxpad=style.boxpad,
             boxstyle=style.boxstyle,
         )
@@ -423,9 +457,9 @@ class GerryPlotBase(ABC):
         arrow_length: float | None = None,
         arrowfacecolor: Color | None = None,
         arrowfacealpha: float | None = None,
-        arrowoutlinecolor: Color | None = None,
-        arrowoutlinealpha: float | None = None,
-        arrowoutlinewidth: float | None = None,
+        arrowedgecolor: Color | None = None,
+        arrowedgealpha: float | None = None,
+        arrowedgewidth: float | None = None,
         arrowtextstyle: ArrowTextStyle | None = None,
         arrowplacement: ArrowPlacement | None = None,
         arrowstyle: LabelArrowStyle | None = None,
@@ -458,12 +492,12 @@ class GerryPlotBase(ABC):
                 ``arrowstyle.arrowfacecolor``. Defaults to None.
             arrowfacealpha (float | None, optional): Optional override for
                 ``arrowstyle.arrowfacealpha``. Defaults to None.
-            arrowoutlinecolor (Color | None, optional): Optional override for
-                ``arrowstyle.arrowoutlinecolor``. Defaults to None.
-            arrowoutlinealpha (float | None, optional): Optional override for
-                ``arrowstyle.arrowoutlinealpha``. Defaults to None.
-            arrowoutlinewidth (float | None, optional): Optional override for
-                ``arrowstyle.arrowoutlinewidth``. Defaults to None.
+            arrowedgecolor (Color | None, optional): Optional override for
+                ``arrowstyle.arrowedgecolor``. Defaults to None.
+            arrowedgealpha (float | None, optional): Optional override for
+                ``arrowstyle.arrowedgealpha``. Defaults to None.
+            arrowedgewidth (float | None, optional): Optional override for
+                ``arrowstyle.arrowedgewidth``. Defaults to None.
             arrowtextstyle (AnnotationArrowTextStyle | None, optional): Text style settings used
                 for alignment/rotation and as a fallback when ``labelfont_options`` is None.
                 Defaults to None.
@@ -500,15 +534,9 @@ class GerryPlotBase(ABC):
             shrink_b=style.shrink_b,
             arrowfacecolor=arrowfacecolor if arrowfacecolor is not None else style.arrowfacecolor,
             arrowfacealpha=arrowfacealpha if arrowfacealpha is not None else style.arrowfacealpha,
-            arrowoutlinecolor=(
-                arrowoutlinecolor if arrowoutlinecolor is not None else style.arrowoutlinecolor
-            ),
-            arrowoutlinealpha=(
-                arrowoutlinealpha if arrowoutlinealpha is not None else style.arrowoutlinealpha
-            ),
-            arrowoutlinewidth=(
-                arrowoutlinewidth if arrowoutlinewidth is not None else style.arrowoutlinewidth
-            ),
+            arrowedgecolor=(arrowedgecolor if arrowedgecolor is not None else style.arrowedgecolor),
+            arrowedgealpha=(arrowedgealpha if arrowedgealpha is not None else style.arrowedgealpha),
+            arrowedgewidth=(arrowedgewidth if arrowedgewidth is not None else style.arrowedgewidth),
             linestyle=style.linestyle,
         )
 
@@ -1529,13 +1557,19 @@ class GerryPlotBase(ABC):
         self._build_and_apply_settings()
         return self._ax
 
-    def show(self) -> None:
-        """Display the figure."""
+    def show(self, **kwargs: object) -> None:
+        """Display the figure.
+
+        Args:
+            **kwargs (object): Additional keyword arguments passed to ``Figure.savefig``.
+                Defaults: ``bbox_inches="tight"``, ``dpi=fig.dpi``.
+        """
         self._build_and_apply_settings()
         show_figure(
             self.fig,
             non_gui_filename="gerrytools_plot.png",
             non_gui_prefix="GerryTools Plotting",
+            **kwargs,
         )
 
     def save(self, filepath: str, **kwargs: object) -> None:

@@ -16,6 +16,7 @@ from numpy.typing import NDArray
 from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
 from gerrytools.plotting.data.gerryplot import GerryPlotBase
+from gerrytools.plotting.data.options import HistogramOptions
 from gerrytools.plotting.mpl.marker_options import PointMarkerOptions
 from gerrytools.typing import BinsType, Color, HistType, LegendHandle, NumericArrayLike
 
@@ -368,13 +369,14 @@ class Histogram(GerryPlotBase):
         weights: Iterable[float] | NDArray | None = None,
         column: str | None = None,
         name: str | None = None,
-        facecolor: Color = "denim",
+        options: HistogramOptions | None = None,
+        facecolor: Color | None = None,
         facealpha: float | None = None,
-        edgecolor: Color = "none",
+        edgecolor: Color | None = None,
         edgealpha: float | None = None,
-        edgewidth: float = 0.0,
-        histtype: HistType = "overlay",
-        zorder: int = 2,
+        edgewidth: float | None = None,
+        histtype: HistType | None = None,
+        zorder: int | None = None,
     ) -> None:
         """Add a histogram to the figure.
 
@@ -425,52 +427,61 @@ class Histogram(GerryPlotBase):
         """
         vals, wts = _coerce_values_and_weights(values, weights=weights, column=column)
 
-        hist_list = self._hist_data_dict.get(histtype, None)
+        base = options if options is not None else HistogramOptions()
+        resolved_facecolor = facecolor if facecolor is not None else base.facecolor
+        resolved_facealpha = facealpha if facealpha is not None else base.facealpha
+        resolved_edgecolor = edgecolor if edgecolor is not None else base.edgecolor
+        resolved_edgealpha = edgealpha if edgealpha is not None else base.edgealpha
+        resolved_edgewidth = edgewidth if edgewidth is not None else base.edgewidth
+        resolved_histtype = histtype if histtype is not None else base.histtype
+        resolved_zorder = zorder if zorder is not None else base.zorder
+
+        hist_list = self._hist_data_dict.get(resolved_histtype, None)
         if hist_list is None:
             raise ValueError(
-                f"Invalid histtype {histtype!r}; must be one of"
+                f"Invalid histtype {resolved_histtype!r}; must be one of"
                 "'overlay', 'stack', 'weave', 'outline'."
             )
 
-        if histtype == "outline":
-            if edgewidth <= 0.0:
+        if resolved_histtype == "outline":
+            if resolved_edgewidth <= 0.0:
                 if not self.hide_warnings:
                     warn(
                         "Outline histogram specified with edgewidth <= 0; setting edgewidth "
                         "to 0.8.",
                         UserWarning,
                     )
-                edgewidth = 0.8
-            if facecolor != "none":
+                resolved_edgewidth = 0.8
+            if resolved_facecolor != "none":
                 if not self.hide_warnings:
                     warn(
                         "Outline histogram specified with facecolor != 'none'; setting "
                         "facecolor to 'none'.",
                         UserWarning,
                     )
-                facecolor = "none"
+                resolved_facecolor = "none"
 
-            if edgecolor == "none":
+            if resolved_edgecolor == "none":
                 if not self.hide_warnings:
                     warn(
                         "Outline histogram specified with edgecolor 'none'; setting "
                         "edgecolor to 'black'.",
                         UserWarning,
                     )
-                edgecolor = "black"
+                resolved_edgecolor = "black"
 
-        set_name = name or f"{histtype.capitalize()} histogram {len(hist_list) + 1}"
+        set_name = name or f"{resolved_histtype.capitalize()} histogram {len(hist_list) + 1}"
         hist_list.append(
             HistogramData(
                 name=set_name,
                 values=vals,
                 weights=wts,
-                facecolor=facecolor,
-                facealpha=facealpha,
-                edgecolor=edgecolor,
-                edgealpha=edgealpha,
-                edgewidth=edgewidth,
-                zorder=zorder,
+                facecolor=resolved_facecolor,
+                facealpha=resolved_facealpha,
+                edgecolor=resolved_edgecolor,
+                edgealpha=resolved_edgealpha,
+                edgewidth=resolved_edgewidth,
+                zorder=resolved_zorder,
             )
         )
 
@@ -480,14 +491,15 @@ class Histogram(GerryPlotBase):
         *,
         column: str | None = None,
         name: str | None = None,
-        facecolor: Color = "black",
+        marker_options: PointMarkerOptions | None = None,
+        facecolor: Color | None = None,
         facealpha: float | None = None,
-        marker: str = "o",
-        markersize: float = 7.0,
-        markeredgecolor: Color = "black",
+        marker: str | None = None,
+        markersize: float | None = None,
+        markeredgecolor: Color | None = None,
         markeredgealpha: float | None = None,
-        markeredgewidth: float = 0.8,
-        zorder: int = 3,
+        markeredgewidth: float | None = None,
+        zorder: int | None = None,
         y_offset: float = 0.0,
         centered_on_bin: bool = False,
     ) -> None:
@@ -520,21 +532,42 @@ class Histogram(GerryPlotBase):
             None
         """
         vals = _coerce_to_1d_finite_float_array(values, column=column, field="values")
+
+        # Use a points-above default marker style: black face, larger size, edged.
+        base = (
+            marker_options
+            if marker_options is not None
+            else PointMarkerOptions(
+                markerfacecolor="black",
+                markersize=7.0,
+                markeredgecolor="black",
+                markeredgewidth=0.8,
+                zorder=3,
+            )
+        )
+        resolved_marker_options = PointMarkerOptions(
+            markerfacecolor=facecolor if facecolor is not None else base.markerfacecolor,
+            markerfacealpha=facealpha if facealpha is not None else base.markerfacealpha,
+            marker=marker if marker is not None else base.marker,
+            markersize=markersize if markersize is not None else base.markersize,
+            markeredgecolor=(
+                markeredgecolor if markeredgecolor is not None else base.markeredgecolor
+            ),
+            markeredgealpha=(
+                markeredgealpha if markeredgealpha is not None else base.markeredgealpha
+            ),
+            markeredgewidth=(
+                markeredgewidth if markeredgewidth is not None else base.markeredgewidth
+            ),
+            zorder=zorder if zorder is not None else base.zorder,
+        )
+
         marker_name = name or f"Point Marker {len(self._histpointlist_list) + 1}"
         self._histpointlist_list.append(
             HistPointList(
                 name=marker_name,
                 values=vals,
-                point_data=PointMarkerOptions(
-                    markerfacecolor=facecolor,
-                    markerfacealpha=facealpha,
-                    marker=marker,
-                    markersize=markersize,
-                    markeredgecolor=markeredgecolor,
-                    markeredgealpha=markeredgealpha,
-                    markeredgewidth=markeredgewidth,
-                    zorder=zorder,
-                ),
+                point_data=resolved_marker_options,
                 y_offset=y_offset,
                 centered=centered_on_bin,
             )

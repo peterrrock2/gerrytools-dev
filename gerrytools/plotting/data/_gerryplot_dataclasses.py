@@ -282,10 +282,10 @@ class TextArrowStyle:
         arrowfacecolor (Color, optional): Fill color of the arrow box. Defaults to ``"#5c676f"``.
         arrowfacealpha (float | None, optional): Optional alpha override for ``arrowfacecolor``.
             Defaults to None.
-        arrowoutlinecolor (Color, optional): Edge color of the arrow box. Defaults to ``"black"``.
-        arrowoutlinealpha (float | None, optional): Optional alpha override for
-            ``arrowoutlinecolor``. Defaults to None.
-        arrowoutlinewidth (float, optional): Edge width in points. Defaults to ``1.0``.
+        arrowedgecolor (Color, optional): Edge color of the arrow box. Defaults to ``"black"``.
+        arrowedgealpha (float | None, optional): Optional alpha override for
+            ``arrowedgecolor``. Defaults to None.
+        arrowedgewidth (float, optional): Edge width in points. Defaults to ``1.0``.
         boxpad (float, optional): Text-box pad used by Matplotlib ``boxstyle``.
             Defaults to ``0.3``.
         boxstyle (str | None, optional): Explicit boxstyle override.
@@ -294,19 +294,19 @@ class TextArrowStyle:
 
     arrowfacecolor: Color = "#5c676f"
     arrowfacealpha: float | None = None
-    arrowoutlinecolor: Color = "black"
-    arrowoutlinealpha: float | None = None
-    arrowoutlinewidth: float = 1.0
+    arrowedgecolor: Color = "black"
+    arrowedgealpha: float | None = None
+    arrowedgewidth: float = 1.0
     boxpad: float = 0.3
     boxstyle: str | None = None
 
     def __post_init__(self) -> None:
-        outlinewidth = float(self.arrowoutlinewidth)
+        outlinewidth = float(self.arrowedgewidth)
         if not math.isfinite(outlinewidth):
-            raise ValueError("TextAnnotationArrowStyle.arrowoutlinewidth must be finite.")
+            raise ValueError("TextAnnotationArrowStyle.arrowedgewidth must be finite.")
         if outlinewidth < 0:
-            raise ValueError("TextAnnotationArrowStyle.arrowoutlinewidth must be nonnegative.")
-        object.__setattr__(self, "arrowoutlinewidth", outlinewidth)
+            raise ValueError("TextAnnotationArrowStyle.arrowedgewidth must be nonnegative.")
+        object.__setattr__(self, "arrowedgewidth", outlinewidth)
 
         boxpad = float(self.boxpad)
         if not math.isfinite(boxpad):
@@ -327,22 +327,22 @@ class TextArrowStyle:
         object.__setattr__(self, "arrowfacealpha", resolved_fa)
 
         resolved_ec, resolved_ea = resolve_color_and_alpha(
-            self.arrowoutlinecolor,
-            self.arrowoutlinealpha,
+            self.arrowedgecolor,
+            self.arrowedgealpha,
             allow_none=True,
-            field="arrowoutlinecolor",
+            field="arrowedgecolor",
             owner="TextAnnotationArrowStyle",
             logger=logger,
         )
-        object.__setattr__(self, "arrowoutlinecolor", resolved_ec)
-        object.__setattr__(self, "arrowoutlinealpha", resolved_ea)
+        object.__setattr__(self, "arrowedgecolor", resolved_ec)
+        object.__setattr__(self, "arrowedgealpha", resolved_ea)
 
         if resolved_ec.lower() == "none" and outlinewidth > 0:
             logger.debug(
-                "TextAnnotationArrowStyle: arrowoutlinecolor is 'none' but arrowoutlinewidth is %s>0; setting arrowoutlinewidth to 0.",
+                "TextAnnotationArrowStyle: arrowedgecolor is 'none' but arrowedgewidth is %s>0; setting arrowedgewidth to 0.",
                 outlinewidth,
             )
-            object.__setattr__(self, "arrowoutlinewidth", 0.0)
+            object.__setattr__(self, "arrowedgewidth", 0.0)
 
 
 @dataclass(frozen=True)
@@ -363,11 +363,11 @@ class LabelArrowStyle:
             Defaults to ``"#5c676f"``.
         arrowfacealpha (float | None, optional): Optional alpha override for ``arrowfacecolor``.
             Defaults to None.
-        arrowoutlinecolor (Color, optional): Outline color of the arrow.
+        arrowedgecolor (Color, optional): Outline color of the arrow.
             Defaults to ``"black"``.
-        arrowoutlinealpha (float | None, optional): Optional alpha override for
-            ``arrowoutlinecolor``. Defaults to None.
-        arrowoutlinewidth (float, optional): Arrow outline width in points.
+        arrowedgealpha (float | None, optional): Optional alpha override for
+            ``arrowedgecolor``. Defaults to None.
+        arrowedgewidth (float, optional): Arrow outline width in points.
             Defaults to ``1.0``.
         linestyle (str, optional): Arrow line style. Defaults to ``"-"``.
     """
@@ -379,9 +379,9 @@ class LabelArrowStyle:
     shrink_b: float = 0.0
     arrowfacecolor: Color = "#5c676f"
     arrowfacealpha: float | None = None
-    arrowoutlinecolor: Color = "black"
-    arrowoutlinealpha: float | None = None
-    arrowoutlinewidth: float = 1.0
+    arrowedgecolor: Color = "black"
+    arrowedgealpha: float | None = None
+    arrowedgewidth: float = 1.0
     linestyle: str = "-"
 
     def __post_init__(self) -> None:
@@ -401,12 +401,12 @@ class LabelArrowStyle:
         object.__setattr__(self, "shrink_a", shrink_a)
         object.__setattr__(self, "shrink_b", shrink_b)
 
-        outlinewidth = float(self.arrowoutlinewidth)
+        outlinewidth = float(self.arrowedgewidth)
         if not math.isfinite(outlinewidth):
-            raise ValueError("LabelAnnotationArrowStyle.arrowoutlinewidth must be finite.")
+            raise ValueError("LabelAnnotationArrowStyle.arrowedgewidth must be finite.")
         if outlinewidth < 0:
-            raise ValueError("LabelAnnotationArrowStyle.arrowoutlinewidth must be nonnegative.")
-        object.__setattr__(self, "arrowoutlinewidth", outlinewidth)
+            raise ValueError("LabelAnnotationArrowStyle.arrowedgewidth must be nonnegative.")
+        object.__setattr__(self, "arrowedgewidth", outlinewidth)
 
         resolved_fc, resolved_fa = resolve_color_and_alpha(
             self.arrowfacecolor,
@@ -420,22 +420,22 @@ class LabelArrowStyle:
         object.__setattr__(self, "arrowfacealpha", resolved_fa)
 
         resolved_ec, resolved_ea = resolve_color_and_alpha(
-            self.arrowoutlinecolor,
-            self.arrowoutlinealpha,
+            self.arrowedgecolor,
+            self.arrowedgealpha,
             allow_none=True,
-            field="arrowoutlinecolor",
+            field="arrowedgecolor",
             owner="LabelAnnotationArrowStyle",
             logger=logger,
         )
-        object.__setattr__(self, "arrowoutlinecolor", resolved_ec)
-        object.__setattr__(self, "arrowoutlinealpha", resolved_ea)
+        object.__setattr__(self, "arrowedgecolor", resolved_ec)
+        object.__setattr__(self, "arrowedgealpha", resolved_ea)
 
         if resolved_ec.lower() == "none" and outlinewidth > 0:
             logger.debug(
-                "LabelAnnotationArrowStyle: arrowoutlinecolor is 'none' but arrowoutlinewidth is %s>0; setting arrowoutlinewidth to 0.",
+                "LabelAnnotationArrowStyle: arrowedgecolor is 'none' but arrowedgewidth is %s>0; setting arrowedgewidth to 0.",
                 outlinewidth,
             )
-            object.__setattr__(self, "arrowoutlinewidth", 0.0)
+            object.__setattr__(self, "arrowedgewidth", 0.0)
 
 
 @dataclass(frozen=True)

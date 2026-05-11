@@ -1,11 +1,13 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+import matplotlib.pyplot as plt
 from geopandas import GeoDataFrame
 from matplotlib.axes import Axes
 from matplotlib.colors import Colormap
 from shapely.geometry import Point
 
+from gerrytools.plotting._figure_io import save_figure
 from gerrytools.plotting.geometry._layers import (
     _CategoricalColorLayer,
     _ContinuousColorLayer,
@@ -455,3 +457,83 @@ class ColoredGeoPlot(GeoPlot):
         self._apply_limits()
         label_points = self._draw_deferred_labels()
         return label_points
+
+    def save_colorbar(
+        self,
+        filepath: str,
+        *,
+        layer_index: int = 0,
+        figsize: tuple[float, float] = (1.0, 4.0),
+        orientation: str = "vertical",
+        **kwargs: object,
+    ) -> None:
+        """Save a standalone colorbar image for a choropleth layer.
+
+        Args:
+            filepath (str): Output file path.
+            layer_index (int): Which colorbar to save when multiple choropleth layers
+                have colorbars. Ordered by zorder. Defaults to 0 (first).
+            figsize (tuple[float, float]): Figure size (width, height) in inches.
+                Defaults to (1.0, 4.0) for a vertical bar.
+            orientation (str): ``"vertical"`` or ``"horizontal"``. Defaults to ``"vertical"``.
+            **kwargs (object): Additional keyword arguments passed to ``Figure.savefig``.
+        """
+        sorted_requests = sorted(self._colorbar_requests, key=lambda r: int(r.zorder))
+        if not sorted_requests:
+            raise ValueError(
+                "No colorbar requests found. Pass show_colorbar=True to add_choropleth_layer()."
+            )
+        if layer_index >= len(sorted_requests):
+            raise IndexError(
+                f"layer_index {layer_index} is out of range; "
+                f"only {len(sorted_requests)} colorbar(s) are registered."
+            )
+
+        cb_request = sorted_requests[layer_index]
+        cb_options = cb_request.options if cb_request.options is not None else ColorbarOptions()
+        mappable, layer_defaults = cb_request.layer._mappable()
+
+        cb_fig, cb_ax = plt.subplots(figsize=figsize, dpi=self.fig.dpi)
+        colorbar = cb_fig.colorbar(
+            mappable=mappable,
+            cax=cb_ax,
+            orientation=orientation,
+            extend=cb_options.extend,
+            format=cb_options.format,
+            fraction=cb_options.fraction,
+            shrink=cb_options.shrink,
+            aspect=cb_options.aspect,
+        )
+
+        layer_ticks = layer_defaults.get("ticks")
+        if isinstance(layer_ticks, list):
+            colorbar.set_ticks(layer_ticks)
+
+        label_text = (
+            cb_request.label if cb_request.label is not None else cb_request.layer.datacolumn
+        )
+        if label_text is not None:
+            colorbar.set_label(
+                str(label_text),
+                fontsize=cb_options.label_fontsize,
+                rotation=cb_options.label_rotation,
+                labelpad=cb_options.label_pad,
+            )
+
+        cb_ax.tick_params(labelsize=cb_options.tick_fontsize, pad=cb_options.tick_pad)
+
+        if cb_options.force_ticks is not None:
+            colorbar.set_ticks(cb_options.force_ticks)
+        if cb_options.force_ticklabels is not None:
+            colorbar.set_ticklabels(cb_options.force_ticklabels)
+
+        if cb_options.max_n_ticks is not None and cb_options.force_ticks is None:
+            ticks = list(colorbar.get_ticks())
+            if len(ticks) > cb_options.max_n_ticks:
+                step = max(1, len(ticks) // cb_options.max_n_ticks)
+                colorbar.set_ticks(ticks[::step])
+
+        try:
+            save_figure(cb_fig, filepath, **kwargs)
+        finally:
+            plt.close(cb_fig)

@@ -153,8 +153,8 @@ class PaintBall(GerryPlotBase):
         """Reset all display options to defaults."""
         self.markersize = 16.0
         self.marker = "o"
-        self.markercolor = "cadmiumgreen"
-        self.markeralpha = 0.8
+        self.markerfacecolor = "cadmiumgreen"
+        self.markerfacealpha = 0.8
         self.markeredgecolor = "cadmiumgreen"
         self.markeredgewidth = 0.5
         self.markeredgealpha = 1.0
@@ -423,12 +423,12 @@ class PaintBall(GerryPlotBase):
             self.marker = str(marker)
 
         if color is not None:
-            self.markercolor = color
+            self.markerfacecolor = color
 
         if alpha is not None:
             if not (0.0 <= alpha <= 1.0):
                 raise ValueError("alpha must be in [0, 1].")
-            self.markeralpha = float(alpha)
+            self.markerfacealpha = float(alpha)
 
         if edgecolor is not None:
             self.markeredgecolor = edgecolor
@@ -590,9 +590,9 @@ class PaintBall(GerryPlotBase):
         """Draw paintball points."""
         x_coords, y_coords = self._paintball_coordinates()
         marker_facecolor = self._resolved_rgba(
-            self.markercolor,
-            self.markeralpha,
-            field="markercolor",
+            self.markerfacecolor,
+            self.markerfacealpha,
+            field="markerfacecolor",
         )
         marker_edgecolor = self._resolved_rgba(
             self.markeredgecolor,
@@ -615,8 +615,8 @@ class PaintBall(GerryPlotBase):
         """Draw the horizontal hull polygon for paintball points."""
         hull_vertices = self._horizontal_hull_vertices()
 
-        fillcolor = self.hullcolor if self.hullcolor is not None else self.markercolor
-        fillalpha = self.hullalpha if self.hullalpha is not None else self.markeralpha
+        fillcolor = self.hullcolor if self.hullcolor is not None else self.markerfacecolor
+        fillalpha = self.hullalpha if self.hullalpha is not None else self.markerfacealpha
         edgecolor = self.hulledgecolor if self.hulledgecolor is not None else self.markeredgecolor
         edgealpha = self.hulledgealpha if self.hulledgealpha is not None else self.markeredgealpha
         edge_rgba = self._resolved_rgba(edgecolor, edgealpha, field="hulledgecolor")
@@ -662,8 +662,8 @@ class PaintBall(GerryPlotBase):
         handles: list[LegendHandle] = []
 
         if self._draw_hull:
-            fillcolor = self.hullcolor if self.hullcolor is not None else self.markercolor
-            fillalpha = self.hullalpha if self.hullalpha is not None else self.markeralpha
+            fillcolor = self.hullcolor if self.hullcolor is not None else self.markerfacecolor
+            fillalpha = self.hullalpha if self.hullalpha is not None else self.markerfacealpha
             edgecolor = (
                 self.hulledgecolor if self.hulledgecolor is not None else self.markeredgecolor
             )
@@ -687,9 +687,9 @@ class PaintBall(GerryPlotBase):
                     marker=self.marker,
                     markersize=self.markersize,
                     markerfacecolor=self._resolved_rgba(
-                        self.markercolor,
-                        self.markeralpha,
-                        field="markercolor",
+                        self.markerfacecolor,
+                        self.markerfacealpha,
+                        field="markerfacecolor",
                     ),
                     markeredgecolor=self._resolved_rgba(
                         self.markeredgecolor,
@@ -720,17 +720,19 @@ class PaintBall(GerryPlotBase):
 
         return handles
 
-    def show(self, *, hull: bool = False) -> None:
+    def show(self, *, hull: bool = False, **kwargs: object) -> None:
         """Display the paintball figure.
 
         Args:
             hull (bool, optional): Whether to display the horizontal hull instead of points.
                 Defaults to False.
+            **kwargs (object): Additional keyword arguments passed to ``Figure.savefig``.
+                Defaults: ``bbox_inches="tight"``, ``dpi=fig.dpi``.
         """
         previous_hull_setting = self._draw_hull
         self._draw_hull = hull
         try:
-            super().show()
+            super().show(**kwargs)
         finally:
             self._draw_hull = previous_hull_setting
 

@@ -368,12 +368,12 @@ class _AnnotationArrowRenderer:
         else:
             boxstyle = f"{boxstyle_base},pad={style.boxpad:g}"
 
-        if isinstance(style.arrowoutlinecolor, str) and style.arrowoutlinecolor.lower() == "none":
+        if isinstance(style.arrowedgecolor, str) and style.arrowedgecolor.lower() == "none":
             edgecolor: str | tuple[float, float, float, float] = "none"
         else:
             edgecolor = self._resolved_rgba(
-                style.arrowoutlinecolor,
-                style.arrowoutlinealpha,
+                style.arrowedgecolor,
+                style.arrowedgealpha,
                 field="annotation_arrow_outlinecolor",
             )
 
@@ -409,7 +409,7 @@ class _AnnotationArrowRenderer:
                     boxstyle=boxstyle,
                     fc=face_color,
                     ec=edgecolor,
-                    lw=style.arrowoutlinewidth,
+                    lw=style.arrowedgewidth,
                 ),
             )
             self._align_text_arrow_tip_to_position(
@@ -459,7 +459,7 @@ class _AnnotationArrowRenderer:
                 boxstyle=boxstyle,
                 fc=face_color,
                 ec=edgecolor,
-                lw=style.arrowoutlinewidth,
+                lw=style.arrowedgewidth,
             ),
         )
         self._align_text_arrow_tip_to_position(
@@ -514,12 +514,12 @@ class _AnnotationArrowRenderer:
         else:
             tail_x, tail_y = placement.arrowtail
 
-        if isinstance(style.arrowoutlinecolor, str) and style.arrowoutlinecolor.lower() == "none":
+        if isinstance(style.arrowedgecolor, str) and style.arrowedgecolor.lower() == "none":
             regular_edgecolor: str | tuple[float, float, float, float] = "none"
         else:
             regular_edgecolor = self._resolved_rgba(
-                style.arrowoutlinecolor,
-                style.arrowoutlinealpha,
+                style.arrowedgecolor,
+                style.arrowedgealpha,
                 field="annotation_arrow_outlinecolor",
             )
 
@@ -543,7 +543,7 @@ class _AnnotationArrowRenderer:
                     field="annotation_arrow_facecolor",
                 ),
                 edgecolor=regular_edgecolor,
-                linewidth=style.arrowoutlinewidth,
+                linewidth=style.arrowedgewidth,
                 linestyle=style.linestyle,
             ),
         )

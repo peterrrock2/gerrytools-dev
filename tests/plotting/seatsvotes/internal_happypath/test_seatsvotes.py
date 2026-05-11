@@ -15,8 +15,8 @@ def test_seatsvotes_supports_per_series_line_and_marker_options():
         linestyle="--",
         linewidth=3.5,
         zorder=3,
-        markercolor="alizarin",
-        markeralpha=0.6,
+        markerfacecolor="alizarin",
+        markerfacealpha=0.6,
         marker="s",
         markersize=9.0,
         markeredgecolor="black",
@@ -80,7 +80,7 @@ class TestSeatsVotesDataEdgeCases:
             total_vote_counts=np.array([1000.0, 1000.0]),
             name="Test",
             linecolor="blue",
-            markercolor="red",
+            markerfacecolor="red",
             markerlabel="Result",
         )
 

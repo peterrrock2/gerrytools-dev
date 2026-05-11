@@ -839,10 +839,15 @@ class GeoPlot(ABC):
             {str(label): Point(pt.x, pt.y) for label, pt in label_points.items()},
         )
 
-    def show(self) -> None:
-        """Display inline in notebooks, or open a GUI window in scripts."""
+    def show(self, **kwargs: object) -> None:
+        """Display inline in notebooks, or open a GUI window in scripts.
+
+        Args:
+            **kwargs (object): Additional keyword arguments passed to ``Figure.savefig``.
+                Defaults: ``bbox_inches="tight"``, ``dpi=fig.dpi``.
+        """
         self._build_and_apply_settings()
-        show_figure(self.fig, non_gui_filename="geoplot.png", non_gui_prefix="GeoPlot")
+        show_figure(self.fig, non_gui_filename="geoplot.png", non_gui_prefix="GeoPlot", **kwargs)
 
     def save(self, filepath: str, **kwargs: object) -> None:
         """Save the plot to a file.
