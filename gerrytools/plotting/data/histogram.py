@@ -8,6 +8,7 @@ from warnings import warn
 
 import numpy as np
 import pandas as pd
+from matplotlib.axes import Axes
 from matplotlib.lines import Line2D
 from matplotlib.markers import MarkerStyle
 from matplotlib.patches import Patch
@@ -255,41 +256,45 @@ class Histogram(GerryPlotBase):
 
     def __init__(
         self,
-        figure_size: tuple[float, float] = (10, 6),
-        dpi: int = 300,
+        figure_size: tuple[float, float] | None = None,
+        dpi: int | None = None,
         *,
+        ax: Axes | None = None,
         include_legend: bool = True,
         xlabel: str | None = None,
         ylabel: str | None = None,
         title: str | None = None,
-        grid: bool = False,
-        hide_warnings: bool = False,
     ) -> None:
         """Initialize the Histogram figure.
 
         Args:
-            figure_size (tuple[float, float], optional): The size of the figure in inches.
-            dpi (int, optional): The dots per inch (DPI) of the figure. Defaults to 300.
+            figure_size (tuple[float, float] | None, optional): The size of the
+                figure in inches. Defaults to ``(10, 6)`` when ``ax`` is not provided.
+            dpi (int | None, optional): The dots per inch (DPI) of the figure.
+                Defaults to ``300`` when ``ax`` is not provided.
+            ax (matplotlib.axes.Axes | None, optional): Render onto an existing
+                matplotlib ``Axes`` instead of creating a fresh figure. Defaults to None.
             include_legend (bool, optional): Whether to include a legend in the plot.
                 Defaults to True.
             xlabel (str | None, optional): The label for the x-axis. Defaults to None.
             ylabel (str | None, optional): The label for the y-axis. Defaults to None.
             title (str | None, optional): The title of the plot. Defaults to None.
-            grid (bool, optional): Whether to show a grid on the plot. Defaults to False.
-            hide_warnings (bool, optional): Whether to hide warnings about potentially
-                problematic histogram settings. Defaults to False.
+
+        To toggle the grid or suppress histogram-configuration warnings, call
+        :meth:`enable_grid` / :meth:`disable_grid` and :meth:`suppress_warnings` /
+        :meth:`show_warnings` after construction.
         """
         super().__init__(
             figure_size=figure_size,
             dpi=dpi,
+            ax=ax,
             include_legend=include_legend,
             xlabel=xlabel,
             ylabel=ylabel,
             title=title,
         )
-        self.hide_warnings = hide_warnings
-
-        self.grid = grid
+        self.hide_warnings = False
+        self.grid = False
         self._bins: BinsType | None = None
         self._bin_alignment = "edge"
         self.as_denisty_plot = False
@@ -358,6 +363,27 @@ class Histogram(GerryPlotBase):
         for key in self._hist_data_dict:
             self._hist_data_dict[key].clear()
 
+    def enable_grid(self) -> None:
+        """Show a matplotlib grid on the plot."""
+        self.grid = True
+
+    def disable_grid(self) -> None:
+        """Hide the matplotlib grid (the default)."""
+        self.grid = False
+
+    def suppress_warnings(self) -> None:
+        """Suppress warnings about potentially problematic histogram settings.
+
+        Useful in batch scripts where the histogram configuration is known to
+        intentionally trigger warnings (e.g. an outline histogram with
+        ``edgewidth <= 0``) and the noise would be distracting.
+        """
+        self.hide_warnings = True
+
+    def show_warnings(self) -> None:
+        """Re-enable warnings about potentially problematic histogram settings."""
+        self.hide_warnings = False
+
     def transform_to_density(self) -> None:
         """Transform the histogram to a density plot."""
         self.as_denisty_plot = True
@@ -365,10 +391,10 @@ class Histogram(GerryPlotBase):
     def add_histogram(
         self,
         values: Iterable[float] | NDArray | pd.Series | pd.DataFrame,
+        name: str | None = None,
         *,
         weights: Iterable[float] | NDArray | None = None,
         column: str | None = None,
-        name: str | None = None,
         options: HistogramOptions | None = None,
         facecolor: Color | None = None,
         facealpha: float | None = None,
@@ -488,9 +514,9 @@ class Histogram(GerryPlotBase):
     def add_points_above(
         self,
         values: float | list[float] | pd.Series | pd.DataFrame | NDArray,
+        name: str | None = None,
         *,
         column: str | None = None,
-        name: str | None = None,
         marker_options: PointMarkerOptions | None = None,
         facecolor: Color | None = None,
         facealpha: float | None = None,

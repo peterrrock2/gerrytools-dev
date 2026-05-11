@@ -122,7 +122,8 @@ class TestViolinPlotActualBuilds:
         assert ax is not None
 
     def test_build_with_group_vlines(self):
-        vp = ViolinPlot(include_violinplot_group_vlines=True)
+        vp = ViolinPlot()
+        vp.enable_violinplot_group_vlines()
         vp.add_violinplot_datasets({"A": [1.0, 2.0, 3.0]})
         ax = vp.ax
         assert ax is not None

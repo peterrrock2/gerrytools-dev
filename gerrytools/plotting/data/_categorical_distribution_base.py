@@ -5,6 +5,7 @@ from typing import Mapping, Sequence, cast
 
 import numpy as np
 import pandas as pd
+from matplotlib.axes import Axes
 from matplotlib.lines import Line2D
 
 from gerrytools.plotting.data._gerryplot_dataclasses import LineData, PointSetData
@@ -23,8 +24,9 @@ class CategoricalDistributionPlotBase(GerryPlotBase):
     def __init__(
         self,
         *,
-        figure_size: tuple[float, float],
-        dpi: int,
+        figure_size: tuple[float, float] | None,
+        dpi: int | None,
+        ax: Axes | None,
         include_legend: bool,
         xlabel: str | None,
         ylabel: str | None,
@@ -51,6 +53,7 @@ class CategoricalDistributionPlotBase(GerryPlotBase):
         super().__init__(
             figure_size=figure_size,
             dpi=dpi,
+            ax=ax,
             include_legend=include_legend,
             xlabel=xlabel,
             ylabel=ylabel,
@@ -341,10 +344,10 @@ class CategoricalDistributionPlotBase(GerryPlotBase):
             zorder=zorder,
         )
 
-    def clear_vertical_lines_and_bands(self) -> None:
+    def clear_verticals(self) -> None:
         """Clear all vertical overlays and disable category-center guide lines."""
         self._include_group_vlines = False
-        self._annotations.clear_vertical_lines_and_bands()
+        self._annotations.clear_verticals()
 
     def _default_x_tick_locations(self) -> list[float] | None:
         """Get default x-tick locations at the center of each category group."""

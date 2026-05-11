@@ -52,12 +52,12 @@ class TestGeoLayerGeometryMask:
 
 
 class TestGeoPlotXYLimits:
-    """Cover set_xlimits, set_ylimits, set_xlim, set_ylim, and clear_limits."""
+    """Cover set_xlim, set_ylim, set_xlim, set_ylim, and clear_limits."""
 
-    def test_set_xlimits_and_ylimits(self, testing_gdf, tmp_path):
+    def test_set_xlim_and_ylim(self, testing_gdf, tmp_path):
         plot = ColoredGeoPlot(testing_gdf, dpi=50, silent=True)
-        plot.set_xlimits(0, 12)
-        plot.set_ylimits(0, 12)
+        plot.set_xlim(0, 12)
+        plot.set_ylim(0, 12)
         assert plot._xlim == (0.0, 12.0)
         assert plot._ylim == (0.0, 12.0)
         plot.save(str(tmp_path / "limits.png"))

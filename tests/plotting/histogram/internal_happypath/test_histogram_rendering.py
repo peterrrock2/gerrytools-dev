@@ -83,7 +83,8 @@ class TestHistogramActualBuilds:
         assert ax is not None
 
     def test_build_with_grid(self):
-        h = Histogram(grid=True)
+        h = Histogram()
+        h.enable_grid()
         h.add_histogram([1.0, 2.0, 3.0])
         ax = h.ax
         assert ax is not None
@@ -114,7 +115,8 @@ class TestHistogramCenterOnBinEdgeErrors:
     """Non-uniform bins cannot be combined with centered bin labels."""
 
     def test_non_uniform_bins_with_centering_raises(self):
-        h = Histogram(hide_warnings=True)
+        h = Histogram()
+        h.suppress_warnings()
         h.set_bins([0, 1, 3, 6])
         h.center_data_on_bin_edges()
         h.add_histogram([0.5, 1.5, 4.0])
@@ -132,7 +134,7 @@ class TestHistogramWeaveEdgeWidthWarning:
 
     def test_weave_with_positive_edgewidth_warns(self):
 
-        h = Histogram(hide_warnings=False)
+        h = Histogram()
         h.add_histogram([1.0, 2.0, 3.0], histtype="weave", edgewidth=1.0, edgecolor="black")
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
@@ -151,7 +153,8 @@ class TestHistogramOutlineCenteredBins:
     """Outline histograms still build when centered bins are enabled."""
 
     def test_outline_histogram_with_centered_bins(self):
-        h = Histogram(hide_warnings=True)
+        h = Histogram()
+        h.suppress_warnings()
         h.center_data_on_bin_edges()
         h.add_histogram(
             [1.0, 1.0, 2.0, 2.0, 3.0],
@@ -172,7 +175,8 @@ class TestHistogramPointsAboveCentered:
     """Centered bins adjust the point-above placement path."""
 
     def test_points_above_centered_on_bin(self):
-        h = Histogram(hide_warnings=True)
+        h = Histogram()
+        h.suppress_warnings()
         h.add_histogram([1.0, 1.0, 2.0, 2.0, 3.0])
         h.add_points_above([1.0, 2.0, 3.0], centered_on_bin=True)
         ax = h.ax

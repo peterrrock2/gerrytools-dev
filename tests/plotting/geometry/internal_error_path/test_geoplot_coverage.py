@@ -175,7 +175,7 @@ class TestAddMarkerLayer:
         with pytest.raises(ValueError, match="Only one"):
             plot.add_marker_layer(
                 points_geoseries=pts,
-                latitude_longitude_list=[(0.0, 0.0)],
+                latlon_list=[(0.0, 0.0)],
             )
 
     def test_add_marker_layer_with_lat_lon_list(self, testing_gdf, tmp_path):
@@ -183,7 +183,7 @@ class TestAddMarkerLayer:
         gdf_crs = testing_gdf.copy().set_crs("EPSG:4326")
         plot = ColoredGeoPlot(gdf_crs, dpi=50, silent=True, target_crs="EPSG:4326")
         plot.add_marker_layer(
-            latitude_longitude_list=[(40.0, -90.0), (41.0, -91.0)],
+            latlon_list=[(40.0, -90.0), (41.0, -91.0)],
         )
         plot.save(str(tmp_path / "marker_latlon.png"))
         assert (tmp_path / "marker_latlon.png").exists()
@@ -250,7 +250,7 @@ class TestAddLabelLayer:
         with pytest.raises(ValueError, match="Only one"):
             plot.add_label_layer(
                 points_geoseries=pts,
-                latitude_longitude_list=[(0.0, 0.0)],
+                latlon_list=[(0.0, 0.0)],
             )
 
     def test_add_label_layer_with_geoseries(self, testing_gdf, tmp_path):
@@ -265,7 +265,7 @@ class TestAddLabelLayer:
         """lat/lon list path for add_label_layer."""
         gdf_crs = testing_gdf.copy().set_crs("EPSG:4326")
         plot = ColoredGeoPlot(gdf_crs, dpi=50, silent=True, target_crs="EPSG:4326")
-        plot.add_label_layer(latitude_longitude_list=[(40.0, -90.0)])
+        plot.add_label_layer(latlon_list=[(40.0, -90.0)])
         plot.save(str(tmp_path / "label_layer_latlon.png"))
         assert (tmp_path / "label_layer_latlon.png").exists()
 

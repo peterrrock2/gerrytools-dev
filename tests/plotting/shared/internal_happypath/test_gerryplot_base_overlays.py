@@ -128,19 +128,19 @@ class TestHorizontalBands:
 
 
 class TestClearMethods:
-    def test_clear_vertical_lines_and_bands(self):
+    def test_clear_verticals(self):
         sp = _make_plot()
         sp.add_vertical_lines(0.5)
         sp.add_vertical_band(0.3, 0.7)
-        sp.clear_vertical_lines_and_bands()
+        sp.clear_verticals()
         assert len(sp._annotations.vertical_lines) == 0
         assert len(sp._annotations.vertical_bands) == 0
 
-    def test_clear_horizontal_lines_and_bands(self):
+    def test_clear_horizontals(self):
         sp = _make_plot()
         sp.add_horizontal_lines(0.5)
         sp.add_horizontal_band(0.3, 0.7)
-        sp.clear_horizontal_lines_and_bands()
+        sp.clear_horizontals()
         assert len(sp._annotations.horizontal_lines) == 0
         assert len(sp._annotations.horizontal_bands) == 0
 
@@ -158,14 +158,14 @@ class TestClearMethods:
 
 
 class TestAxisLimits:
-    def test_set_xlimits(self):
+    def test_set_xlim(self):
         sp = _make_plot()
-        sp.set_xlimits(0.0, 10.0)
+        sp.set_xlim(0.0, 10.0)
         assert sp._x_limits == (0.0, 10.0)
 
-    def test_set_ylimits(self):
+    def test_set_ylim(self):
         sp = _make_plot()
-        sp.set_ylimits(-5.0, 5.0)
+        sp.set_ylim(-5.0, 5.0)
         assert sp._y_limits == (-5.0, 5.0)
 
     def test_set_xlim_alias(self):
@@ -180,8 +180,8 @@ class TestAxisLimits:
 
     def test_limits_applied_on_build(self):
         sp = _make_plot()
-        sp.set_xlimits(-1.0, 2.0)
-        sp.set_ylimits(-1.0, 2.0)
+        sp.set_xlim(-1.0, 2.0)
+        sp.set_ylim(-1.0, 2.0)
         ax = sp.ax
         assert ax.get_xlim() == (-1.0, 2.0)
         assert ax.get_ylim() == (-1.0, 2.0)

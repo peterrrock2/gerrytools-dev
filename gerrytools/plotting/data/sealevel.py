@@ -6,6 +6,7 @@ from numbers import Real
 
 import numpy as np
 import pandas as pd
+from matplotlib.axes import Axes
 from matplotlib.lines import Line2D
 from numpy.random import Generator
 
@@ -55,43 +56,49 @@ class SeaLevelSetData:
 class SeaLevel(GerryPlotBase):
     def __init__(
         self,
-        figure_size: tuple[float, float] = (10, 6),
-        dpi: int = 300,
+        figure_size: tuple[float, float] | None = None,
+        dpi: int | None = None,
         *,
+        ax: Axes | None = None,
         include_legend: bool = True,
         xlabel: str | None = None,
         ylabel: str | None = None,
         title: str | None = None,
-        grid: bool = False,
-        hide_warnings: bool = False,
         jitter_rng_seed: int | None = None,
         jitter_rng: Generator | None = None,
     ) -> None:
         """Initialize a SeaLevel instance.
 
         Args:
-            figure_size (tuple[float, float], optional): The size of the figure in inches.
-                Defaults to (10, 6).
-            dpi (int, optional): The dots per inch (DPI) of the figure. Defaults to 300.
+            figure_size (tuple[float, float] | None, optional): The size of the
+                figure in inches. Defaults to ``(10, 6)`` when ``ax`` is not provided.
+            dpi (int | None, optional): The dots per inch (DPI) of the figure.
+                Defaults to ``300`` when ``ax`` is not provided.
+            ax (matplotlib.axes.Axes | None, optional): Render onto an existing
+                matplotlib ``Axes`` instead of creating a fresh figure. Defaults to None.
             include_legend (bool, optional): Whether to include a legend in the plot.
                 Defaults to True.
             jitter_rng_seed (int | None, optional): Seed for reproducible jitter placement.
                 Defaults to None.
             jitter_rng (Generator | None, optional): Explicit NumPy generator to use for
                 jitter instead of constructing one from ``jitter_rng_seed``. Defaults to None.
+
+        To toggle the grid or suppress warnings, call :meth:`enable_grid` /
+        :meth:`disable_grid` and :meth:`suppress_warnings` / :meth:`show_warnings`
+        after construction.
         """
         super().__init__(
             figure_size=figure_size,
             dpi=dpi,
+            ax=ax,
             include_legend=include_legend,
             xlabel=xlabel,
             ylabel=ylabel,
             title=title,
         )
 
-        self.hide_warnings = hide_warnings
-
-        self.grid = grid
+        self.hide_warnings = False
+        self.grid = False
 
         self._sealevel_data_list: list[SeaLevelSetData] = []
         self._labels: list[str] | None = None
@@ -103,6 +110,22 @@ class SeaLevel(GerryPlotBase):
             rng=jitter_rng,
             field_name="jitter_rng_seed",
         )
+
+    def enable_grid(self) -> None:
+        """Show a matplotlib grid on the plot."""
+        self.grid = True
+
+    def disable_grid(self) -> None:
+        """Hide the matplotlib grid (the default)."""
+        self.grid = False
+
+    def suppress_warnings(self) -> None:
+        """Suppress warnings about potentially problematic configuration."""
+        self.hide_warnings = True
+
+    def show_warnings(self) -> None:
+        """Re-enable warnings about potentially problematic configuration."""
+        self.hide_warnings = False
 
     @property
     def jitter_rng_seed(self) -> int | None:
@@ -131,128 +154,73 @@ class SeaLevel(GerryPlotBase):
             field_name="jitter_rng_seed",
         )
 
-    def set_max_vertical_jitter_per_category(
-        self,
-        *,
-        jitter_per_category: dict[str, float],
-    ) -> None:
-        """Set the maximum jitter per category.
-
-        Any points in a given category will be jittered randomly within the range
-        [-jitter, +jitter], where jitter is the maximum jitter value for that category
-
-        Any category not specified in the dictionary will have no jitter applied.
-
-        Args:
-            jitter_per_category (dict[str, float]): A dictionary mapping category labels
-                to maximum jitter values.
-
-        Returns:
-            None
-        """
-        if not isinstance(jitter_per_category, dict):
-            raise TypeError("jitter_per_category must be a dictionary mapping labels to floats.")
-        if not all(isinstance(v, Real) for v in jitter_per_category.values()):
-            raise TypeError("All values in jitter_per_category must be real numbers.")
-        if not all(v >= 0 for v in jitter_per_category.values()):
+    def _validate_jitter_per_category(self, jitter: dict[str, float]) -> None:
+        """Validate a per-category jitter dictionary against the current labels."""
+        if not isinstance(jitter, dict):
+            raise TypeError("jitter must be a dictionary mapping labels to floats.")
+        if not all(isinstance(v, Real) for v in jitter.values()):
+            raise TypeError("All values in jitter must be real numbers.")
+        if not all(v >= 0 for v in jitter.values()):
             raise ValueError("All jitter values must be nonnegative.")
-        if not all(math.isfinite(float(v)) for v in jitter_per_category.values()):
+        if not all(math.isfinite(float(v)) for v in jitter.values()):
             raise ValueError("All jitter values must be finite.")
         if len(self._labels or []) == 0:
             raise ValueError("No labels defined yet; cannot set jitter per category.")
-        if not set(jitter_per_category.keys()).issubset(set(self._labels or [])):
-            extra_keys = set(jitter_per_category.keys()) - set(self._labels or [])
+        if not set(jitter.keys()).issubset(set(self._labels or [])):
+            extra_keys = set(jitter.keys()) - set(self._labels or [])
             raise ValueError(
-                "All keys in jitter_per_category must be among the existing labels."
-                f" Extra keys: {extra_keys}"
+                "All keys in jitter must be among the existing labels." f" Extra keys: {extra_keys}"
             )
 
-        self._maximum_vertical_jitter_per_category = jitter_per_category
+    def _coerce_jitter(self, jitter: float | dict[str, float]) -> dict[str, float]:
+        """Resolve a uniform-or-per-category jitter input into a per-category dict.
 
-    def set_max_vertical_jitter_all(
-        self,
-        max_jitter: float,
-    ) -> None:
-        """Set the same maximum vertical jitter for every category.
-
-        Args:
-            max_jitter (float): Maximum absolute vertical offset applied per category.
-
-        Returns:
-            None
-
-        Raises:
-            ValueError: If labels are undefined or ``max_jitter`` is negative/non-finite.
+        - ``dict[str, float]`` is validated and returned as-is.
+        - A scalar float is broadcast to every existing label.
         """
-        if len(self._labels or []) == 0:
-            raise ValueError("No labels defined yet; cannot set jitter per category.")
-
-        max_jit = float(max_jitter)
-        if not math.isfinite(max_jit) or max_jit < 0:
-            raise ValueError("max_jitter must be a finite nonnegative number.")
-        jitter_dict = {label: max_jit for label in self._labels or []}
-        self.set_max_vertical_jitter_per_category(jitter_per_category=jitter_dict)
-
-    def set_max_horizontal_jitter_per_category(
-        self,
-        *,
-        jitter_per_category: dict[str, float],
-    ) -> None:
-        """Set the maximum horizontal jitter per category.
-
-        Any points in a given category will be jittered randomly within the range
-        [-jitter, +jitter], where jitter is the maximum jitter value for that category
-
-        Any category not specified in the dictionary will have no jitter applied.
-
-        Args:
-            jitter_per_category (dict[str, float]): A dictionary mapping category labels
-                to maximum jitter values.
-
-        Returns:
-            None
-        """
-        if not isinstance(jitter_per_category, dict):
-            raise TypeError("jitter_per_category must be a dictionary mapping labels to floats.")
-        if not all(isinstance(v, Real) for v in jitter_per_category.values()):
-            raise TypeError("All values in jitter_per_category must be real numbers.")
-        if not all(v >= 0 for v in jitter_per_category.values()):
-            raise ValueError("All jitter values must be nonnegative.")
-        if not all(math.isfinite(float(v)) for v in jitter_per_category.values()):
-            raise ValueError("All jitter values must be finite.")
-        if len(self._labels or []) == 0:
-            raise ValueError("No labels defined yet; cannot set jitter per category.")
-        if not set(jitter_per_category.keys()).issubset(set(self._labels or [])):
-            extra_keys = set(jitter_per_category.keys()) - set(self._labels or [])
-            raise ValueError(
-                "All keys in jitter_per_category must be among the existing labels."
-                f" Extra keys: {extra_keys}"
+        if isinstance(jitter, dict):
+            self._validate_jitter_per_category(jitter)
+            return jitter
+        if not isinstance(jitter, Real):
+            raise TypeError(
+                "jitter must be a float or a dictionary mapping labels to floats; "
+                f"got {type(jitter).__name__!r}."
             )
+        if len(self._labels or []) == 0:
+            raise ValueError("No labels defined yet; cannot set jitter.")
+        jit = float(jitter)
+        if not math.isfinite(jit) or jit < 0:
+            raise ValueError("jitter must be a finite nonnegative number.")
+        return {label: jit for label in self._labels or []}
 
-        self._maximum_horizontal_jitter_per_category = jitter_per_category
+    def set_vertical_jitter(self, jitter: float | dict[str, float]) -> None:
+        """Set the maximum vertical jitter applied to category points.
 
-    def set_max_horizontal_jitter_all(
-        self,
-        max_jitter: float,
-    ) -> None:
-        """Set the same maximum horizontal jitter for every category.
+        Pass a single ``float`` to apply the same jitter uniformly to every
+        category, or pass a ``dict`` mapping label to float for per-category
+        jitter. Categories not in the dict get no jitter.
+
+        Any point in a given category is jittered randomly within
+        ``[-jitter, +jitter]``.
 
         Args:
-            max_jitter (float): Maximum absolute horizontal offset applied per category.
-
-        Returns:
-            None
-
-        Raises:
-            ValueError: If labels are undefined or ``max_jitter`` is negative/non-finite.
+            jitter (float | dict[str, float]): Uniform jitter value, or
+                per-category mapping.
         """
-        if len(self._labels or []) == 0:
-            raise ValueError("No labels defined yet; cannot set jitter per category.")
-        max_jit = float(max_jitter)
-        if not math.isfinite(max_jit) or max_jit < 0:
-            raise ValueError("max_jitter must be a finite nonnegative number.")
-        jitter_dict = {label: max_jit for label in self._labels or []}
-        self.set_max_horizontal_jitter_per_category(jitter_per_category=jitter_dict)
+        self._maximum_vertical_jitter_per_category = self._coerce_jitter(jitter)
+
+    def set_horizontal_jitter(self, jitter: float | dict[str, float]) -> None:
+        """Set the maximum horizontal jitter applied to category points.
+
+        Pass a single ``float`` to apply the same jitter uniformly to every
+        category, or pass a ``dict`` mapping label to float for per-category
+        jitter. Categories not in the dict get no jitter.
+
+        Args:
+            jitter (float | dict[str, float]): Uniform jitter value, or
+                per-category mapping.
+        """
+        self._maximum_horizontal_jitter_per_category = self._coerce_jitter(jitter)
 
     def _convert_score_data_to_dictionary(
         self,
@@ -324,10 +292,10 @@ class SeaLevel(GerryPlotBase):
     def add_sealevel_set(
         self,
         scores: dict[str, float] | list[float] | pd.Series | pd.DataFrame,
+        name: str | None = None,
         *,
         scores_labels: list[str] | None = None,
         df_row_index: CategoryKey | None = None,
-        name: str | None = None,
         line_options: SeaLevelLineOptions | None = None,
         marker_options: PointMarkerOptions | None = None,
         linecolor: Color | None = None,
@@ -618,7 +586,7 @@ class SeaLevel(GerryPlotBase):
                 )
             raise ValueError("minimum_numerator cannot exceed maximum_numerator.")
 
-        self.update_ytick_values(
+        self.update_ytick_labels(
             locations=[n / denominator for n in range(minimum_numerator, maximum_numerator + 1)],
             labels=[f"{n}/{denominator}" for n in range(minimum_numerator, maximum_numerator + 1)],
         )

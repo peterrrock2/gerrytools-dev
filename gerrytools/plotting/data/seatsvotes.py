@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import Literal, Sequence, TypedDict
 
 import numpy as np
+from matplotlib.axes import Axes
 from matplotlib.lines import Line2D
 
 from gerrytools.logging import get_logger
@@ -232,9 +233,10 @@ class SeatsVotes(GerryPlotBase):
 
     def __init__(
         self,
-        figure_size: tuple[float, float] = (10, 10),
-        dpi: int = 300,
+        figure_size: tuple[float, float] | None = None,
+        dpi: int | None = None,
         *,
+        ax: Axes | None = None,
         include_legend: bool = True,
         xlabel: str | None = None,
         ylabel: str | None = None,
@@ -243,18 +245,26 @@ class SeatsVotes(GerryPlotBase):
         """Initialize a SeatsVotes instance.
 
         Args:
-            figure_size (tuple[float, float], optional): The size of the figure in inches.
-                Defaults to (10, 10).
-            dpi (int, optional): The dots per inch (DPI) of the figure. Defaults to 300.
+            figure_size (tuple[float, float] | None, optional): The size of the
+                figure in inches. Defaults to ``(10, 10)`` when ``ax`` is not provided.
+            dpi (int | None, optional): The dots per inch (DPI) of the figure.
+                Defaults to ``300`` when ``ax`` is not provided.
+            ax (matplotlib.axes.Axes | None, optional): Render onto an existing
+                matplotlib ``Axes`` instead of creating a fresh figure. Defaults to None.
             include_legend (bool, optional): Whether to include a legend in the plot.
                 Defaults to True.
             xlabel (str | None, optional): The label for the x-axis. Defaults to None.
             ylabel (str | None, optional): The label for the y-axis. Defaults to None.
             title (str | None, optional): The title of the plot. Defaults to None.
         """
+        # SeatsVotes prefers a square 10x10 figure; only apply this default when
+        # the user hasn't otherwise specified a size or supplied their own axes.
+        if figure_size is None and ax is None:
+            figure_size = (10, 10)
         super().__init__(
             figure_size=figure_size,
             dpi=dpi,
+            ax=ax,
             include_legend=include_legend,
             xlabel=xlabel,
             ylabel=ylabel,
@@ -265,7 +275,7 @@ class SeatsVotes(GerryPlotBase):
         self._line_data_list: list[SVPlotLine] = []
 
         self._crosshair_settings: _CrosshairSettings | None = None
-        self.update_crosshair_settings()
+        self.set_crosshair_options()
 
         self._display_election_markers = True
         self.standard_marker_color: Color = "#daa520"
@@ -290,8 +300,8 @@ class SeatsVotes(GerryPlotBase):
         self,
         pov_party_vote_shares: Sequence[int | float],
         total_vote_shares: Sequence[int | float] | None = None,
-        *,
         name: str | None = None,
+        *,
         line_options: SeatsVotesLineOptions | None = None,
         marker_options: SeatsVotesMarkerOptions | None = None,
         linecolor: Color | None = None,
@@ -429,7 +439,7 @@ class SeatsVotes(GerryPlotBase):
     # ========================
     # ==  Cosmetic helpers  ==
     # ========================
-    def update_crosshair_settings(
+    def set_crosshair_options(
         self,
         *,
         x_width: float = 0.02,

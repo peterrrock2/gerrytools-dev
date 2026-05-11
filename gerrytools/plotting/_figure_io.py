@@ -5,7 +5,7 @@ from typing import Any, cast
 
 import matplotlib
 import matplotlib.pyplot as plt
-from matplotlib import rcsetup
+from matplotlib.backends import BackendFilter, backend_registry
 from matplotlib.figure import Figure
 
 from gerrytools.typing import MplKwargs
@@ -53,7 +53,7 @@ def show_figure(
         pass  # pragma: no cover
 
     backend = matplotlib.get_backend()
-    if backend not in rcsetup.interactive_bk:
+    if backend not in backend_registry.list_builtin(BackendFilter.INTERACTIVE):
         fig.savefig(non_gui_filename, **cast(dict[str, Any], savefig_kwargs))
         print(f"[{non_gui_prefix}] Non-GUI backend ({backend}); saved to {non_gui_filename}")
         return

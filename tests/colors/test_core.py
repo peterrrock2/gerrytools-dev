@@ -5,7 +5,7 @@ import pytest
 import gerrytools.colors.core as core_module
 from gerrytools.colors.core import (
     CITIZEN_BLUE,
-    COLOR_CORECTED_BASESET,
+    COLOR_CORRECTED_BASESET,
     DEFAULT_GREY,
     ENSEMBLE_COLORS,
     OVERLAYS,
@@ -34,9 +34,9 @@ class TestSupportedColorDictionaries:
             assert overlay in supported
 
     def test_color_corrected_baseset_is_a_nonempty_dict(self):
-        assert isinstance(COLOR_CORECTED_BASESET, dict)
-        assert len(COLOR_CORECTED_BASESET) > 0
-        assert all(k.startswith("cc:") for k in COLOR_CORECTED_BASESET)
+        assert isinstance(COLOR_CORRECTED_BASESET, dict)
+        assert len(COLOR_CORRECTED_BASESET) > 0
+        assert all(k.startswith("cc:") for k in COLOR_CORRECTED_BASESET)
 
 
 # =================

@@ -4,11 +4,11 @@ from gerrytools.plotting.data.paintball import PaintBall
 
 
 def test_paintball_builds_point_and_hull_views():
-    plot = PaintBall(
-        voteshare_data=[0.4925, 0.5233, 0.4960, 0.5259],
-        seats_data=[5, 10, 9, 9],
+    plot = PaintBall(include_legend=True)
+    plot.add_voteshare_seatshare_data(
+        [0.4925, 0.5233, 0.4960, 0.5259],
+        [5, 10, 9, 9],
         maximum_seats=18,
-        include_legend=True,
     )
     plot.set_marker_options(
         size=9.0,
@@ -39,17 +39,19 @@ def test_paintball_builds_point_and_hull_views():
 
 def test_paintball_validates_data_shapes_and_ranges():
     with pytest.raises(ValueError, match="same length"):
-        PaintBall(voteshare_data=[0.5], seats_data=[0.5, 0.6])
-
+        _pb = PaintBall()
+        _pb.add_voteshare_seatshare_data([0.5], [0.5, 0.6])
     with pytest.raises(ValueError, match="vote-share values must be in \\[0, 1\\]"):
-        PaintBall(voteshare_data=[1.2], seats_data=[0.5])
-
+        _pb = PaintBall()
+        _pb.add_voteshare_seatshare_data([1.2], [0.5])
     with pytest.raises(ValueError, match="maximum_seats must be a positive integer"):
-        PaintBall(voteshare_data=[0.5], seats_data=[2], maximum_seats=0)
+        _pb = PaintBall()
+        _pb.add_voteshare_seatshare_data([0.5], [2], maximum_seats=0)
 
 
 def test_paintball_set_crosshair_options_supports_partial_updates():
-    plot = PaintBall(voteshare_data=[0.5], seats_data=[0.5])
+    plot = PaintBall()
+    plot.add_voteshare_seatshare_data([0.5], [0.5])
     original_width = plot.crosshair_width
     original_alpha = plot.crosshair_alpha
 

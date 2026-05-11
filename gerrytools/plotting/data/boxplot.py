@@ -7,6 +7,7 @@ from typing import Mapping, Sequence, cast
 
 import numpy as np
 import pandas as pd
+from matplotlib.axes import Axes
 from matplotlib.patches import Patch
 
 from gerrytools.colors import resolve_color_and_alpha
@@ -92,29 +93,44 @@ class BoxPlot(CategoricalDistributionPlotBase):
 
     def __init__(
         self,
-        figure_size: tuple[float, float] = (10, 6),
-        dpi: int = 300,
+        figure_size: tuple[float, float] | None = None,
+        dpi: int | None = None,
         *,
+        ax: Axes | None = None,
         include_legend: bool = True,
         xlabel: str | None = None,
         ylabel: str | None = None,
         title: str | None = None,
         boxplot_width_scale: float = 0.8,
         boxplot_group_width: float = 0.7,
-        include_boxplot_group_vlines: bool = False,
     ) -> None:
+        """Initialize a BoxPlot.
+
+        Toggle the per-group vertical guide lines via
+        :meth:`enable_boxplot_group_vlines` / :meth:`disable_boxplot_group_vlines`
+        after construction.
+        """
         super().__init__(
             figure_size=figure_size,
             dpi=dpi,
+            ax=ax,
             include_legend=include_legend,
             xlabel=xlabel,
             ylabel=ylabel,
             title=title,
             group_width=boxplot_group_width,
             width_scale=boxplot_width_scale,
-            include_group_vlines=include_boxplot_group_vlines,
+            include_group_vlines=False,
         )
         self._boxplot_data_list: list[BoxPlotSetData] = []
+
+    def enable_boxplot_group_vlines(self) -> None:
+        """Show vertical guide lines at the center of each category group."""
+        self._include_group_vlines = True
+
+    def disable_boxplot_group_vlines(self) -> None:
+        """Hide the per-category vertical guide lines (the default)."""
+        self._include_group_vlines = False
 
     @property
     def boxplot_group_width(self) -> float:
@@ -184,9 +200,9 @@ class BoxPlot(CategoricalDistributionPlotBase):
             | Sequence[Sequence[float]]
             | pd.DataFrame
         ),
+        name: str | None = None,
         *,
         scores_labels: list[str] | None = None,
-        name: str | None = None,
         options: BoxPlotOptions | None = None,
         facecolor: Color | None = None,
         facealpha: float | None = None,

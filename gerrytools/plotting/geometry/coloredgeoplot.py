@@ -61,21 +61,25 @@ class ColoredGeoPlot(GeoPlot):
         self,
         gdf: GeoDataFrame,
         *,
-        dpi: int = 300,
+        dpi: int | None = None,
+        ax: Axes | None = None,
         show_axis: bool = False,
         target_crs: CRSLike | None = None,
-        include_default_outline: bool = True,
+        default_outline: bool = True,
         silent: bool = False,
     ) -> None:
         """Initialize a ColoredGeoPlot.
 
         Args:
             gdf (GeoDataFrame): The base GeoDataFrame for the plot.
-            dpi (int): The DPI for the Matplotlib Figure. Default is 300.
+            dpi (int | None): The DPI for the Matplotlib Figure. Defaults to 300 when
+                ``ax`` is not provided.
+            ax (matplotlib.axes.Axes | None): Render onto an existing matplotlib
+                ``Axes`` instead of creating a fresh figure. Defaults to None.
             show_axis (bool): Whether to show axis ticks and labels. Default is False.
             target_crs (CRSLike | None): The target CRS for reprojecting geometries.
                 If None, uses the CRS of `gdf`. Default is None.
-            include_default_outline (bool): Whether to include a default outline layer around
+            default_outline (bool): Whether to include a default outline layer around
                 the geometries in `gdf`. Default is True.
             silent (bool): Whether to suppress informational output throughout the rendering
                 process. Default is False.
@@ -83,9 +87,10 @@ class ColoredGeoPlot(GeoPlot):
         super().__init__(
             gdf,
             dpi=dpi,
+            ax=ax,
             show_axis=show_axis,
             target_crs=target_crs,
-            include_default_outline=include_default_outline,
+            default_outline=default_outline,
             silent=silent,
         )
 
@@ -101,9 +106,9 @@ class ColoredGeoPlot(GeoPlot):
 
     def add_choropleth_layer(
         self,
-        *,
         geosource: GeoDataFrame | None = None,
-        datacolumn: str,
+        datacolumn: str | None = None,
+        *,
         colormap: str | Colormap = "Purples",
         missing_color: MplCompatibleColor | None = "lightgrey",
         facealpha: float | None = None,
@@ -179,9 +184,9 @@ class ColoredGeoPlot(GeoPlot):
 
     def add_districting_plan_layer(
         self,
-        *,
         geosource: GeoDataFrame | None = None,
-        plancolumn: str,
+        plancolumn: str | None = None,
+        *,
         dissolve: bool = False,
         show_labels: bool = False,
         exclude_labels: Sequence[CategoryKey] | None = None,

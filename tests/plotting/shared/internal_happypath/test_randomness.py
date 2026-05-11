@@ -9,8 +9,8 @@ from gerrytools.plotting.geometry.dotdensity import DotDensityPlot
 def _build_sealevel_xy(seed: int) -> tuple[np.ndarray, np.ndarray]:
     plot = SeaLevel(jitter_rng_seed=seed)
     plot.add_sealevel_set({"A": 1.0, "B": 2.0}, name="Series A")
-    plot.set_max_horizontal_jitter_all(0.15)
-    plot.set_max_vertical_jitter_all(0.25)
+    plot.set_horizontal_jitter(0.15)
+    plot.set_vertical_jitter(0.25)
 
     line = plot.ax.lines[0]
     return np.asarray(line.get_xdata()), np.asarray(line.get_ydata())
@@ -35,7 +35,7 @@ def _build_dotdensity_offsets(seed: int) -> np.ndarray:
             column_name="population",
             color="black",
             force_new_dots=True,
-            n_cores_for_processing=1,
+            n_cores=1,
             n_chunks=1,
         )
         offsets = np.asarray(plot.ax.collections[-1].get_offsets())

@@ -148,7 +148,7 @@ class TestDotDensitySaveLegend:
         assert Path(legend_path).exists()
 
     def test_save_legend_with_display_names(self, testing_gdf, tmp_path):
-        """save_legend with column_to_display_name should rename labels."""
+        """save_legend with display_names should rename labels."""
         plot = DotDensityPlot(
             testing_gdf,
             outline_column="district",
@@ -159,7 +159,7 @@ class TestDotDensitySaveLegend:
         )
         plot.add_dot_density(column_name="maj_pop", color="purple")
         legend_path = str(tmp_path / "legend_named.png")
-        plot.save_legend(legend_path, column_to_display_name={"maj_pop": "Majority Population"})
+        plot.save_legend(legend_path, display_names={"maj_pop": "Majority Population"})
         assert Path(legend_path).exists()
 
 
@@ -203,7 +203,7 @@ class TestDotDensityZeroDots:
             silent=True,
             show_labels=False,
         )
-        plot.add_dot_density(column_name="min_pop", color="blue", n_cores_for_processing=1)
+        plot.add_dot_density(column_name="min_pop", color="blue", n_cores=1)
         out = str(tmp_path / "zero_dot_some.png")
         plot.save(out)
         assert Path(out).exists()
@@ -222,7 +222,7 @@ class TestDotDensityZeroDots:
             silent=True,
             show_labels=False,
         )
-        plot.add_dot_density(column_name="min_pop", color="red", n_cores_for_processing=1)
+        plot.add_dot_density(column_name="min_pop", color="red", n_cores=1)
         out = str(tmp_path / "zero_dot_all.png")
         plot.save(out)
         assert Path(out).exists()

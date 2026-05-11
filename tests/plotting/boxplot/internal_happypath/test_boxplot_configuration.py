@@ -87,17 +87,19 @@ class TestBoxPlotCategoryCenters:
 
 class TestBoxPlotGroupVlines:
     def test_remove_group_vlines_disables(self):
-        bp = BoxPlot(include_boxplot_group_vlines=True)
+        bp = BoxPlot()
+        bp.enable_boxplot_group_vlines()
         assert bp._include_group_vlines is True
         bp.remove_group_vlines()
         assert bp._include_group_vlines is False
 
     def test_update_group_vline_settings_enables(self):
-        bp = BoxPlot(include_boxplot_group_vlines=False)
+        bp = BoxPlot()
         bp.update_group_vline_settings(linecolor="red")
         assert bp._include_group_vlines is True
 
     def test_clear_vertical_lines_and_bands_disables_vlines(self):
-        bp = BoxPlot(include_boxplot_group_vlines=True)
-        bp.clear_vertical_lines_and_bands()
+        bp = BoxPlot()
+        bp.enable_boxplot_group_vlines()
+        bp.clear_verticals()
         assert bp._include_group_vlines is False

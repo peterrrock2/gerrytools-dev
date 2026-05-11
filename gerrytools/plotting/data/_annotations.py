@@ -46,11 +46,11 @@ class _Annotations:
 
     # -- mutation -----------------------------------------------------
 
-    def clear_vertical_lines_and_bands(self) -> None:
+    def clear_verticals(self) -> None:
         self.vertical_lines.clear()
         self.vertical_bands.clear()
 
-    def clear_horizontal_lines_and_bands(self) -> None:
+    def clear_horizontals(self) -> None:
         self.horizontal_lines.clear()
         self.horizontal_bands.clear()
 

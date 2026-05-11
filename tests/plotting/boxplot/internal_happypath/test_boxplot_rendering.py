@@ -144,13 +144,14 @@ class TestBoxPlotActualBuilds:
         assert ax is not None
 
     def test_build_with_group_vlines(self):
-        bp = BoxPlot(include_boxplot_group_vlines=True)
+        bp = BoxPlot()
+        bp.enable_boxplot_group_vlines()
         bp.add_boxplot_datasets({"A": [1.0, 2.0, 3.0]})
         ax = bp.ax
         assert ax is not None
 
     def test_build_with_vlines_disabled(self):
-        bp = BoxPlot(include_boxplot_group_vlines=False)
+        bp = BoxPlot()
         bp.add_boxplot_datasets({"A": [1.0, 2.0, 3.0]})
         ax = bp.ax
         assert ax is not None

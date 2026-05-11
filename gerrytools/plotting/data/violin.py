@@ -7,6 +7,7 @@ from typing import cast
 
 import numpy as np
 import pandas as pd
+from matplotlib.axes import Axes
 from matplotlib.collections import PolyCollection
 from matplotlib.patches import Patch
 
@@ -81,29 +82,44 @@ class ViolinPlot(CategoricalDistributionPlotBase):
 
     def __init__(
         self,
-        figure_size: tuple[float, float] = (10, 6),
-        dpi: int = 300,
+        figure_size: tuple[float, float] | None = None,
+        dpi: int | None = None,
         *,
+        ax: Axes | None = None,
         include_legend: bool = True,
         xlabel: str | None = None,
         ylabel: str | None = None,
         title: str | None = None,
         violinplot_width_scale: float = 0.8,
         violinplot_group_width: float = 0.7,
-        include_violinplot_group_vlines: bool = False,
     ) -> None:
+        """Initialize a ViolinPlot.
+
+        Toggle the per-group vertical guide lines via
+        :meth:`enable_violinplot_group_vlines` / :meth:`disable_violinplot_group_vlines`
+        after construction.
+        """
         super().__init__(
             figure_size=figure_size,
             dpi=dpi,
+            ax=ax,
             include_legend=include_legend,
             xlabel=xlabel,
             ylabel=ylabel,
             title=title,
             group_width=violinplot_group_width,
             width_scale=violinplot_width_scale,
-            include_group_vlines=include_violinplot_group_vlines,
+            include_group_vlines=False,
         )
         self._violinplot_data_list: list[ViolinPlotSetData] = []
+
+    def enable_violinplot_group_vlines(self) -> None:
+        """Show vertical guide lines at the center of each category group."""
+        self._include_group_vlines = True
+
+    def disable_violinplot_group_vlines(self) -> None:
+        """Hide the per-category vertical guide lines (the default)."""
+        self._include_group_vlines = False
 
     @property
     def violinplot_group_width(self) -> float:
@@ -163,9 +179,9 @@ class ViolinPlot(CategoricalDistributionPlotBase):
     def add_violinplot_datasets(
         self,
         scores: dict[str, list[float]] | list[float] | list[list[float]] | pd.DataFrame,
+        name: str | None = None,
         *,
         scores_labels: list[str] | None = None,
-        name: str | None = None,
         options: ViolinPlotOptions | None = None,
         facecolor: Color | None = None,
         facealpha: float | None = None,

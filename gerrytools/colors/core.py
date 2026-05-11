@@ -3,7 +3,7 @@ import math
 
 from gerrytools.colors._sources import (
     CITIZEN_BLUE,
-    COLOR_CORECTED_BASESET,
+    COLOR_CORRECTED_BASESET,
     DEFAULT_GREY,
     ENSEMBLE_COLORS,
     GERRYTOOLS_EXTRA_COLORS_DICT,
@@ -18,7 +18,7 @@ from gerrytools.typing import Color, HexColor, MplCompatibleColor, ResolvedColor
 
 __all__ = [
     "CITIZEN_BLUE",
-    "COLOR_CORECTED_BASESET",
+    "COLOR_CORRECTED_BASESET",
     "DEFAULT_GREY",
     "ENSEMBLE_COLORS",
     "GERRYTOOLS_EXTRA_COLORS_DICT",

@@ -50,7 +50,7 @@ ENSEMBLE_COLORS = {
 """A dictionary mapping ensemble abbreviations to their corresponding standard colors."""
 
 
-COLOR_CORECTED_BASESET = {
+COLOR_CORRECTED_BASESET = {
     "cc:applegreen": "#73b900",
     "cc:denim": "#0064bd",
     "cc:cherryblossompink": "#ffb0c5",
@@ -136,7 +136,7 @@ _MATPLOTLIB_NAMED_AS_HEX: dict[str, str] = {
 
 _OVERRIDES_SOURCE = NamedColorSource(name="overrides", mapping={"green": "#00ff00"})
 _GERRYTOOLS_SOURCE = NamedColorSource(name="gerrytools", mapping=GERRYTOOLS_EXTRA_COLORS_DICT)
-_COLOR_CORRECTED_SOURCE = NamedColorSource(name="color-corrected", mapping=COLOR_CORECTED_BASESET)
+_COLOR_CORRECTED_SOURCE = NamedColorSource(name="color-corrected", mapping=COLOR_CORRECTED_BASESET)
 _DISTRICTR_SOURCE = NamedColorSource(name="districtr", mapping=DISTRICTR_COLOR_DICT)
 _LATEX_SOURCE = NamedColorSource(name="latex", mapping=LATEX_COLOR_DICT)
 _MATPLOTLIB_SOURCE = NamedColorSource(name="matplotlib", mapping=_MATPLOTLIB_NAMED_AS_HEX)

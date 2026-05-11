@@ -9,6 +9,7 @@ import numpy as np
 import shapely
 from geopandas import GeoDataFrame
 from joblib import Parallel, delayed
+from matplotlib.axes import Axes
 from matplotlib.colors import to_hex
 from matplotlib.lines import Line2D
 from numpy.random import Generator
@@ -177,10 +178,11 @@ class DotDensityPlot(GeoPlot):
         gdf: GeoDataFrame,
         *,
         outline_column: str,
-        dpi: int = 300,
+        dpi: int | None = None,
+        ax: Axes | None = None,
         show_axis: bool = False,
         target_crs: CRSLike | None = None,
-        include_default_outline: bool = False,
+        default_outline: bool = False,
         silent: bool = False,
         people_per_dot: int = 100,
         show_labels: bool = True,
@@ -222,7 +224,7 @@ class DotDensityPlot(GeoPlot):
             show_axis (bool, optional): Whether to show the axis. Defaults to False.
             target_crs (CRSLike | None, optional): Target CRS for reprojecting geometries.
                 Defaults to None.
-            include_default_outline (bool, optional): Whether to include a default outline
+            default_outline (bool, optional): Whether to include a default outline
                 layer. Defaults to False because the outline layer is already being added.
             silent (bool, optional): Whether to suppress informational output throughout
                 the rendering process. Defaults to False.
@@ -235,9 +237,10 @@ class DotDensityPlot(GeoPlot):
         super().__init__(
             gdf=gdf,
             dpi=dpi,
+            ax=ax,
             show_axis=show_axis,
             target_crs=target_crs,
-            include_default_outline=include_default_outline,
+            default_outline=default_outline,
             silent=silent,
         )
         self._rng, self._rng_seed = resolve_numpy_rng(seed=rng_seed, rng=rng, field_name="rng_seed")
@@ -316,44 +319,70 @@ class DotDensityPlot(GeoPlot):
 
     def set_marker_options(
         self,
+        marker_options: PointMarkerOptions | None = None,
         *,
-        marker: str = "o",
-        markersize: float = 1.0,
-        markeredgecolor: Color = "none",
+        marker: str | None = None,
+        markersize: float | None = None,
+        markeredgecolor: Color | None = None,
         markeredgealpha: float | None = None,
-        markeredgewidth: float = 0.0,
+        markeredgewidth: float | None = None,
     ) -> None:
         """Set global marker options for all dot density layers.
 
-        This method will set the marker style for all dot density layers in the plot. So all
-        dots will share the same marker style with the exception of color, which is set per-layer
-        when adding a dot density layer.
+        This method sets the marker style for all dot density layers in the plot,
+        so all dots share the same marker style except for color (which is set
+        per-layer when adding a dot density layer).
+
+        Mirrors the styling-pattern used everywhere else in the package: pass a
+        pre-built :class:`PointMarkerOptions` for compose-and-reuse, or provide
+        individual kwargs (which override the corresponding fields on the
+        passed-in options). All-defaults call gives a sensible 1pt dot.
 
         Args:
-            marker (str): The marker style (e.g., 'o' for circle, '^' for triangle).
-            markersize (float): The size of the markers.
-            markeredgecolor (Color): The color of the marker edges.
-            markeredgealpha (float | None): The alpha transparency of the marker edges.
-            markeredgewidth (float): The width of the marker edges.
+            marker_options (PointMarkerOptions | None, optional): Pre-built styling.
+                Any styling kwarg passed explicitly overrides the corresponding
+                field on ``marker_options``. Defaults to None.
+            marker (str, optional): The marker style (e.g., 'o' for circle).
+            markersize (float, optional): The size of the markers.
+            markeredgecolor (Color, optional): The color of the marker edges.
+            markeredgealpha (float | None, optional): Alpha transparency of the edges.
+            markeredgewidth (float, optional): The width of the marker edges.
         """
+        # The dot-density global default: tiny black-edged dot.
+        base = (
+            marker_options
+            if marker_options is not None
+            else PointMarkerOptions(
+                marker="o",
+                markersize=1.0,
+                markeredgecolor="none",
+                markeredgewidth=0.0,
+            )
+        )
+        resolved = PointMarkerOptions(
+            marker=marker if marker is not None else base.marker,
+            markersize=markersize if markersize is not None else base.markersize,
+            markeredgecolor=(
+                markeredgecolor if markeredgecolor is not None else base.markeredgecolor
+            ),
+            markeredgealpha=(
+                markeredgealpha if markeredgealpha is not None else base.markeredgealpha
+            ),
+            markeredgewidth=(
+                markeredgewidth if markeredgewidth is not None else base.markeredgewidth
+            ),
+        )
         # NOTE: The size of the markers is adjusted to work with ax.scatter in the
         # `to_mpl_scatter_settings_dict` method of PointMarkerOptions.
-        options_dict = PointMarkerOptions(
-            marker=marker,
-            markersize=markersize,
-            markeredgecolor=markeredgecolor,
-            markeredgealpha=markeredgealpha,
-            markeredgewidth=markeredgewidth,
-        ).to_mpl_scatter_settings_dict()
-        self.__global_marker_settings_dict.update(options_dict)
+        self.__global_marker_settings_dict.update(resolved.to_mpl_scatter_settings_dict())
 
     def add_dot_density(
         self,
-        *,
         column_name: str,
         color: Color,
+        *,
         force_new_dots: bool = False,
-        n_cores_for_processing: int = -1,
+        n_cores: int = -1,
         n_chunks: int = 10,
     ) -> None:
         """Add a dot density layer for a specific data column.
@@ -372,7 +401,7 @@ class DotDensityPlot(GeoPlot):
             color (Color): The color of the dots.
             force_new_dots (bool, optional): If True, forces regeneration of dots even if cached.
                 Defaults to False.
-            n_cores_for_processing (int, optional): Number of CPU cores to use for processing when
+            n_cores (int, optional): Number of CPU cores to use for processing when
                 generating dots. Defaults to -1 which will use all available cores minus two.
             n_chunks (int, optional): Number of chunks used to split polygon processing work.
                 Defaults to ``10``.
@@ -425,7 +454,7 @@ class DotDensityPlot(GeoPlot):
                 datacolumn_name=column_name,
                 color=color,
                 rng=self._rng,
-                n_jobs=n_cores_for_processing,
+                n_jobs=n_cores,
                 n_chunks=n_chunks,
             )
 
@@ -630,7 +659,7 @@ class DotDensityPlot(GeoPlot):
         self,
         filepath: str,
         *,
-        column_to_display_name: dict[str, str] | None = None,
+        display_names: dict[str, str] | None = None,
         outer_padding: float = 0.07,
         dpi: int | None = None,
         **legend_kwargs: object,
@@ -639,7 +668,7 @@ class DotDensityPlot(GeoPlot):
 
         Args:
             filepath (str): The file path to save the legend to.
-            column_to_display_name (dict[str, str] | None, optional): A mapping from original
+            display_names (dict[str, str] | None, optional): A mapping from original
                 column names to new display names for the legend. If None, original column names
                 are used. Defaults to None.
             dpi (int | None, optional): The DPI to use when saving the legend. If None, uses the
@@ -660,9 +689,9 @@ class DotDensityPlot(GeoPlot):
         marker_settings = self.__global_marker_settings_dict
 
         column_to_color_dict = self.__column_to_color_dict
-        if column_to_display_name is not None:
+        if display_names is not None:
             column_to_color_dict = {
-                column_to_display_name.get(label, label): color
+                display_names.get(label, label): color
                 for label, color in self.__column_to_color_dict.items()
             }
 

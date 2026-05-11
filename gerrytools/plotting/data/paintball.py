@@ -70,59 +70,60 @@ class PaintBall(GerryPlotBase):
 
     def __init__(
         self,
-        voteshare_data: Iterable[float],
-        seats_data: Iterable[float],
-        maximum_seats: int | None = None,
+        figure_size: tuple[float, float] | None = None,
+        dpi: int | None = None,
         *,
-        include_efficiency_gap_line: bool = True,
-        include_proportionality_line: bool = True,
-        figure_size: tuple[float, float] = (10, 10),
-        dpi: int = 300,
+        ax: Axes | None = None,
         include_legend: bool = False,
         xlabel: str | None = None,
         ylabel: str | None = None,
         title: str | None = None,
     ) -> None:
-        """Initialize a paintball plot.
+        """Initialize an empty paintball plot.
+
+        Mirrors the constructor pattern of every other plot in
+        ``gerrytools.plotting`` — the canvas is created empty; data and guide
+        lines are added via the corresponding ``add_*`` methods after
+        construction.
 
         Args:
-            voteshare_data (Iterable[float]): Vote-share values for each plan outcome.
-                Every value must be in the closed interval [0, 1].
-            seats_data (Iterable[float]): Seat-share values or seat counts for each plan outcome.
-                If ``maximum_seats`` is None, values are interpreted as seat shares and must be
-                in [0, 1]. If ``maximum_seats`` is provided, values are interpreted as seat counts
-                and are normalized by dividing by ``maximum_seats``.
-            maximum_seats (int | None, optional): Maximum seat count used to normalize
-                ``seats_data`` to share values when provided. Defaults to None.
-            include_efficiency_gap_line (bool, optional): Whether to add the
-                efficiency-gap guide line by default. Defaults to True.
-            include_proportionality_line (bool, optional): Whether to add the
-                proportionality guide line by default. Defaults to True.
-            figure_size (tuple[float, float], optional): Figure size in inches.
-                Defaults to (10, 10).
-            dpi (int, optional): Figure DPI. Defaults to 300.
-            include_legend (bool, optional): Whether to include legend when rendering.
+            figure_size (tuple[float, float] | None, optional): Figure size in
+                inches. Defaults to ``(10, 10)`` when ``ax`` is not provided.
+            dpi (int | None, optional): Figure DPI. Defaults to ``300`` when
+                ``ax`` is not provided.
+            ax (matplotlib.axes.Axes | None, optional): Render onto an existing
+                matplotlib ``Axes`` instead of creating a fresh figure.
+                Defaults to None.
+            include_legend (bool, optional): Whether to include the legend.
                 Defaults to False.
             xlabel (str | None, optional): X-axis label text. Defaults to None.
             ylabel (str | None, optional): Y-axis label text. Defaults to None.
             title (str | None, optional): Plot title text. Defaults to None.
+
+        Add data and guide lines after construction::
+
+            plot = PaintBall()
+            plot.add_voteshare_seatshare_data(voteshares, seats)
+            plot.add_efficiency_gap_line()
+            plot.add_proportionality_line()
+            plot.show()
         """
+        # PaintBall prefers a square 10x10 figure; only apply this default when
+        # the user hasn't otherwise specified a size or supplied their own axes.
+        if figure_size is None and ax is None:
+            figure_size = (10, 10)
         super().__init__(
             figure_size=figure_size,
             dpi=dpi,
+            ax=ax,
             include_legend=include_legend,
             xlabel=xlabel,
             ylabel=ylabel,
             title=title,
         )
 
-        self._voteshare_data, self._seatshare_data = (
-            self._validate_voteshare_seatshare_and_max_seats(
-                list(voteshare_data),
-                list(seats_data),
-                maximum_seats,
-            )
-        )
+        self._voteshare_data: list[float] = []
+        self._seatshare_data: list[float] = []
 
         self._named_lines: dict[str, PaintBallLine] = {}
         self._lines: dict[float, list[PaintBallLine]] = {}
@@ -131,23 +132,55 @@ class PaintBall(GerryPlotBase):
 
         self.clear_options()
 
-        if include_efficiency_gap_line:
-            self.add_lines_with_slope(
-                slopes=[2.0],
-                linecolor="gray",
-                linewidth=1.0,
-                linestyle="-",
-                name="Efficiency Gap",
-            )
+    def add_efficiency_gap_line(
+        self,
+        *,
+        linecolor: Color = "gray",
+        linealpha: float | None = None,
+        linewidth: float = 1.0,
+        linestyle: str = "-",
+        zorder: int = -1,
+        name: str = "Efficiency Gap",
+    ) -> None:
+        """Add the standard efficiency-gap guide line (slope 2 through (0.5, 0.5)).
 
-        if include_proportionality_line:
-            self.add_lines_with_slope(
-                slopes=[1.0],
-                linecolor="gray",
-                linewidth=1.0,
-                linestyle="--",
-                name="Proportionality",
-            )
+        Mirrors :meth:`SeatsVotes.add_efficiency_gap_line`. The default styling
+        matches the appearance used previously in ``include_efficiency_gap_line``.
+        """
+        self.add_lines_with_slope(
+            slopes=[2.0],
+            linecolor=linecolor,
+            linealpha=linealpha,
+            linewidth=linewidth,
+            linestyle=linestyle,
+            zorder=zorder,
+            name=name,
+        )
+
+    def add_proportionality_line(
+        self,
+        *,
+        linecolor: Color = "gray",
+        linealpha: float | None = None,
+        linewidth: float = 1.0,
+        linestyle: str = "--",
+        zorder: int = -1,
+        name: str = "Proportionality",
+    ) -> None:
+        """Add the standard proportionality guide line (slope 1 through (0.5, 0.5)).
+
+        Mirrors :meth:`SeatsVotes.add_proportionality_line`. The default styling
+        matches the appearance used previously in ``include_proportionality_line``.
+        """
+        self.add_lines_with_slope(
+            slopes=[1.0],
+            linecolor=linecolor,
+            linealpha=linealpha,
+            linewidth=linewidth,
+            linestyle=linestyle,
+            zorder=zorder,
+            name=name,
+        )
 
     def clear_options(self) -> None:
         """Reset all display options to defaults."""
@@ -231,6 +264,7 @@ class PaintBall(GerryPlotBase):
         self,
         voteshare_data: Iterable[float],
         seats_data: Iterable[float],
+        *,
         maximum_seats: int | None = None,
     ) -> None:
         """Add vote-share / seat-share data points to the paintball plot.
@@ -256,10 +290,10 @@ class PaintBall(GerryPlotBase):
     def add_lines_with_slope(
         self,
         slopes: Iterable[float],
+        *,
         linecolor: Color = "black",
         linewidth: float = 1.0,
         linestyle: str = "-",
-        *,
         linealpha: float | None = None,
         zorder: int = -1,
         name: str | None = None,
@@ -309,7 +343,7 @@ class PaintBall(GerryPlotBase):
         if not (left < right):
             raise ValueError("left must be less than right.")
 
-        self.set_xlimits(float(left), float(right))
+        super().set_xlim(float(left), float(right))
 
     def set_ylim(self, bottom: float, top: float) -> None:
         """Set y-axis limits for the paintball plot.
@@ -321,7 +355,7 @@ class PaintBall(GerryPlotBase):
         if not (bottom < top):
             raise ValueError("bottom must be less than top.")
 
-        self.set_ylimits(float(bottom), float(top))
+        super().set_ylim(float(bottom), float(top))
 
     def set_xscale(self, xscale: float) -> None:
         """Set horizontal scaling for the paintball plot.

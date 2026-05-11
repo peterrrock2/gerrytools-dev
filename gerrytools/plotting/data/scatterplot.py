@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Sequence
 
 import numpy as np
+from matplotlib.axes import Axes
 from matplotlib.lines import Line2D
 
 from gerrytools.logging import get_logger
@@ -35,9 +36,10 @@ class ScatterPlot(GerryPlotBase):
 
     def __init__(
         self,
-        figure_size: tuple[float, float] = (10, 6),
-        dpi: int = 300,
+        figure_size: tuple[float, float] | None = None,
+        dpi: int | None = None,
         *,
+        ax: Axes | None = None,
         include_legend: bool = True,
         xlabel: str | None = None,
         ylabel: str | None = None,
@@ -58,6 +60,7 @@ class ScatterPlot(GerryPlotBase):
         super().__init__(
             figure_size=figure_size,
             dpi=dpi,
+            ax=ax,
             include_legend=include_legend,
             xlabel=xlabel,
             ylabel=ylabel,
@@ -71,9 +74,9 @@ class ScatterPlot(GerryPlotBase):
         self,
         x: Sequence[float] | None = None,
         y: Sequence[float] | None = None,
-        xy_pairs: list[tuple[float, float]] | None = None,
-        *,
         label: str | None = None,
+        *,
+        xy_pairs: list[tuple[float, float]] | None = None,
         marker_options: PointMarkerOptions | None = None,
         markerfacecolor: Color | None = None,
         markerfacealpha: float | None = None,
@@ -161,8 +164,8 @@ class ScatterPlot(GerryPlotBase):
         self,
         x: float,
         y: float,
-        *,
         label: str,
+        *,
         marker_options: PointMarkerOptions | None = None,
         markerfacecolor: Color | None = None,
         markerfacealpha: float | None = None,

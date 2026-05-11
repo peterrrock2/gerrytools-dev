@@ -45,72 +45,72 @@ class TestTickManagement:
         assert sp._y_tick_locations == []
         assert sp._y_tick_labels == []
 
-    def test_update_xtick_values_locations_only(self):
+    def test_update_xtick_labels_locations_only(self):
         sp = _make_plot()
-        sp.update_xtick_values(locations=[0.0, 0.5, 1.0])
+        sp.update_xtick_labels(locations=[0.0, 0.5, 1.0])
         assert sp._x_tick_locations == [0.0, 0.5, 1.0]
 
-    def test_update_xtick_values_labels_only(self):
+    def test_update_xtick_labels_labels_only(self):
         sp = _make_plot()
-        sp.update_xtick_values(labels=["a", "b"])
+        sp.update_xtick_labels(labels=["a", "b"])
         assert sp._x_tick_labels == ["a", "b"]
 
-    def test_update_xtick_values_both(self):
+    def test_update_xtick_labels_both(self):
         sp = _make_plot()
-        sp.update_xtick_values(locations=[1.0, 2.0], labels=["x", "y"])
+        sp.update_xtick_labels(locations=[1.0, 2.0], labels=["x", "y"])
         assert sp._x_tick_locations == [1.0, 2.0]
         assert sp._x_tick_labels == ["x", "y"]
 
-    def test_update_xtick_values_mismatched_lengths_raises_valueerror(self):
+    def test_update_xtick_labels_mismatched_lengths_raises_valueerror(self):
         sp = _make_plot()
         with pytest.raises(ValueError, match="does not match"):
-            sp.update_xtick_values(locations=[1.0, 2.0], labels=["x"])
+            sp.update_xtick_labels(locations=[1.0, 2.0], labels=["x"])
 
     def test_update_xtick_empty_locations_with_non_empty_labels_raises(self):
         sp = _make_plot()
         with pytest.raises(ValueError, match="clear both"):
-            sp.update_xtick_values(locations=[], labels=["a"])
+            sp.update_xtick_labels(locations=[], labels=["a"])
 
     def test_update_xtick_empty_labels_with_non_empty_locations_raises(self):
         sp = _make_plot()
         with pytest.raises(ValueError, match="clear both"):
-            sp.update_xtick_values(locations=[1.0], labels=[])
+            sp.update_xtick_labels(locations=[1.0], labels=[])
 
-    def test_update_ytick_values_mismatched_lengths_raises_valueerror(self):
+    def test_update_ytick_labels_mismatched_lengths_raises_valueerror(self):
         sp = _make_plot()
         with pytest.raises(ValueError, match="does not match"):
-            sp.update_ytick_values(locations=[1.0], labels=["a", "b"])
+            sp.update_ytick_labels(locations=[1.0], labels=["a", "b"])
 
     def test_update_xtick_none_none_is_noop(self):
         sp = _make_plot()
-        sp.update_xtick_values(locations=[1.0], labels=["a"])
-        sp.update_xtick_values()  # noop
+        sp.update_xtick_labels(locations=[1.0], labels=["a"])
+        sp.update_xtick_labels()  # noop
         assert sp._x_tick_locations == [1.0]
         assert sp._x_tick_labels == ["a"]
 
     def test_update_locations_incompatible_with_existing_labels_raises(self):
         sp = _make_plot()
-        sp.update_xtick_values(locations=[1.0, 2.0], labels=["a", "b"])
+        sp.update_xtick_labels(locations=[1.0, 2.0], labels=["a", "b"])
         with pytest.raises(ValueError, match="does not match"):
-            sp.update_xtick_values(locations=[1.0, 2.0, 3.0])
+            sp.update_xtick_labels(locations=[1.0, 2.0, 3.0])
 
     def test_update_labels_incompatible_with_existing_locations_raises(self):
         sp = _make_plot()
-        sp.update_xtick_values(locations=[1.0, 2.0], labels=["a", "b"])
+        sp.update_xtick_labels(locations=[1.0, 2.0], labels=["a", "b"])
         with pytest.raises(ValueError, match="does not match"):
-            sp.update_xtick_values(labels=["x", "y", "z"])
+            sp.update_xtick_labels(labels=["x", "y", "z"])
 
     def test_update_ytick_empty_locations_clears_both(self):
         sp = _make_plot()
-        sp.update_ytick_values(locations=[1.0], labels=["a"])
-        sp.update_ytick_values(locations=[])
+        sp.update_ytick_labels(locations=[1.0], labels=["a"])
+        sp.update_ytick_labels(locations=[])
         assert sp._y_tick_locations == []
         assert sp._y_tick_labels == []
 
     def test_update_ytick_empty_labels_clears_labels(self):
         sp = _make_plot()
-        sp.update_ytick_values(locations=[1.0], labels=["a"])
-        sp.update_ytick_values(labels=[])
+        sp.update_ytick_labels(locations=[1.0], labels=["a"])
+        sp.update_ytick_labels(labels=[])
         assert sp._y_tick_labels == []
 
 
@@ -142,14 +142,22 @@ class TestGerryPlotBaseSetters:
         sp.set_title("My Plot")
         assert sp.title == "My Plot"
 
-    def test_clear_xlabel_ylabel_and_title_styles_clears_all(self):
+    def test_clear_xlabel_style(self):
         sp = ScatterPlot()
         sp.set_xaxis_label_style(fontsize=14.0)
-        sp.set_yaxis_label_style(fontsize=14.0)
-        sp.set_title_style(fontsize=14.0)
-        sp.clear_xlabel_ylabel_and_title_styles()
+        sp.clear_xlabel_style()
         assert sp._xlabel_style is None
+
+    def test_clear_ylabel_style(self):
+        sp = ScatterPlot()
+        sp.set_yaxis_label_style(fontsize=14.0)
+        sp.clear_ylabel_style()
         assert sp._ylabel_style is None
+
+    def test_clear_title_style(self):
+        sp = ScatterPlot()
+        sp.set_title_style(fontsize=14.0)
+        sp.clear_title_style()
         assert sp._title_style is None
 
     def test_clear_xtick_labels(self):
@@ -186,52 +194,52 @@ class TestGerryPlotBaseSetters:
 
 
 class TestGerryPlotBaseUpdateYTickEdgeCases:
-    """Edge cases in update_ytick_values that weren't previously exercised."""
+    """Edge cases in update_ytick_labels that weren't previously exercised."""
 
-    def test_update_ytick_values_both_none_is_noop(self):
+    def test_update_ytick_labels_both_none_is_noop(self):
         sp = ScatterPlot()
-        sp.update_ytick_values()
+        sp.update_ytick_labels()
         assert sp._y_tick_locations is None
         assert sp._y_tick_labels is None
 
-    def test_update_ytick_values_inconsistent_clear_raises(self):
+    def test_update_ytick_labels_inconsistent_clear_raises(self):
         sp = ScatterPlot()
         with pytest.raises(ValueError, match="clear both"):
-            sp.update_ytick_values(locations=[], labels=["a"])
+            sp.update_ytick_labels(locations=[], labels=["a"])
 
-    def test_update_ytick_values_locations_mismatch_existing_labels_raises(self):
+    def test_update_ytick_labels_locations_mismatch_existing_labels_raises(self):
         sp = ScatterPlot()
-        sp.update_ytick_values(labels=["a", "b"])
+        sp.update_ytick_labels(labels=["a", "b"])
         with pytest.raises(ValueError, match="Locations length"):
-            sp.update_ytick_values(locations=[0.1, 0.2, 0.3])
+            sp.update_ytick_labels(locations=[0.1, 0.2, 0.3])
 
-    def test_update_ytick_values_locations_only_stores(self):
+    def test_update_ytick_labels_locations_only_stores(self):
         sp = ScatterPlot()
-        sp.update_ytick_values(locations=[0.1, 0.2])
+        sp.update_ytick_labels(locations=[0.1, 0.2])
         assert sp._y_tick_locations == [0.1, 0.2]
         assert sp._y_tick_labels is None
 
-    def test_update_ytick_values_labels_empty_clears_only_labels(self):
+    def test_update_ytick_labels_labels_empty_clears_only_labels(self):
         sp = ScatterPlot()
-        sp.update_ytick_values(labels=[])
+        sp.update_ytick_labels(labels=[])
         assert sp._y_tick_labels == []
 
-    def test_update_ytick_values_labels_mismatch_existing_locations_raises(self):
+    def test_update_ytick_labels_labels_mismatch_existing_locations_raises(self):
         sp = ScatterPlot()
-        sp.update_ytick_values(locations=[0.1, 0.2])
+        sp.update_ytick_labels(locations=[0.1, 0.2])
         with pytest.raises(ValueError, match="Labels length"):
-            sp.update_ytick_values(labels=["only_one"])
+            sp.update_ytick_labels(labels=["only_one"])
 
-    def test_update_ytick_values_labels_only_stores(self):
+    def test_update_ytick_labels_labels_only_stores(self):
         sp = ScatterPlot()
-        sp.update_ytick_values(locations=[0.1, 0.2])
-        sp.update_ytick_values(labels=["a", "b"])
+        sp.update_ytick_labels(locations=[0.1, 0.2])
+        sp.update_ytick_labels(labels=["a", "b"])
         assert sp._y_tick_labels == ["a", "b"]
 
-    def test_update_xtick_values_labels_empty_clears(self):
+    def test_update_xtick_labels_labels_empty_clears(self):
         sp = ScatterPlot()
         sp.set_xticks(locations=[0.5], labels=["mid"])
-        sp.update_xtick_values(labels=[])
+        sp.update_xtick_labels(labels=[])
         assert sp._x_tick_labels == []
 
 
@@ -261,7 +269,7 @@ class TestXTickLabelCountMismatch:
         plot.add_scatter(x=[0.0, 0.5, 1.0], y=[0.0, 0.5, 1.0])
         # Set 3 explicit tick locations, then try to set 2 labels
         plot.set_xticks([0.0, 0.5, 1.0])
-        plot.update_xtick_values(labels=["a", "b", "c"])
+        plot.update_xtick_labels(labels=["a", "b", "c"])
         # Force a mismatch: clear locations then set labels with wrong count
         plot._x_tick_locations = [0.0, 0.5, 1.0]
         plot._x_tick_labels = ["a", "b"]  # wrong count

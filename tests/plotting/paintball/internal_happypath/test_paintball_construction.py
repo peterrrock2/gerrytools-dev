@@ -7,16 +7,7 @@ matplotlib.use("Agg")
 import pytest
 
 from gerrytools.plotting.data.paintball import PaintBall, PaintBallLine
-
-
-def _simple_paintball(**kwargs):
-    """Create a PaintBall with minimal valid data."""
-    defaults = dict(
-        voteshare_data=[0.4, 0.5, 0.6],
-        seats_data=[0.3, 0.5, 0.7],
-    )
-    defaults.update(kwargs)
-    return PaintBall(**defaults)  # ty: ignore[invalid-argument-type]
+from tests.plotting.paintball._helpers import simple_paintball
 
 
 # =============================
@@ -92,69 +83,85 @@ class TestPaintBallLineDataclass:
 
 class TestPaintBallConstruction:
     def test_minimal_valid_construction(self):
-        pb = PaintBall(voteshare_data=[0.5], seats_data=[0.5])
+        pb = PaintBall()
+        pb.add_voteshare_seatshare_data([0.5], [0.5])
         assert len(pb._voteshare_data) == 1
         assert len(pb._seatshare_data) == 1
 
     def test_data_stored_as_floats(self):
-        pb = PaintBall(voteshare_data=[1, 0], seats_data=[1, 0])
+        pb = PaintBall()
+        pb.add_voteshare_seatshare_data([1, 0], [1, 0])
         assert all(isinstance(v, float) for v in pb._voteshare_data)
         assert all(isinstance(s, float) for s in pb._seatshare_data)
 
     def test_length_mismatch_raises_valueerror(self):
         with pytest.raises(ValueError, match="same length"):
-            PaintBall(voteshare_data=[0.5], seats_data=[0.5, 0.6])
+            _pb = PaintBall()
+            _pb.add_voteshare_seatshare_data([0.5], [0.5, 0.6])
 
     def test_empty_data_raises_valueerror(self):
         with pytest.raises(ValueError, match="at least one element"):
-            PaintBall(voteshare_data=[], seats_data=[])
+            _pb = PaintBall()
+            _pb.add_voteshare_seatshare_data([], [])
 
     def test_voteshare_above_one_raises_valueerror(self):
         with pytest.raises(ValueError, match="vote-share values must be in"):
-            PaintBall(voteshare_data=[1.1], seats_data=[0.5])
+            _pb = PaintBall()
+            _pb.add_voteshare_seatshare_data([1.1], [0.5])
 
     def test_voteshare_below_zero_raises_valueerror(self):
         with pytest.raises(ValueError, match="vote-share values must be in"):
-            PaintBall(voteshare_data=[-0.1], seats_data=[0.5])
+            _pb = PaintBall()
+            _pb.add_voteshare_seatshare_data([-0.1], [0.5])
 
     def test_seatshare_above_one_without_max_seats_raises_valueerror(self):
         with pytest.raises(ValueError, match="seat-share values must be in"):
-            PaintBall(voteshare_data=[0.5], seats_data=[1.5])
+            _pb = PaintBall()
+            _pb.add_voteshare_seatshare_data([0.5], [1.5])
 
     def test_seatshare_below_zero_without_max_seats_raises_valueerror(self):
         with pytest.raises(ValueError, match="seat-share values must be in"):
-            PaintBall(voteshare_data=[0.5], seats_data=[-0.1])
+            _pb = PaintBall()
+            _pb.add_voteshare_seatshare_data([0.5], [-0.1])
 
     def test_maximum_seats_normalizes_seat_counts(self):
-        pb = PaintBall(voteshare_data=[0.5], seats_data=[5], maximum_seats=10)
+        pb = PaintBall()
+        pb.add_voteshare_seatshare_data([0.5], [5], maximum_seats=10)
         assert pb._seatshare_data[0] == pytest.approx(0.5)
 
     def test_maximum_seats_zero_raises_valueerror(self):
+        pb = PaintBall()
         with pytest.raises(ValueError, match="positive integer"):
-            PaintBall(voteshare_data=[0.5], seats_data=[5], maximum_seats=0)
+            pb.add_voteshare_seatshare_data([0.5], [5], maximum_seats=0)
 
     def test_maximum_seats_negative_raises_valueerror(self):
+        pb = PaintBall()
         with pytest.raises(ValueError, match="positive integer"):
-            PaintBall(voteshare_data=[0.5], seats_data=[5], maximum_seats=-1)
+            pb.add_voteshare_seatshare_data([0.5], [5], maximum_seats=-1)
 
     def test_seat_count_exceeds_max_seats_raises_valueerror(self):
+        pb = PaintBall()
         with pytest.raises(ValueError, match="seat-share values must be in"):
-            PaintBall(voteshare_data=[0.5], seats_data=[20], maximum_seats=10)
+            pb.add_voteshare_seatshare_data([0.5], [20], maximum_seats=10)
 
     def test_boundary_voteshare_zero_is_valid(self):
-        pb = PaintBall(voteshare_data=[0.0], seats_data=[0.5])
+        pb = PaintBall()
+        pb.add_voteshare_seatshare_data([0.0], [0.5])
         assert pb._voteshare_data[0] == 0.0
 
     def test_boundary_voteshare_one_is_valid(self):
-        pb = PaintBall(voteshare_data=[1.0], seats_data=[0.5])
+        pb = PaintBall()
+        pb.add_voteshare_seatshare_data([1.0], [0.5])
         assert pb._voteshare_data[0] == 1.0
 
     def test_boundary_seatshare_zero_is_valid(self):
-        pb = PaintBall(voteshare_data=[0.5], seats_data=[0.0])
+        pb = PaintBall()
+        pb.add_voteshare_seatshare_data([0.5], [0.0])
         assert pb._seatshare_data[0] == 0.0
 
     def test_boundary_seatshare_one_is_valid(self):
-        pb = PaintBall(voteshare_data=[0.5], seats_data=[1.0])
+        pb = PaintBall()
+        pb.add_voteshare_seatshare_data([0.5], [1.0])
         assert pb._seatshare_data[0] == 1.0
 
 
@@ -165,34 +172,32 @@ class TestPaintBallConstruction:
 
 class TestPaintBallDefaultLines:
     def test_default_includes_efficiency_gap_and_proportionality(self):
-        pb = _simple_paintball()
+        pb = simple_paintball()
         assert "Efficiency Gap" in pb._named_lines
         assert "Proportionality" in pb._named_lines
 
     def test_efficiency_gap_line_has_slope_two(self):
-        pb = _simple_paintball()
+        pb = simple_paintball()
         assert pb._named_lines["Efficiency Gap"].slope == 2.0
 
     def test_proportionality_line_has_slope_one(self):
-        pb = _simple_paintball()
+        pb = simple_paintball()
         assert pb._named_lines["Proportionality"].slope == 1.0
 
     def test_disable_efficiency_gap_line(self):
-        pb = _simple_paintball(include_efficiency_gap_line=False)
+        pb = simple_paintball(add_efficiency_gap_line=False)
         assert "Efficiency Gap" not in pb._named_lines
 
     def test_disable_proportionality_line(self):
-        pb = _simple_paintball(include_proportionality_line=False)
+        pb = simple_paintball(add_proportionality_line=False)
         assert "Proportionality" not in pb._named_lines
 
     def test_disable_both_default_lines(self):
-        pb = _simple_paintball(
-            include_efficiency_gap_line=False, include_proportionality_line=False
-        )
+        pb = simple_paintball(add_efficiency_gap_line=False, add_proportionality_line=False)
         assert len(pb._named_lines) == 0
 
     def test_default_legend_is_false(self):
-        pb = _simple_paintball()
+        pb = simple_paintball()
         assert pb.include_legend is False
 
 
@@ -203,34 +208,36 @@ class TestPaintBallDefaultLines:
 
 class TestAddVoteshareSeatshareData:
     def test_adds_to_existing_data(self):
-        pb = _simple_paintball()
+        pb = simple_paintball()
         original_length = len(pb._voteshare_data)
         pb.add_voteshare_seatshare_data([0.45], [0.55])
         assert len(pb._voteshare_data) == original_length + 1
 
     def test_new_data_appended_not_replaced(self):
-        pb = PaintBall(voteshare_data=[0.5], seats_data=[0.5])
+        pb = PaintBall()
+        pb.add_voteshare_seatshare_data([0.5], [0.5])
         pb.add_voteshare_seatshare_data([0.6], [0.7])
         assert pb._voteshare_data == [0.5, 0.6]
         assert pb._seatshare_data == [0.5, 0.7]
 
     def test_add_with_maximum_seats_normalization(self):
-        pb = PaintBall(voteshare_data=[0.5], seats_data=[0.5])
+        pb = PaintBall()
+        pb.add_voteshare_seatshare_data([0.5], [0.5])
         pb.add_voteshare_seatshare_data([0.6], [9], maximum_seats=18)
         assert pb._seatshare_data[-1] == pytest.approx(0.5)
 
     def test_add_invalid_data_raises_valueerror(self):
-        pb = _simple_paintball()
+        pb = simple_paintball()
         with pytest.raises(ValueError, match="vote-share values must be in"):
             pb.add_voteshare_seatshare_data([1.5], [0.5])
 
     def test_add_mismatched_length_raises_valueerror(self):
-        pb = _simple_paintball()
+        pb = simple_paintball()
         with pytest.raises(ValueError, match="same length"):
             pb.add_voteshare_seatshare_data([0.5, 0.6], [0.5])
 
     def test_add_empty_raises_valueerror(self):
-        pb = _simple_paintball()
+        pb = simple_paintball()
         with pytest.raises(ValueError, match="at least one element"):
             pb.add_voteshare_seatshare_data([], [])
 

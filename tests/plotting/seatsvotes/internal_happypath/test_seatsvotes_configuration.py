@@ -50,9 +50,9 @@ class TestSeatsVotesConstruction:
 
 
 class TestSeatsVotesCrosshairs:
-    def test_update_crosshair_settings(self):
+    def test_set_crosshair_options(self):
         sv = SeatsVotes()
-        sv.update_crosshair_settings(x_width=0.05, y_width=0.05)
+        sv.set_crosshair_options(x_width=0.05, y_width=0.05)
         assert sv._crosshair_settings is not None
         # Verify the bounds are correct
         x_settings = sv._crosshair_settings["x"]

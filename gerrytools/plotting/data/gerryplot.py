@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterable
 from numbers import Real
 from typing import Literal, Sequence
+from warnings import warn
 
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
@@ -41,9 +42,10 @@ class GerryPlotBase(ABC):
 
     def __init__(
         self,
-        figure_size: tuple[float, float] = (10, 6),
-        dpi: int = 300,
+        figure_size: tuple[float, float] | None = None,
+        dpi: int | None = None,
         *,
+        ax: Axes | None = None,
         include_legend: bool = True,
         xlabel: str | None = None,
         ylabel: str | None = None,
@@ -52,29 +54,56 @@ class GerryPlotBase(ABC):
         """Initialize a GerryPlotBase instance.
 
         Args:
-            figure_size (tuple[float, float], optional): The size of the figure in inches.
-                Defaults to (10, 6).
-            dpi (int, optional): The dots per inch (DPI) of the figure. Defaults to 300.
+            figure_size (tuple[float, float] | None, optional): The size of the figure
+                in inches. Defaults to ``(10, 6)`` when ``ax`` is not provided. Ignored
+                (with a warning) when ``ax`` is provided.
+            dpi (int | None, optional): The dots per inch (DPI) of the figure. Defaults
+                to ``300`` when ``ax`` is not provided. Ignored (with a warning) when
+                ``ax`` is provided.
+            ax (matplotlib.axes.Axes | None, optional): Render onto an existing
+                matplotlib ``Axes`` instead of creating a fresh figure. Useful for
+                callers familiar with matplotlib / seaborn idioms who want to compose
+                this plot into a larger figure they control. When provided, the
+                plot's lazy build will draw onto this axes (clearing any existing
+                content on it first). Defaults to None.
             include_legend (bool, optional): Whether to include a legend in the plot.
                 Defaults to True.
             xlabel (str | None, optional): The label for the x-axis. Defaults to None.
             ylabel (str | None, optional): The label for the y-axis. Defaults to None.
             title (str | None, optional): The title of the plot. Defaults to None.
         """
-        self.fig, self._ax = plt.subplots(figsize=figure_size, dpi=dpi)
+        if ax is not None:
+            if figure_size is not None or dpi is not None:
+                warn(
+                    "figure_size and dpi are ignored when ax is provided; "
+                    "the plot will use the existing figure's size and dpi.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            self.fig = ax.figure
+            self._ax = ax
+            # User owns the figure; do not register a finalizer to close it.
+            self._finalizer: weakref.finalize | None = None
+        else:
+            self.fig, self._ax = plt.subplots(
+                figsize=figure_size if figure_size is not None else (10, 6),
+                dpi=dpi if dpi is not None else 300,
+            )
 
-        # IMPORTANT: prevent implicit display in notebooks
-        # Only close in Jupyter so init doesn't display
-        try:
-            from IPython import get_ipython
+            # IMPORTANT: prevent implicit display in notebooks
+            # Only close in Jupyter so init doesn't display
+            try:
+                from IPython import get_ipython
 
-            ip = get_ipython()
-            if (
-                ip is not None and getattr(ip, "kernel", None) is not None
-            ):  # pragma: no cover - only reachable inside a live Jupyter kernel
-                plt.close(self.fig)  # pragma: no cover
-        except Exception:  # pragma: no cover - IPython import failure is suppressed
-            pass  # pragma: no cover
+                ip = get_ipython()
+                if (
+                    ip is not None and getattr(ip, "kernel", None) is not None
+                ):  # pragma: no cover - only reachable inside a live Jupyter kernel
+                    plt.close(self.fig)  # pragma: no cover
+            except Exception:  # pragma: no cover - IPython import failure is suppressed
+                pass  # pragma: no cover
+
+            self._finalizer = weakref.finalize(self, plt.close, self.fig)
 
         self.include_legend = include_legend
         self._legend_options = build_legend_options()
@@ -106,7 +135,42 @@ class GerryPlotBase(ABC):
             "left": True,
         }
 
-        self._finalizer = weakref.finalize(self, plt.close, self.fig)
+    def bind_to_ax(self, ax: Axes | None) -> None:
+        """Retarget this plot to render onto a different matplotlib ``Axes``.
+
+        The plot's accumulated state (added series, lines, bands, arrows,
+        labels, styles, etc.) is preserved and re-applied to the new axes on
+        the next access to :attr:`ax` (or call to :meth:`show` / :meth:`save`).
+        Any prior rendered output on the *old* axes is left alone; this plot
+        simply stops managing it.
+
+        Pass ``ax=None`` to unbind — the plot creates a fresh figure on the
+        next render, just as it did on construction.
+
+        Args:
+            ax (matplotlib.axes.Axes | None): The matplotlib axes to render onto,
+                or ``None`` to revert to a fresh-figure render.
+        """
+        if ax is None:
+            self.fig, self._ax = plt.subplots()
+            try:
+                from IPython import get_ipython
+
+                ip = get_ipython()
+                if (
+                    ip is not None and getattr(ip, "kernel", None) is not None
+                ):  # pragma: no cover - only reachable inside a live Jupyter kernel
+                    plt.close(self.fig)  # pragma: no cover
+            except Exception:  # pragma: no cover - IPython import failure is suppressed
+                pass  # pragma: no cover
+            self._finalizer = weakref.finalize(self, plt.close, self.fig)
+        else:
+            self.fig = ax.figure
+            self._ax = ax
+            # User owns the figure now; clear any finalizer we registered earlier.
+            if self._finalizer is not None:
+                self._finalizer.detach()
+            self._finalizer = None
 
     def add_vertical_lines(
         self,
@@ -353,8 +417,8 @@ class GerryPlotBase(ABC):
         self,
         arrowtip: tuple[float, float],
         direction: Literal["right", "left", "up", "down"],
-        *,
         text: str = "   ",
+        *,
         textrotation: float | None = None,
         arrowfacecolor: Color | None = None,
         arrowfacealpha: float | None = None,
@@ -449,8 +513,8 @@ class GerryPlotBase(ABC):
         self,
         arrowtip: tuple[float, float],
         direction: Literal["right", "left", "up", "down"],
-        *,
         text: str | None = None,
+        *,
         label_position: tuple[float, float] | None = None,
         labelfont_options: LabelFontOptions | None = None,
         labelbox_options: LabelBoxOptions | None = None,
@@ -562,13 +626,13 @@ class GerryPlotBase(ABC):
         """Clear all annotation arrows from the figure."""
         self._annotations.clear_annotation_arrows()
 
-    def clear_vertical_lines_and_bands(self) -> None:
+    def clear_verticals(self) -> None:
         """Clear all vertical lines and bands from the figure."""
-        self._annotations.clear_vertical_lines_and_bands()
+        self._annotations.clear_verticals()
 
-    def clear_horizontal_lines_and_bands(self) -> None:
+    def clear_horizontals(self) -> None:
         """Clear all horizontal lines and bands from the figure."""
-        self._annotations.clear_horizontal_lines_and_bands()
+        self._annotations.clear_horizontals()
 
     def _default_x_tick_locations(self) -> list[float] | None:
         """Get subclass-provided default x-tick locations.
@@ -652,7 +716,7 @@ class GerryPlotBase(ABC):
 
         self._ax.set_yticklabels(list(self._y_tick_labels))
 
-    def update_xtick_values(
+    def update_xtick_labels(
         self, *, locations: list[float] | None = None, labels: list[str] | None = None
     ) -> None:
         """Update x-tick locations and/or labels.
@@ -726,7 +790,7 @@ class GerryPlotBase(ABC):
             self._x_tick_labels = list(labels)
             return
 
-    def update_ytick_values(
+    def update_ytick_labels(
         self, *, locations: list[float] | None = None, labels: list[str] | None = None
     ) -> None:
         """Update y-tick locations and/or labels.
@@ -1120,10 +1184,16 @@ class GerryPlotBase(ABC):
         """
         self.title = text
 
-    def clear_xlabel_ylabel_and_title_styles(self) -> None:
-        """Clear all xlabel/ylabel/title styles."""
+    def clear_xlabel_style(self) -> None:
+        """Clear the x-axis label styling, reverting to matplotlib defaults."""
         self._xlabel_style = None
+
+    def clear_ylabel_style(self) -> None:
+        """Clear the y-axis label styling, reverting to matplotlib defaults."""
         self._ylabel_style = None
+
+    def clear_title_style(self) -> None:
+        """Clear the plot title styling, reverting to matplotlib defaults."""
         self._title_style = None
 
     def set_xaxis_tick_style(
@@ -1261,7 +1331,7 @@ class GerryPlotBase(ABC):
         Returns:
             None
         """
-        self.update_xtick_values(
+        self.update_xtick_labels(
             locations=None if locations is None else list(locations),
             labels=None if labels is None else list(labels),
         )
@@ -1281,58 +1351,32 @@ class GerryPlotBase(ABC):
         Returns:
             None
         """
-        self.update_ytick_values(
+        self.update_ytick_labels(
             locations=None if locations is None else list(locations),
             labels=None if labels is None else list(labels),
         )
 
-    def set_xlimits(self, lower: float, upper: float) -> None:
+    def set_xlim(self, left: float, right: float) -> None:
         """Set x-axis limits.
 
-        Args:
-            lower (float): Left x-axis limit.
-            upper (float): Right x-axis limit.
-
-        Returns:
-            None
-        """
-        self._x_limits = (float(lower), float(upper))
-
-    def set_ylimits(self, lower: float, upper: float) -> None:
-        """Set y-axis limits.
-
-        Args:
-            lower (float): Bottom y-axis limit.
-            upper (float): Top y-axis limit.
-
-        Returns:
-            None
-        """
-        self._y_limits = (float(lower), float(upper))
-
-    def set_xlim(self, left: float, right: float) -> None:
-        """Alias for :meth:`set_xlimits`.
+        Matches the matplotlib convention ``Axes.set_xlim(left, right)``.
 
         Args:
             left (float): Left x-axis limit.
             right (float): Right x-axis limit.
-
-        Returns:
-            None
         """
-        self.set_xlimits(left, right)
+        self._x_limits = (float(left), float(right))
 
     def set_ylim(self, bottom: float, top: float) -> None:
-        """Alias for :meth:`set_ylimits`.
+        """Set y-axis limits.
+
+        Matches the matplotlib convention ``Axes.set_ylim(bottom, top)``.
 
         Args:
             bottom (float): Bottom y-axis limit.
             top (float): Top y-axis limit.
-
-        Returns:
-            None
         """
-        self.set_ylimits(bottom, top)
+        self._y_limits = (float(bottom), float(top))
 
     def show_or_hide_frame(
         self,
@@ -1549,10 +1593,24 @@ class GerryPlotBase(ABC):
 
     @property
     def ax(self) -> Axes:
-        """Build the plot by applying all settings and drawing elements.
+        """Build the plot and return the matplotlib ``Axes``.
+
+        Access to this property triggers a **lazy render**: every accumulated
+        setting (added data, lines, bands, arrows, styles, etc.) is reapplied
+        to the underlying axes. This is the canonical hook for embedding the
+        plot into a larger matplotlib workflow.
+
+        Why lazy? In a Jupyter notebook, instantiating a plot class (e.g.
+        ``Histogram()``) without lazy rendering would auto-display an empty
+        figure as the cell output. Deferring the render until ``.ax`` (or
+        :meth:`show` / :meth:`save`) is accessed keeps the notebook clean.
+
+        Calling ``.ax`` multiple times is safe; each call rebuilds from the
+        current accumulated state. Use :meth:`bind_to_ax` to retarget the
+        plot to a different ``Axes`` (e.g. one inside your own figure).
 
         Returns:
-            Axes: The matplotlib Axes object with all of the settings applied.
+            Axes: The matplotlib ``Axes`` object with every setting applied.
         """
         self._build_and_apply_settings()
         return self._ax

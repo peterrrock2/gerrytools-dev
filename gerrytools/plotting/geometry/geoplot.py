@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Literal
+from warnings import warn
 
 import geopandas as gpd
 import matplotlib.pyplot as plt
@@ -64,39 +65,56 @@ class GeoPlot(ABC):
         self,
         gdf: GeoDataFrame,
         *,
-        dpi: int = 300,
+        dpi: int | None = None,
+        ax: Axes | None = None,
         show_axis: bool = False,
         target_crs: CRSLike | None = None,
-        include_default_outline: bool = True,
+        default_outline: bool = True,
         silent: bool = False,
     ) -> None:
         """Initialize a GeoPlot.
 
         Args:
             gdf (GeoDataFrame): The base GeoDataFrame for the plot.
-            dpi (int): The DPI for the Matplotlib Figure. Default is 300.
+            dpi (int | None): The DPI for the Matplotlib Figure. Defaults to 300 when
+                ``ax`` is not provided. Ignored (with a warning) when ``ax`` is provided.
+            ax (matplotlib.axes.Axes | None, optional): Render onto an existing
+                matplotlib ``Axes`` instead of creating a fresh figure. Useful for
+                callers familiar with matplotlib / seaborn idioms who want to compose
+                this plot into a larger figure they control. Defaults to None.
             show_axis (bool): Whether to show axis ticks and labels. Default is False.
             target_crs (CRSLike | None): The target CRS for reprojecting geometries.
                 If None, uses the CRS of `gdf`. Default is None.
-            include_default_outline (bool): Whether to include a default outline layer around
+            default_outline (bool): Whether to include a default outline layer around
                 the geometries in `gdf`. Default is True.
             silent (bool): Whether to suppress informational output throughout the rendering
                 process. Default is False.
         """
         self.gdf = gdf
 
-        self.fig, self._ax = plt.subplots(dpi=dpi)
+        if ax is not None:
+            if dpi is not None:
+                warn(
+                    "dpi is ignored when ax is provided; the plot will use the "
+                    "existing figure's dpi.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            self.fig = ax.figure
+            self._ax = ax
+        else:
+            self.fig, self._ax = plt.subplots(dpi=dpi if dpi is not None else 300)
 
-        # IMPORTANT: prevent implicit display in notebooks
-        # Only close in Jupyter so init doesn't display
-        try:
-            from IPython import get_ipython
+            # IMPORTANT: prevent implicit display in notebooks
+            # Only close in Jupyter so init doesn't display
+            try:
+                from IPython import get_ipython
 
-            ip = get_ipython()
-            if ip is not None and getattr(ip, "kernel", None) is not None:  # pragma: no cover
-                plt.close(self.fig)  # pragma: no cover
-        except Exception:  # pragma: no cover
-            pass  # pragma: no cover
+                ip = get_ipython()
+                if ip is not None and getattr(ip, "kernel", None) is not None:  # pragma: no cover
+                    plt.close(self.fig)  # pragma: no cover
+            except Exception:  # pragma: no cover
+                pass  # pragma: no cover
 
         self._canvas = self.fig.canvas  # renderer/manager handled by backend
 
@@ -115,7 +133,7 @@ class GeoPlot(ABC):
         self._label_requests: list[_LabelRequest] = []
         self.silent = silent
 
-        if include_default_outline:
+        if default_outline:
             fully_dissolved_geos = GeoSeries(gdf.geometry.union_all())
             self.add_outline_layer(
                 geosource=fully_dissolved_geos,
@@ -128,8 +146,8 @@ class GeoPlot(ABC):
 
     def add_outline_layer(
         self,
-        *,
         geosource: GeoDataFrame | GeoSeries | None = None,
+        *,
         geometry_mask: pd.Series | None = None,
         dissolve_column: str | None = None,
         edgecolor: Color = "black",
@@ -232,10 +250,10 @@ class GeoPlot(ABC):
 
     def add_highlight_layer(
         self,
-        *,
         geosource: GeoDataFrame | GeoSeries | None = None,
-        geometry_mask: pd.Series | None = None,
         label_column: str | None = None,
+        *,
+        geometry_mask: pd.Series | None = None,
         facecolor: Color = "gray",
         facealpha: float | None = 0.5,
         show_labels: bool = False,
@@ -366,9 +384,9 @@ class GeoPlot(ABC):
 
     def add_marker_layer(
         self,
-        *,
         points_geoseries: gpd.GeoSeries | None = None,
-        latitude_longitude_list: Sequence[tuple[float, float]] | None = None,
+        *,
+        latlon_list: Sequence[tuple[float, float]] | None = None,
         input_crs: CRSLike | None = None,
         marker_options: PointMarkerOptions | None = None,
         show_labels: bool = True,
@@ -381,12 +399,12 @@ class GeoPlot(ABC):
 
         Args:
             points_geoseries (gpd.GeoSeries | None): A GeoSeries of Point geometries for the
-                markers. If None, `latitude_longitude_list` must be provided. Default is None.
-            latitude_longitude_list (Sequence[tuple[float, float]] | None): A sequence of
+                markers. If None, `latlon_list` must be provided. Default is None.
+            latlon_list (Sequence[tuple[float, float]] | None): A sequence of
                 (latitude, longitude) tuples for the marker locations. If None, `points_geoseries`
                 must be provided. Default is None.
             input_crs (CRSLike | None, optional): The CRS of the input points if using
-                ``latitude_longitude_list``.
+                ``latlon_list``.
                 If None, assumes EPSG:4326 (lat/lon). Default is None.
             marker_options (PointMarkerOptions | None): Marker style settings.
                 If None, uses the following defaults:
@@ -421,20 +439,17 @@ class GeoPlot(ABC):
         if labelbox_options is None:
             labelbox_options = LabelBoxOptions(enabled=False)
 
-        if points_geoseries is None and latitude_longitude_list is None:
-            raise ValueError("Either `points_geoseries` or `latitude_longitude_list` must be set.")
-        if points_geoseries is not None and latitude_longitude_list is not None:
+        if points_geoseries is None and latlon_list is None:
+            raise ValueError("Either `points_geoseries` or `latlon_list` must be set.")
+        if points_geoseries is not None and latlon_list is not None:
             raise ValueError(
-                "Only one of `points_geoseries` or `latitude_longitude_list` may be set at a time.",
+                "Only one of `points_geoseries` or `latlon_list` may be set at a time.",
             )
 
-        if latitude_longitude_list is not None:
+        if latlon_list is not None:
             # crs EPSG:4326 corresponds to lat/lon
             point_geometries = gpd.GeoSeries(
-                [
-                    Point(float(longitude), float(latitude))
-                    for latitude, longitude in latitude_longitude_list
-                ],
+                [Point(float(longitude), float(latitude)) for latitude, longitude in latlon_list],
                 crs="EPSG:4326",
             )
             point_geometries = point_geometries.to_crs(
@@ -447,9 +462,9 @@ class GeoPlot(ABC):
         else:  # pragma: no cover - defensive guard; the preceding if/elif already covers all valid states
             raise RuntimeError(  # pragma: no cover
                 "An unexpected error occured in add_marker_layer. One of the argurments "
-                "'points_geoseries' or 'latitude_longitude_list' was likely set incorrectly."
+                "'points_geoseries' or 'latlon_list' was likely set incorrectly."
                 f"Type of 'points_geoseries': {type(points_geoseries).__name__!r}, "
-                f"type of 'latitude_longitude_list': {type(latitude_longitude_list).__name__!r}",
+                f"type of 'latlon_list': {type(latlon_list).__name__!r}",
             )  # pragma: no cover
 
         marker_layer = _MarkerLayer(
@@ -465,11 +480,11 @@ class GeoPlot(ABC):
 
     def add_label_layer(
         self,
-        *,
         points_geoseries: gpd.GeoSeries | None = None,
-        latitude_longitude_list: Sequence[tuple[float, float]] | None = None,
-        input_crs: CRSLike | None = None,
         labels: Sequence[str] | None = None,
+        *,
+        latlon_list: Sequence[tuple[float, float]] | None = None,
+        input_crs: CRSLike | None = None,
         labelfont_options: LabelFontOptions | None = None,
         labelbox_options: LabelBoxOptions | None = None,
         zorder: int = 2,
@@ -478,12 +493,12 @@ class GeoPlot(ABC):
 
         Args:
             points_geoseries (gpd.GeoSeries | None): A GeoSeries of Point geometries for the
-                markers. If None, `latitude_longitude_list` must be provided. Default is None.
-            latitude_longitude_list (Sequence[tuple[float, float]] | None): A sequence of
+                markers. If None, `latlon_list` must be provided. Default is None.
+            latlon_list (Sequence[tuple[float, float]] | None): A sequence of
                 (latitude, longitude) tuples for the marker locations. If None, `points_geoseries`
                 must be provided. Default is None.
             input_crs (CRSLike | None, optional): The CRS of the input points if using
-                ``latitude_longitude_list``.
+                ``latlon_list``.
                 If None, assumes EPSG:4326 (lat/lon). Default is None.
             labels (Sequence[str] | None): Optional labels for each marker. Default is None which
                 results numerical labels.
@@ -498,22 +513,22 @@ class GeoPlot(ABC):
                 box is disabled. Default is None.
             zorder (int, optional): Z-order for rendering. Defaults to ``2``.
         """
-        if points_geoseries is None and latitude_longitude_list is None:
-            raise ValueError("Either `points_geoseries` or `latitude_longitude_list` must be set.")
-        if points_geoseries is not None and latitude_longitude_list is not None:
+        if points_geoseries is None and latlon_list is None:
+            raise ValueError("Either `points_geoseries` or `latlon_list` must be set.")
+        if points_geoseries is not None and latlon_list is not None:
             raise ValueError(
-                "Only one of `points_geoseries` or `latitude_longitude_list` may be set at a time.",
+                "Only one of `points_geoseries` or `latlon_list` may be set at a time.",
             )
-        if points_geoseries is None and latitude_longitude_list is not None:
-            n_labels = len(list(latitude_longitude_list))
+        if points_geoseries is None and latlon_list is not None:
+            n_labels = len(list(latlon_list))
         elif points_geoseries is not None:
             n_labels = len(points_geoseries)
         else:  # pragma: no cover - defensive guard; the preceding if/elif already covers all valid states
             raise RuntimeError(  # pragma: no cover
                 "An unexpected error occured in add_label_layer. One of the argurments "
-                "'points_geoseries' or 'latitude_longitude_list' was likely set incorrectly."
+                "'points_geoseries' or 'latlon_list' was likely set incorrectly."
                 f"Type of 'points_geoseries': {type(points_geoseries).__name__!r}, "
-                f"type of 'latitude_longitude_list': {type(latitude_longitude_list).__name__!r}",
+                f"type of 'latlon_list': {type(latlon_list).__name__!r}",
             )  # pragma: no cover
 
         if labels is None:
@@ -530,7 +545,7 @@ class GeoPlot(ABC):
 
         self.add_marker_layer(
             points_geoseries=points_geoseries,
-            latitude_longitude_list=latitude_longitude_list,
+            latlon_list=latlon_list,
             input_crs=input_crs,
             marker_options=PointMarkerOptions(
                 markerfacecolor="none",
@@ -548,47 +563,27 @@ class GeoPlot(ABC):
             zorder=zorder,
         )
 
-    def set_xlimits(self, lower: float, upper: float) -> None:
+    def set_xlim(self, left: float, right: float) -> None:
         """Set x-axis limits to apply when the plot is built.
 
-        Args:
-            lower (float): The left x-axis limit.
-            upper (float): The right x-axis limit.
-        """
-        self._xlim = (float(lower), float(upper))
-
-    def set_ylimits(self, lower: float, upper: float) -> None:
-        """Set y-axis limits to apply when the plot is built.
+        Matches the matplotlib convention ``Axes.set_xlim(left, right)``.
 
         Args:
-            lower (float): The bottom y-axis limit.
-            upper (float): The top y-axis limit.
+            left (float): The left x-axis limit.
+            right (float): The right x-axis limit.
         """
-        self._ylim = (float(lower), float(upper))
-
-    def set_xlim(self, left: float, right: float) -> None:
-        """Alias for :meth:`set_xlimits`.
-
-        Args:
-            left (float): Left x-axis limit.
-            right (float): Right x-axis limit.
-
-        Returns:
-            None
-        """
-        self.set_xlimits(lower=left, upper=right)
+        self._xlim = (float(left), float(right))
 
     def set_ylim(self, bottom: float, top: float) -> None:
-        """Alias for :meth:`set_ylimits`.
+        """Set y-axis limits to apply when the plot is built.
+
+        Matches the matplotlib convention ``Axes.set_ylim(bottom, top)``.
 
         Args:
-            bottom (float): Bottom y-axis limit.
-            top (float): Top y-axis limit.
-
-        Returns:
-            None
+            bottom (float): The bottom y-axis limit.
+            top (float): The top y-axis limit.
         """
-        self.set_ylimits(lower=bottom, upper=top)
+        self._ylim = (float(bottom), float(top))
 
     def clear_limits(self) -> None:
         """Clear any stored x/y limits so autoscaling can occur."""
@@ -817,9 +812,55 @@ class GeoPlot(ABC):
 
     @property
     def ax(self) -> Axes:
-        """The Matplotlib Axes object for the plot."""
+        """Build the plot and return the matplotlib ``Axes``.
+
+        Access to this property triggers a **lazy render**: every accumulated
+        setting (layers, labels, colorbar requests, etc.) is reapplied. This
+        is the canonical hook for embedding the plot into a larger workflow.
+
+        Why lazy? In a Jupyter notebook, instantiating ``GeoPlot(gdf)`` without
+        lazy rendering would auto-display an empty figure. Deferring the build
+        until ``.ax`` (or :meth:`show` / :meth:`save`) is accessed keeps
+        notebook output clean.
+
+        Use :meth:`bind_to_ax` to retarget the plot to a different ``Axes``
+        (e.g. one inside your own figure).
+
+        Returns:
+            Axes: The matplotlib ``Axes`` with every setting applied.
+        """
         self._build_and_apply_settings()
         return self._ax
+
+    def bind_to_ax(self, ax: Axes | None) -> None:
+        """Retarget this plot to render onto a different matplotlib ``Axes``.
+
+        The plot's accumulated layers, labels, and style settings are preserved
+        and re-applied to the new axes on the next access to :attr:`ax` (or
+        call to :meth:`show` / :meth:`save`). Any prior rendered output on the
+        *old* axes is left alone; this plot simply stops managing it.
+
+        Pass ``ax=None`` to unbind — the plot creates a fresh figure on the
+        next render, just as it did on construction.
+
+        Args:
+            ax (matplotlib.axes.Axes | None): The matplotlib axes to render
+                onto, or ``None`` to revert to a fresh-figure render.
+        """
+        if ax is None:
+            self.fig, self._ax = plt.subplots()
+            try:
+                from IPython import get_ipython
+
+                ip = get_ipython()
+                if ip is not None and getattr(ip, "kernel", None) is not None:  # pragma: no cover
+                    plt.close(self.fig)  # pragma: no cover
+            except Exception:  # pragma: no cover
+                pass  # pragma: no cover
+        else:
+            self.fig = ax.figure
+            self._ax = ax
+        self._canvas = self.fig.canvas
 
     def get_label_positions(self, *, as_lat_long: bool = False) -> tuple[str, dict[str, Point]]:
         """Get computed label positions from the current plot build.

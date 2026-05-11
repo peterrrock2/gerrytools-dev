@@ -23,7 +23,9 @@ class TestHistogramConstruction:
         assert h._binwidth is None
 
     def test_custom_construction(self):
-        h = Histogram(grid=True, hide_warnings=True)
+        h = Histogram()
+        h.enable_grid()
+        h.suppress_warnings()
         assert h.grid is True
         assert h.hide_warnings is True
 
@@ -149,7 +151,8 @@ class TestOutlineHistogramCorrections:
             assert any("edgecolor" in str(warning.message) for warning in w)
 
     def test_outline_corrections_suppressed_when_hide_warnings(self):
-        h = Histogram(hide_warnings=True)
+        h = Histogram()
+        h.suppress_warnings()
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             h.add_histogram([1, 2, 3], histtype="outline", edgewidth=0.0)

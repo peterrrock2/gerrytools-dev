@@ -12,7 +12,7 @@ from gerrytools.colors.core import (
 from gerrytools.colors.districtr import DISTRICTR_COLOR_DICT, districtr
 from gerrytools.colors.latex import get_color_from_latex_string
 from gerrytools.colors.latex_full import LATEX_COLOR_DICT
-from gerrytools.colors.seaborn import flare, greens, purples, redbluecmap
+from gerrytools.colors.seaborn import flare, greenpurplecmap, greens, purples, redbluecmap
 from gerrytools.colors.utils import compare_palettes, preview_palette
 
 __all__ = [
@@ -30,6 +30,7 @@ __all__ = [
     "get_color_from_latex_string",
     "LATEX_COLOR_DICT",
     "flare",
+    "greenpurplecmap",
     "greens",
     "purples",
     "redbluecmap",
