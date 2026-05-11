@@ -1,6 +1,7 @@
 """`_ContinuousColorLayer` — continuous color mapping over a data column."""
 
 from dataclasses import dataclass
+from typing import Protocol, runtime_checkable
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -14,6 +15,20 @@ from numpy import linspace
 from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.plotting.geometry._layers._base import _GeoLayer
 from gerrytools.typing import CategoryKey, CRSLike, MplKwargs, ResolvedColor
+
+
+@runtime_checkable
+class ColormapLayer(Protocol):
+    """Public protocol for layers that can produce a standalone colorbar.
+
+    Any object implementing ``datacolumn`` and ``mappable()`` satisfies this
+    protocol and can be passed to ``ColoredGeoPlot.save_colorbar()``.
+    """
+
+    @property
+    def datacolumn(self) -> str | None: ...
+
+    def mappable(self) -> tuple[ScalarMappable, MplKwargs]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,6 +194,10 @@ class _ContinuousColorLayer(_GeoLayer):
             cbar_kwargs: MplKwargs = {}
 
         return m, cbar_kwargs
+
+    def mappable(self) -> tuple[ScalarMappable, MplKwargs]:
+        """Public wrapper around ``_mappable()`` for use via ``ColormapLayer``."""
+        return self._mappable()
 
     @property
     def color_series(self) -> pd.Series:

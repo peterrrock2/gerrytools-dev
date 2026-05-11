@@ -7,7 +7,7 @@ private (leading underscore) and are re-exported by `geoplot.py` and
 
 from gerrytools.plotting.geometry._layers._base import _as_geoseries, _GeoLayer
 from gerrytools.plotting.geometry._layers._categorical import _CategoricalColorLayer
-from gerrytools.plotting.geometry._layers._continuous import _ContinuousColorLayer
+from gerrytools.plotting.geometry._layers._continuous import ColormapLayer, _ContinuousColorLayer
 from gerrytools.plotting.geometry._layers._marker import _MarkerLayer
 
 __all__ = [
@@ -16,4 +16,5 @@ __all__ = [
     "_CategoricalColorLayer",
     "_ContinuousColorLayer",
     "_MarkerLayer",
+    "ColormapLayer",
 ]
