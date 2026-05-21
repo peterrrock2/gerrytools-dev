@@ -8,6 +8,7 @@ vars:
   VENV_DIR: ".venv"
   PKG: "gerrytools"
   TEST_PATHS: "tests"
+  USER_GUIDE: "user_guide"
 
 dotenv:
   - .env
@@ -85,28 +86,31 @@ tasks:
       - uv run pre-commit install
 
   format:
-    desc: Format the codebase using Black and isort
+    desc: Format the codebase using Ruff
     silent: true
-    deps: ["sync"]
     cmds:
-      - uv run isort {{.PKG}} {{.TEST_PATHS}}
-      - uv run black --target-version {{.BLACK_TARGET}} {{.PKG}} {{.TEST_PATHS}}
+      - uv run ruff check --select I --fix {{.PKG}} {{.TEST_PATHS}}
+      - uv run ruff format {{.PKG}} {{.TEST_PATHS}} {{.USER_GUIDE}}/notebooks
 
   format-check:
-    desc: Check code formatting using Black and isort
+    desc: Check code formatting using Ruff
     silent: true
-    deps: ["sync"]
     cmds:
-      - uv run isort --check-only --diff {{.PKG}} {{.TEST_PATHS}}
-      - uv run black --target-version {{.BLACK_TARGET}} --check --diff {{.PKG}} {{.TEST_PATHS}}
+      - uv run ruff check --select I --diff {{.PKG}} {{.TEST_PATHS}}
+      - uv run ruff format --check {{.PKG}} {{.TEST_PATHS}} {{.USER_GUIDE}}/notebooks
 
   lint:
     desc: Lint the codebase using Ruff
     silent: true
-    vars:
-      CLI_ARGS: "{{.CLI_ARGS}}"
     cmds:
-      - uv run ruff check {{.PKG}} {{.TEST_PATHS}} {{.CLI_ARGS}}
+      - uv run ruff check {{.PKG}} {{.TEST_PATHS}}
+
+  typecheck:
+    desc: Run type checks using Ty
+    silent: true
+    cmds:
+      - uv run ty check {{.PKG}} {{.TEST_PATHS}}
+      - uv run pyright {{.PKG}} {{.TEST_PATHS}}
 
   typecheck:
     desc: Run type checks using Ty
