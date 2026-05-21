@@ -12,7 +12,7 @@ def dualgraphs20(state, filepath, geometry="block group"):
     acceptable = {"bg", "block group", "blockgroup", "vtd"}
 
     if geometry.lower() not in acceptable:
-        print(f'Requested geometry "{geometry}" is not allowed; ' "loading block groups.")
+        print(f'Requested geometry "{geometry}" is not allowed; loading block groups.')
         geometry = "bg"
 
     # Specify the base url.
@@ -36,7 +36,7 @@ def vtds20(state, filepath):
     """
     # Specify the base url.
     base = "http://data.mggg.org.s3-website.us-east-2.amazonaws.com/vtd-shapefiles/"
-    suffix = f"{state.abbr.upper()}_" f"vtd20.zip"
+    suffix = f"{state.abbr.upper()}_vtd20.zip"
 
     # Send the request!
     request = requests.get(base + suffix)
@@ -75,12 +75,12 @@ def geometries20(state, filepath, geometry="tract"):
 
     # Check that the passed geometry is allowable.
     if geometry not in set(geometrymap.keys()):
-        print(f'Requested geometry "{geometry}" is not allowed; ' "loading tracts.")
+        print(f'Requested geometry "{geometry}" is not allowed; loading tracts.')
         geometry = "tract"
 
     # Specify the base url.
     base = "http://data.mggg.org.s3-website.us-east-2.amazonaws.com/census-2020/"
-    suffix = f"{state.abbr.lower()}/{state.abbr.lower()}_" f"{geometrymap[geometry]}.zip"
+    suffix = f"{state.abbr.lower()}/{state.abbr.lower()}_{geometrymap[geometry]}.zip"
 
     # Send the request!
     request = requests.get(base + suffix)

@@ -84,8 +84,7 @@ class RunContainer:
             self.config = configuration
         else:
             raise ValueError(
-                f"Invalid variant passed. Expected "
-                f"RecomRunnerConfig, ForestRunner, or SMCRunner ",
+                f"Invalid variant passed. Expected RecomRunnerConfig, ForestRunner, or SMCRunner ",
                 f"and found {type(configuration)}",
             )
 
@@ -185,8 +184,7 @@ class RunContainer:
         """
         if not hasattr(self.config, "run_command"):
             raise NotImplementedError(
-                f"The runner of type {type(self.config)} does not have "
-                f"an implemented run method."
+                f"The runner of type {type(self.config)} does not have an implemented run method."
             )
 
         assert self.container is not None, "Container not started. Use within a `with` block."
@@ -231,8 +229,7 @@ class RunContainer:
         """
         if not hasattr(self.config, "run_command"):
             raise NotImplementedError(
-                f"The runner of type {type(self.config)} does not have "
-                f"an implemented run method."
+                f"The runner of type {type(self.config)} does not have an implemented run method."
             )
 
         assert self.container is not None, "Container not started. Use within a `with` block."

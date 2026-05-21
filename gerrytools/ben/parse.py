@@ -180,11 +180,10 @@ def msms_parse(
         "ben",
         "standard_jsonl",
     ]:
-        print(f"Invalid mode: {mode}. " "Mode must be one of 'ben', 'standard_jsonl'")
+        print(f"Invalid mode: {mode}. Mode must be one of 'ben', 'standard_jsonl'")
         return
 
     with managed_docker_container(client, config_args) as container:
-
         msms_cmd = (
             f"msms_parser -w -g {docker_dual_graph_path}/{dual_graph_name}"
             f" -i {docker_input_path}/{input_file_name}"

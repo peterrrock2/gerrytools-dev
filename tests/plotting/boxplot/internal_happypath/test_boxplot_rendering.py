@@ -64,7 +64,8 @@ class TestBoxPlotPointset:
         bp = BoxPlot()
         bp.add_boxplot_datasets({"A": [1], "B": [2]})
         df = pd.DataFrame(
-            {"val": [1.5, 2.5]}, index=["A", "B"]  # ty: ignore[invalid-argument-type]
+            {"val": [1.5, 2.5]},
+            index=["A", "B"],  # ty: ignore[invalid-argument-type]
         )
         bp.add_pointset(df)
         assert len(bp._pointset_data_list) == 1

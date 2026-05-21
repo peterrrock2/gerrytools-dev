@@ -167,7 +167,6 @@ class TestMapUniqueValuesStringSort:
 
 
 class TestCategoricalColorSeriesBranches:
-
     def test_colormap_object(self, testing_gdf):
         """Colormap instance colormap branch is covered."""
         import matplotlib.pyplot as plt

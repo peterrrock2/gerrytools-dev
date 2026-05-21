@@ -169,7 +169,7 @@ class SeaLevel(GerryPlotBase):
         if not set(jitter.keys()).issubset(set(self._labels or [])):
             extra_keys = set(jitter.keys()) - set(self._labels or [])
             raise ValueError(
-                "All keys in jitter must be among the existing labels." f" Extra keys: {extra_keys}"
+                f"All keys in jitter must be among the existing labels. Extra keys: {extra_keys}"
             )
 
     def _coerce_jitter(self, jitter: float | dict[str, float]) -> dict[str, float]:
@@ -454,9 +454,9 @@ class SeaLevel(GerryPlotBase):
         Returns:
             list[str] | None: Category labels when the lengths match; otherwise ``None``.
         """
-        assert (
-            self._labels is not None
-        ), "Internal error: _labels should be set before _default_x_tick_labels is called."
+        assert self._labels is not None, (
+            "Internal error: _labels should be set before _default_x_tick_labels is called."
+        )
         # Only apply category labels when lengths match; if the user overrides locations to
         # something else, leave labels alone unless they explicitly set them.
         if len(tick_locations) == len(self._labels):
@@ -467,9 +467,9 @@ class SeaLevel(GerryPlotBase):
         """Draw the sealevel sets on the plot."""
         centers = self._sealevel_centers
 
-        assert (
-            self._labels is not None
-        ), "Internal error: _labels should be set before _draw_sealevels is called."
+        assert self._labels is not None, (
+            "Internal error: _labels should be set before _draw_sealevels is called."
+        )
         for sealevel_set in self._sealevel_data_list:
             x_positions = []
             y_positions = []

@@ -156,8 +156,7 @@ class _Color:
             return cls._from_resolved(mcolors.to_rgba(color_string))
         except Exception as matplotlib_parse_error:
             diagnostic_message += (
-                f" | Color {color_string!r} not parseable by Matplotlib: "
-                f"{matplotlib_parse_error}"
+                f" | Color {color_string!r} not parseable by Matplotlib: {matplotlib_parse_error}"
             )
 
         if logger is not None:
