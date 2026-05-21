@@ -1,98 +1,114 @@
+import httpx
 import pandas as pd
-import requests
 import us
 
-from gerrytools.data.census.ptable_column_aliases import COLUMN_ALIASES_PTABLES
 from gerrytools.logging import get_logger
+
+from .acs import (
+    PL_BASE_URL,
+    TRACE,
+    _add_census_api_key,
+    _construct_in_query,
+    _response_to_frame,
+    _validate_year,
+)
+from .census_tables import (
+    PL_POP_TABLES,
+    PL_POP_YEARS,
+    PLTableInfo,
+    pl_pop_table,
+)
 
 logger = get_logger(__name__)
 
 
 def census(
     state: us.states.State,
-    table: str = "P1",
     geometry: str = "state",
     year: int = 2020,
-    retry_count: int = 3,
-    timeout_seconds: int = 300,
-    census_api_key: str | None = None,
+    table: PLTableInfo | str = "P1",
+    api_key: str | None = None,
 ) -> pd.DataFrame:
-    if year not in [2010, 2020]:
-        raise ValueError("Only years 2010 and 2020 are supported.")
-    if table not in COLUMN_ALIASES_PTABLES[year]:
+    """Retrieve decennial PL94-171 Census data for one state, geometry, and table.
+
+    Issues a single ``get=group({table})`` request to the decennial PL Census
+    API, drops empty and ``*err`` columns, and renames the raw Census variable
+    columns to the short local names declared by ``table`` (e.g.
+    ``TOT_VAP_P3``). The returned DataFrame is indexed by ``geo_id`` with the
+    Census-stub ``"US"`` prefix stripped.
+
+    Args:
+        state (us.states.State): State the query is scoped to.
+        geometry (str): Geometry level. Must be one of ``"state"``,
+            ``"county"``, ``"tract"``, or ``"block group"``. Defaults to
+            ``"state"``.
+        year (int): Decennial PL vintage to query. ``2010`` and ``2020`` are
+            supported. Defaults to ``2020``.
+        table (PLTableInfo | str): Either a ``PLTableInfo`` instance or a
+            shortcut string (``"P1"``, ``"P2"``, ``"P3"``, ``"P4"``) that is
+            resolved via :func:`pl_pop_table` using ``year``. Defaults to
+            ``"P1"``.
+        api_key (str | None): Census API key. If omitted, falls back to the
+            ``CENSUS_API_KEY`` environment variable. As of 12 May 2026, an
+            API key is required for all requests made to the Census API.
+
+    Returns:
+        pd.DataFrame: One row per geography at ``geometry``, indexed by
+        ``geo_id``, with one column per renamed variable from ``table``.
+
+    Raises:
+        ValueError: If ``year`` is unsupported, ``table`` is an invalid
+            shortcut string, or ``geometry`` is unrecognized.
+        CensusRateLimitError: Propagated from the underlying fetch if the
+            API returns HTTP 429.
+        httpx.HTTPStatusError: Propagated from the underlying fetch for
+            other HTTP errors.
+    """
+
+    _validate_year(year)
+    if year not in PL_POP_YEARS:
         raise ValueError(
-            f"Table {table} not recognized. " "Only tables 'P1', 'P2', 'P3', and 'P4' are supported"
+            f"Decennial PL data is only available for years {PL_POP_YEARS}; got {year}."
         )
 
-    URL_BASE = "https://api.census.gov/data/{year}/dec/pl?get=group({table})&for={geometry}:*"
-
-    if geometry == "state":
-        pass
-    elif geometry == "county":
-        URL_BASE += "&in=state:{fips}"
-    elif geometry in ["tract", "place"]:
-        URL_BASE += "&in=state:{fips}"
-        URL_BASE += "&in=county:*"
-    elif geometry == "block group":
-        URL_BASE += "&in=state:{fips}"
-        URL_BASE += "&in=county:*"
-        URL_BASE += "&in=tract:*"
+    if isinstance(table, str):
+        if table not in PL_POP_TABLES:
+            raise ValueError(
+                f"Table {table!r} not recognized; allowed PL pop tables are {PL_POP_TABLES}."
+            )
+        pl_table_label = table
+        table = pl_pop_table(table, year)
     else:
-        raise ValueError(
-            f'Geometry "{geometry}" not recognized; '
-            f"allowed values are 'state', 'county', 'tract', 'block group', and 'place'."
-        )
+        pl_table_label = table.table_name
 
-    if census_api_key is not None:
-        URL_BASE += f"&key={census_api_key}"
+    base_url = PL_BASE_URL.format(year=year)
+    api_table_code = pl_table_label.split("_", maxsplit=1)[0]
+    query_params = {
+        "get": f"group({api_table_code})",
+        "for": f"{geometry}:*",
+    }
+    _add_census_api_key(query_params, api_key)
+    _construct_in_query(query_params, state, geometry)
 
-    attempts = 0
+    logger.log(
+        TRACE,
+        "Decennial PL %s %s for %s (%s).",
+        year,
+        api_table_code,
+        state.abbr,
+        geometry,
+    )
 
-    while attempts < retry_count:
-        try:
-            full_url = URL_BASE.format(
-                year=year,
-                table=table,
-                geometry=geometry.replace(" ", "%20"),
-                fips=str(state.fips).zfill(2),
-            )
-            logger.debug(f"Requesting data from URL: {full_url}")
-            response = requests.get(
-                full_url,
-                timeout=timeout_seconds,
-            )
-            response.raise_for_status()
+    with httpx.Client(timeout=httpx.Timeout(120)) as client:
+        df = _response_to_frame(client.get(base_url, params=query_params))
 
-            attempts = retry_count  # Success
-
-        except requests.RequestException as e:
-            if attempts < retry_count:
-                attempts += 1
-            else:
-                raise ValueError(
-                    f"Failed to retrieve data after multiple attempts. Found error: {e}"
-                )
-
-    if response is None:
-        raise ValueError("Failed to retrieve data; no response received.")
-
-    if response.status_code != 200:
-        raise ValueError(f"Failed to retrieve data; status code {response.status_code}.")
-
-    df = pd.DataFrame(response.json()[1:], columns=response.json()[0])
     na_cols = df.columns[df.isna().all()].tolist()
     err_cols = [col for col in df.columns if col.lower().endswith("err")]
     df.drop(columns=na_cols + err_cols, inplace=True)
 
-    table_columns = COLUMN_ALIASES_PTABLES[year][table]
+    table.rename_columns(df)
 
-    column_remap = {k: table_columns.get(k.lower(), k) for k in df.columns}
-    df.rename(columns=column_remap, inplace=True)
-
-    if geometry == "state":
-        df = df.query(f"state == '{str(state.fips).zfill(2)}'").copy()
-
-    df["geo_id"] = df["GEO_ID"].str.split("US").str[-1]
+    df["geo_id"] = df["GEO_ID"].astype("string").str.split("US").str[-1]
     df.drop(columns=["GEO_ID"], inplace=True)
     df.set_index("geo_id", inplace=True)
 
