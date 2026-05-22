@@ -274,6 +274,7 @@ class BoxPlot(CategoricalDistributionPlotBase):
                 zorder=resolved_zorder,
             )
         )
+        self._claim_legend_if_named(name)
 
     @property
     def _boxplot_centers(self) -> np.ndarray:

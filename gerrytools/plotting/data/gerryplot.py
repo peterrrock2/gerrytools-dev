@@ -246,6 +246,22 @@ class GerryPlotBase(ABC):
         if self._axes_state_initialized:
             self._axes_state.reclaim_without_value(UNIT_LEGEND)
 
+    def _claim_legend_if_named(self, name: str | None) -> None:
+        """Reclaim the legend unit when an ``add_*`` is given a user-supplied name.
+
+        Precedence rule 5 in the refactor plan: any ``add_*`` call with a
+        non-None ``name`` reclaims the legend unit, because the resulting
+        legend content is derived from named plot elements. ``add_*`` calls
+        with ``name=None`` do not reclaim — they may still contribute to the
+        legend handles (subclasses often fall back to an auto-generated label),
+        but they should not displace an externally-placed legend.
+
+        Subclasses' named-add methods (``add_histogram``, ``add_boxplot_datasets``,
+        etc.) call this helper immediately after appending to their data list.
+        """
+        if name is not None and self._axes_state_initialized:
+            self._axes_state.reclaim_without_value(UNIT_LEGEND)
+
     # ------------------------------------------------------------------
     # Snapshot helpers used by reclaim paths
     # ------------------------------------------------------------------
@@ -864,8 +880,11 @@ class GerryPlotBase(ABC):
             self._record_x_ticks()
             return
         if x_tick_locations is None:
-            # Labels supplied without locations; fall back to current ticks.
+            # Labels supplied without locations: materialize current ticks
+            # via set_xticks so set_xticklabels matches them and matplotlib
+            # does not warn about labels-without-fixed-locator.
             x_tick_locations = self._ax.get_xticks().tolist()
+            self._ax.set_xticks(x_tick_locations)
         if len(self._x_tick_labels) != len(x_tick_locations):
             raise ValueError(
                 f"Expected {len(x_tick_locations)} x tick labels, got {len(self._x_tick_labels)}."
@@ -1310,27 +1329,31 @@ class GerryPlotBase(ABC):
     # ------------------------------------------------------------------
 
     def _apply_xlabel_now(self) -> None:
-        text = self.xlabel
-        if text is None:
+        # ``_xlabel is _UNSET_TEXT`` means "no opinion" — leave any pre-set
+        # external xlabel alone. A real ``None`` is the explicit-clear path
+        # that user code reached via ``plot.xlabel = None`` after
+        # construction; that path applies ``set_xlabel("")`` to clear.
+        if self._xlabel is _UNSET_TEXT:
             return
+        text = "" if self._xlabel is None else self._xlabel
         if self._xlabel_style is None:
             self._ax.set_xlabel(text)
         else:
             self._ax.set_xlabel(text, **self._xlabel_style.to_mpl_settings_dict())
 
     def _apply_ylabel_now(self) -> None:
-        text = self.ylabel
-        if text is None:
+        if self._ylabel is _UNSET_TEXT:
             return
+        text = "" if self._ylabel is None else self._ylabel
         if self._ylabel_style is None:
             self._ax.set_ylabel(text)
         else:
             self._ax.set_ylabel(text, **self._ylabel_style.to_mpl_settings_dict())
 
     def _apply_title_now(self) -> None:
-        text = self.title
-        if text is None:
+        if self._title is _UNSET_TEXT:
             return
+        text = "" if self._title is None else self._title
         if self._title_style is None:
             self._ax.set_title(text)
         else:

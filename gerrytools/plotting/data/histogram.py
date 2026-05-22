@@ -510,6 +510,7 @@ class Histogram(GerryPlotBase):
                 zorder=resolved_zorder,
             )
         )
+        self._claim_legend_if_named(name)
 
     def add_points_above(
         self,
