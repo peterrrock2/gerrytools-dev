@@ -71,7 +71,7 @@ class _MarkerLayer:
         *,
         target_crs: CRSLike | None = None,
         **kwargs: object,
-    ) -> Axes:
+    ) -> list:
         """Render this layer onto the given Axes.
 
         Args:
@@ -81,7 +81,7 @@ class _MarkerLayer:
             **kwargs (object): Additional keyword arguments (not used).
 
         Returns:
-            Axes: The Axes with the layer rendered.
+            list[Artist]: The matplotlib artists added to ``ax`` by this layer.
         """
         if kwargs:
             unknown = ", ".join(kwargs.keys())
@@ -101,14 +101,16 @@ class _MarkerLayer:
         marker_kwargs = dict(self.marker_options.to_mpl_settings_dict())
         marker_kwargs.pop("zorder", None)
 
+        artists: list = []
         if not self.show_labels or self.labels is None:
-            ax.plot(
+            marker_lines = ax.plot(
                 x_coordinates,
                 y_coordinates,
                 linestyle="None",
                 zorder=int(self.zorder),
                 **marker_kwargs,
             )
+            artists.extend(marker_lines)
         else:
             outline_color, _ = resolve_color_and_alpha(
                 self.labelfont_options.outlinecolor,
@@ -128,13 +130,14 @@ class _MarkerLayer:
             )
 
             for x_value, y_value, label_text in zip(x_coordinates, y_coordinates, self.labels):
-                ax.plot(
+                marker_lines = ax.plot(
                     x_value,
                     y_value,
                     linestyle="None",
                     zorder=int(self.zorder),
                     **marker_kwargs,
                 )
+                artists.extend(marker_lines)
 
                 text_artist = ax.text(
                     float(x_value),
@@ -149,5 +152,6 @@ class _MarkerLayer:
                 )
                 text_artist.set_clip_path(ax.patch)
                 text_artist.set_path_effects(text_effects)
+                artists.append(text_artist)
 
-        return ax
+        return artists

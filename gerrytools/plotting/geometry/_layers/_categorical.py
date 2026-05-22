@@ -189,7 +189,7 @@ class _CategoricalColorLayer(_GeoLayer):
         *,
         target_crs: CRSLike | None = None,
         **kwargs: object,
-    ) -> Axes:
+    ) -> list:
         """Render this layer onto the given Axes.
 
         Args:
@@ -200,7 +200,7 @@ class _CategoricalColorLayer(_GeoLayer):
                 render function signature contract).
 
         Returns:
-            Axes: The Axes with the layer rendered.
+            list[Artist]: The matplotlib artists added to ``ax`` by this layer.
         """
         if kwargs:
             unknown = ", ".join(kwargs.keys())
@@ -222,12 +222,15 @@ class _CategoricalColorLayer(_GeoLayer):
         )
 
         geoseries = self._geometries_in_crs(target_crs)
-        _ = geoseries.plot(
-            ax=ax,
-            color=self.color_series,
-            edgecolor=edge_color_tup,
-            linewidth=self.edgewidth,
-            zorder=self.zorder,
-        )
+        from gerrytools.plotting.geometry._layers._base import _capture_geopandas_artists
 
-        return ax
+        return _capture_geopandas_artists(
+            ax,
+            plot_call=lambda: geoseries.plot(
+                ax=ax,
+                color=self.color_series,
+                edgecolor=edge_color_tup,
+                linewidth=self.edgewidth,
+                zorder=self.zorder,
+            ),
+        )

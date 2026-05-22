@@ -11,6 +11,13 @@ from geopandas import GeoDataFrame, GeoSeries
 from matplotlib.axes import Axes
 from shapely.geometry import Point, box
 
+from gerrytools.plotting._artist_registry import _ArtistRegistry
+from gerrytools.plotting._axes_state import (
+    UNIT_AXIS_VISIBILITY,
+    UNIT_X_LIMITS,
+    UNIT_Y_LIMITS,
+    _ManagedAxesState,
+)
 from gerrytools.plotting._figure_io import save_figure, show_figure
 from gerrytools.plotting.geometry._layers import (
     _as_geoseries,
@@ -92,6 +99,7 @@ class GeoPlot(ABC):
         """
         self.gdf = gdf
 
+        # --- Pass 1: resolve self._ax + self.fig + _figure_is_shared ---
         if ax is not None:
             if dpi is not None:
                 warn(
@@ -102,8 +110,12 @@ class GeoPlot(ABC):
                 )
             self.fig = ax.figure
             self._ax = ax
+            # The user owns this figure; gerrytools must not mutate
+            # figure-level layout (e.g. ``subplots_adjust``) on it.
+            self._figure_is_shared: bool = True
         else:
             self.fig, self._ax = plt.subplots(dpi=dpi if dpi is not None else 300)
+            self._figure_is_shared = False
 
             # IMPORTANT: prevent implicit display in notebooks
             # Only close in Jupyter so init doesn't display
@@ -118,7 +130,8 @@ class GeoPlot(ABC):
 
         self._canvas = self.fig.canvas  # renderer/manager handled by backend
 
-        self.show_axis = show_axis
+        # --- Pass 2: backing fields (no opinion until step 4 reapplies args) ---
+        self._show_axis: bool = False
         self.target_crs: CRSLike | None = (
             target_crs if target_crs is not None else getattr(gdf, "crs", None)
         )
@@ -132,6 +145,17 @@ class GeoPlot(ABC):
 
         self._label_requests: list[_LabelRequest] = []
         self.silent = silent
+
+        # --- Pass 3: artist registry + managed-axes state ---
+        self._artists = _ArtistRegistry()
+        self._axes_state = _ManagedAxesState()
+        self._axes_state_initialized: bool = False
+        self._axes_state.initialize_from_ax(self._ax)
+        self._axes_state_initialized = True
+
+        # --- Pass 4: re-apply non-default constructor args via reclaim path ---
+        if show_axis is not False:
+            self.show_axis = show_axis
 
         if default_outline:
             fully_dissolved_geos = GeoSeries(gdf.geometry.union_all())
@@ -563,6 +587,25 @@ class GeoPlot(ABC):
             zorder=zorder,
         )
 
+    # ------------------------------------------------------------------
+    # show_axis property — axis_visibility managed unit
+    # ------------------------------------------------------------------
+
+    @property
+    def show_axis(self) -> bool:
+        """Whether to render axis ticks/labels (False hides via ``ax.set_axis_off``)."""
+        return self._show_axis
+
+    @show_axis.setter
+    def show_axis(self, value: bool) -> None:
+        self._show_axis = bool(value)
+        if self._axes_state_initialized:
+            if self._show_axis:
+                self._ax.set_axis_on()
+            else:
+                self._ax.set_axis_off()
+            self._axes_state.reclaim_and_mark(UNIT_AXIS_VISIBILITY, bool(self._ax.axison))
+
     def set_xlim(self, left: float, right: float) -> None:
         """Set x-axis limits to apply when the plot is built.
 
@@ -573,6 +616,11 @@ class GeoPlot(ABC):
             right (float): The right x-axis limit.
         """
         self._xlim = (float(left), float(right))
+        if self._axes_state_initialized:
+            self._ax.set_xlim(*self._xlim)
+            self._axes_state.reclaim_and_mark(
+                UNIT_X_LIMITS, tuple(float(v) for v in self._ax.get_xlim())
+            )
 
     def set_ylim(self, bottom: float, top: float) -> None:
         """Set y-axis limits to apply when the plot is built.
@@ -584,6 +632,11 @@ class GeoPlot(ABC):
             top (float): The top y-axis limit.
         """
         self._ylim = (float(bottom), float(top))
+        if self._axes_state_initialized:
+            self._ax.set_ylim(*self._ylim)
+            self._axes_state.reclaim_and_mark(
+                UNIT_Y_LIMITS, tuple(float(v) for v in self._ax.get_ylim())
+            )
 
     def clear_limits(self) -> None:
         """Clear any stored x/y limits so autoscaling can occur."""
@@ -685,12 +738,13 @@ class GeoPlot(ABC):
 
     @abstractmethod
     def _build_plot(self) -> None:
-        """Build the plot by rendering all layers and applying settings."""
-        self._ax.clear()
+        """Build the plot by rendering all layers and tracking their artists.
 
-        if not self.show_axis:
-            self._ax.set_axis_off()
-
+        Each layer's ``render()`` returns the matplotlib artists it created
+        on the axes; we track them via ``self._artists`` so the next rebuild
+        can remove gerrytools-managed artists without disturbing external
+        content.
+        """
         start_idx_to_layer_type: dict[int, tuple[str, int]] = {}
         if not self.silent:
             layer_order = [
@@ -709,14 +763,44 @@ class GeoPlot(ABC):
             if idx in start_idx_to_layer_type:
                 layer_type, count = start_idx_to_layer_type[idx]
                 print(f"Rendering {count} {layer_type} layer{'s' if count > 1 else ''}...")
-            layer.render(self._ax, target_crs=self.target_crs)
+            layer_artists = layer.render(self._ax, target_crs=self.target_crs)
+            if layer_artists:
+                self._artists.track(layer_artists)
 
-    def _apply_limits(self) -> None:
-        """Apply stored x/y limits to the axes."""
-        if self._xlim is not None:
+    def _apply_limits(self, external: set[str] | None = None) -> None:
+        """Apply stored x/y limits to the axes, respecting external changes."""
+        external = external or set()
+        if self._xlim is not None and UNIT_X_LIMITS not in external:
             self._ax.set_xlim(*self._xlim)
-        if self._ylim is not None:
+            self._axes_state.reclaim_and_mark(
+                UNIT_X_LIMITS, tuple(float(v) for v in self._ax.get_xlim())
+            )
+        elif self._xlim is None and UNIT_X_LIMITS not in external:
+            self._axes_state.record_default(
+                UNIT_X_LIMITS, tuple(float(v) for v in self._ax.get_xlim())
+            )
+        if self._ylim is not None and UNIT_Y_LIMITS not in external:
             self._ax.set_ylim(*self._ylim)
+            self._axes_state.reclaim_and_mark(
+                UNIT_Y_LIMITS, tuple(float(v) for v in self._ax.get_ylim())
+            )
+        elif self._ylim is None and UNIT_Y_LIMITS not in external:
+            self._axes_state.record_default(
+                UNIT_Y_LIMITS, tuple(float(v) for v in self._ax.get_ylim())
+            )
+
+    def _apply_axis_visibility(self, external: set[str]) -> None:
+        if UNIT_AXIS_VISIBILITY in external:
+            return
+        if self._show_axis:
+            self._ax.set_axis_on()
+        else:
+            self._ax.set_axis_off()
+        current = bool(self._ax.axison)
+        if self._axes_state.is_reclaimed(UNIT_AXIS_VISIBILITY):
+            self._axes_state.reclaim_and_mark(UNIT_AXIS_VISIBILITY, current)
+        else:
+            self._axes_state.record_default(UNIT_AXIS_VISIBILITY, current)
 
     def _draw_deferred_labels(self) -> dict[str, Point]:
         """Draw all deferred labels and return their positions.
@@ -796,7 +880,9 @@ class GeoPlot(ABC):
                 labelbox_options=boxopt,
                 zorder=req.zorder,
             )
-            tmp.render(ax, target_crs=self.target_crs)
+            label_artists = tmp.render(ax, target_crs=self.target_crs)
+            if label_artists:
+                self._artists.track(label_artists)
             label_positions.update(
                 {label: Point(pt.x, pt.y) for label, pt in zip(labels, pts.geometry.tolist())}
             )
@@ -804,9 +890,19 @@ class GeoPlot(ABC):
 
     @abstractmethod
     def _build_and_apply_settings(self) -> dict[str, Point]:
-        """Build the plot and apply stored settings like limits."""
-        self._build_plot()  # pragma: no cover - abstract stub body; concrete subclasses fully override without super()
-        self._apply_limits()  # pragma: no cover
+        """Snapshot → remove gerrytools artists → rebuild → apply settings.
+
+        Concrete subclasses fully override without super(); this stub
+        documents the canonical sequence and exists only for the abstract
+        contract.
+        """
+        before = self._axes_state.snapshot(self._ax)  # pragma: no cover
+        external = self._axes_state.detect_external_changes(before)  # pragma: no cover
+        self._artists.remove_all()  # pragma: no cover
+        self._build_plot()  # pragma: no cover
+        self._axes_state.restore_autoscale_protected(self._ax, before, external)  # pragma: no cover
+        self._apply_axis_visibility(external)  # pragma: no cover
+        self._apply_limits(external)  # pragma: no cover
         label_points = self._draw_deferred_labels()  # pragma: no cover
         return label_points  # pragma: no cover
 
@@ -847,8 +943,13 @@ class GeoPlot(ABC):
             ax (matplotlib.axes.Axes | None): The matplotlib axes to render
                 onto, or ``None`` to revert to a fresh-figure render.
         """
+        # Suppress reclaim during the re-classification step. Mirrors the
+        # two-pass init contract.
+        self._axes_state_initialized = False
+
         if ax is None:
             self.fig, self._ax = plt.subplots()
+            self._figure_is_shared = False
             try:
                 from IPython import get_ipython
 
@@ -860,7 +961,15 @@ class GeoPlot(ABC):
         else:
             self.fig = ax.figure
             self._ax = ax
+            self._figure_is_shared = True
         self._canvas = self.fig.canvas
+
+        # Detach registry from old axes (non-destructive rebind); reset
+        # per-axes history, classify new axes, re-enable reclaim.
+        self._artists = _ArtistRegistry()
+        self._axes_state.reset_history()
+        self._axes_state.initialize_from_ax(self._ax)
+        self._axes_state_initialized = True
 
     def get_label_positions(self, *, as_lat_long: bool = False) -> tuple[str, dict[str, Point]]:
         """Get computed label positions from the current plot build.

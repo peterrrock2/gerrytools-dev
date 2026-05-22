@@ -339,14 +339,20 @@ class ColoredGeoPlot(GeoPlot):
         )
 
     def _clear_colorbars_and_reset_layout(self) -> None:
-        """Clear any existing colorbars and reset layout to default."""
+        """Clear any existing colorbars and reset layout to default.
+
+        ``subplots_adjust`` is only safe to call on a figure gerrytools
+        owns. When the user supplied their own ``ax=``, we share their
+        figure and must not mutate its global layout.
+        """
         for cax in list(self._colorbar_axes):
             cax.remove()
         self._colorbar_axes = []
 
         # reset layout so we don't keep a shrunken main axes
-        self.fig.subplots_adjust(right=0.98)
-        self.fig.canvas.draw_idle()
+        if not self._figure_is_shared:
+            self.fig.subplots_adjust(right=0.98)
+            self.fig.canvas.draw_idle()
 
     def _draw_colorbars(self) -> None:
         """Draw colorbars for all requested layers."""
@@ -368,8 +374,9 @@ class ColoredGeoPlot(GeoPlot):
         total_width = n_layers * width + (n_layers - 1) * inner_pad + outer_pad + right_margin
         right = max(0.05, 1.0 - total_width)
 
-        self.fig.subplots_adjust(right=right)
-        self.fig.canvas.draw_idle()
+        if not self._figure_is_shared:
+            self.fig.subplots_adjust(right=right)
+            self.fig.canvas.draw_idle()
 
         main_pos = self._ax.get_position()
         x0 = float(main_pos.x1 + outer_pad)
@@ -432,12 +439,7 @@ class ColoredGeoPlot(GeoPlot):
                     colorbar.set_ticks(ticks[::step])
 
     def _build_plot(self) -> None:
-        """Build the plot by rendering all layers and applying settings."""
-        self._ax.clear()
-
-        if not self.show_axis:
-            self._ax.set_axis_off()
-
+        """Render all layers and colorbars, tracking every artist created."""
         start_idx_to_layer_type: dict[int, tuple[str, int]] = {}
         if not self.silent:
             layer_order = [
@@ -458,14 +460,23 @@ class ColoredGeoPlot(GeoPlot):
             if idx in start_idx_to_layer_type:
                 layer_type, count = start_idx_to_layer_type[idx]
                 print(f"Rendering {count} {layer_type} layer{'s' if count > 1 else ''}...")
-            layer.render(self._ax, target_crs=self.target_crs)
+            layer_artists = layer.render(self._ax, target_crs=self.target_crs)
+            if layer_artists:
+                self._artists.track(layer_artists)
 
         self._draw_colorbars()
 
     def _build_and_apply_settings(self) -> dict[str, Point]:
-        """Build the plot and apply stored settings like limits."""
+        """Snapshot → remove gerrytools artists → rebuild → apply settings."""
+        from gerrytools.plotting._axes_state import _ManagedAxesState  # noqa: F401
+
+        before = self._axes_state.snapshot(self._ax)
+        external = self._axes_state.detect_external_changes(before)
+        self._artists.remove_all()
         self._build_plot()
-        self._apply_limits()
+        self._axes_state.restore_autoscale_protected(self._ax, before, external)
+        self._apply_axis_visibility(external)
+        self._apply_limits(external)
         label_points = self._draw_deferred_labels()
         return label_points
 

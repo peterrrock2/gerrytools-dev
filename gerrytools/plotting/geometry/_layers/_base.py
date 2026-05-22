@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import geopandas as gpd
 import pandas as pd
 from geopandas import GeoDataFrame
+from matplotlib.artist import Artist
 from matplotlib.axes import Axes
 
 from gerrytools.colors import resolve_color_and_alpha
@@ -116,7 +117,7 @@ class _GeoLayer(ABC):
         return self.geometry_source
 
     @abstractmethod
-    def render(self, ax: Axes, **kwargs: object) -> Axes:
+    def render(self, ax: Axes, **kwargs: object) -> list[Artist]:
         """Render this layer onto the given Axes.
 
         Args:
@@ -124,6 +125,35 @@ class _GeoLayer(ABC):
             **kwargs (object): Layer-specific keyword arguments.
 
         Returns:
-            Axes: Axes with the layer rendered.
+            list[Artist]: Every matplotlib artist this layer created on ``ax``,
+            so the artist-registry refactor can remove only gerrytools-managed
+            artists on rebuild while leaving external artists untouched.
         """
         raise NotImplementedError  # pragma: no cover - abstract stub
+
+
+def _capture_geopandas_artists(
+    ax: Axes,
+    *,
+    plot_call,
+) -> list[Artist]:
+    """Snapshot ``ax`` collection/line/patch/text counts around a geopandas call.
+
+    Geopandas' ``GeoSeries.plot(ax=ax, ...)`` returns the axes, not the
+    artists it created. This helper diffs ``ax``'s artist lists before and
+    after invoking ``plot_call()`` so the caller can hand the resulting
+    artists to the registry.
+    """
+    before_collections = len(ax.collections)
+    before_lines = len(ax.lines)
+    before_patches = len(ax.patches)
+    before_texts = len(ax.texts)
+
+    plot_call()
+
+    new_artists: list[Artist] = []
+    new_artists.extend(list(ax.collections[before_collections:]))
+    new_artists.extend(list(ax.lines[before_lines:]))
+    new_artists.extend(list(ax.patches[before_patches:]))
+    new_artists.extend(list(ax.texts[before_texts:]))
+    return new_artists

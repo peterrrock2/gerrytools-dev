@@ -505,7 +505,7 @@ class DotDensityPlot(GeoPlot):
 
         for start in range(0, n, block):
             end = min(n, start + block)
-            self._ax.scatter(
+            scatter_collection = self._ax.scatter(
                 xs_all[start:end],
                 ys_all[start:end],
                 c=palette[layer_ids[start:end]],
@@ -515,6 +515,7 @@ class DotDensityPlot(GeoPlot):
                 linewidths=marker_settings["linewidths"],
                 zorder=marker_settings["zorder"],
             )
+            self._artists.track(scatter_collection)
 
     def _draw_all_dots(self) -> None:
         """Draw all dot density layers on the plot."""
@@ -575,8 +576,15 @@ class DotDensityPlot(GeoPlot):
             for label, color in self.__column_to_color_dict.items()
         ]
 
+        # Remove any prior gerrytools legend so we don't stack legend instances.
+        prior_legend = self._ax.get_legend()
+        if prior_legend is not None:
+            prior_legend.remove()
         legend_options = self._legend_options.to_dict() | legend_kwargs
         self._ax.legend(handles=handles, **legend_options)
+        new_legend = self._ax.get_legend()
+        if new_legend is not None:
+            self._artists.track(new_legend)
 
     def _build_plot(self) -> None:
         """Build the plot by rendering all layers and applying settings."""
@@ -585,9 +593,14 @@ class DotDensityPlot(GeoPlot):
         self._draw_legend()
 
     def _build_and_apply_settings(self) -> dict[str, Point]:
-        """Build the plot and apply stored settings like limits."""
+        """Snapshot → remove gerrytools artists → rebuild → apply settings."""
+        before = self._axes_state.snapshot(self._ax)
+        external = self._axes_state.detect_external_changes(before)
+        self._artists.remove_all()
         self._build_plot()
-        self._apply_limits()
+        self._axes_state.restore_autoscale_protected(self._ax, before, external)
+        self._apply_axis_visibility(external)
+        self._apply_limits(external)
         label_points = self._draw_deferred_labels()
         return label_points
 
