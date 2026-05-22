@@ -489,7 +489,7 @@ class SeaLevel(GerryPlotBase):
                 y_positions.append(y_center)
 
             markersettings = sealevel_set.markersettings.to_mpl_settings_dict()
-            self._ax.plot(
+            sealevel_artists = self._ax.plot(
                 x_positions,
                 y_positions,
                 linestyle=sealevel_set.linestyle,
@@ -507,6 +507,7 @@ class SeaLevel(GerryPlotBase):
                 markeredgecolor=markersettings["markeredgecolor"],
                 markeredgewidth=markersettings["markeredgewidth"],
             )
+            self._artists.track(sealevel_artists)
 
     def _build_plot(self) -> None:
         """Build the sealevel figure."""

@@ -232,7 +232,7 @@ class ScatterPlot(GerryPlotBase):
             return
 
         for sdata in self._scatter_data_list:
-            self._ax.plot(
+            point_lines = self._ax.plot(
                 sdata.x,
                 sdata.y,
                 linestyle="none",
@@ -240,6 +240,7 @@ class ScatterPlot(GerryPlotBase):
                 rasterized=True,
                 **sdata.marker_options.to_mpl_settings_dict(),
             )
+            self._artists.track(point_lines)
 
     def _build_plot(self) -> None:
         """Build the scatterplot by drawing point sets."""

@@ -17,6 +17,7 @@ from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
 from gerrytools.plotting._artist_registry import _ArtistRegistry
 from gerrytools.plotting._axes_state import (
+    UNIT_ASPECT,
     UNIT_FRAME,
     UNIT_LEGEND,
     UNIT_TITLE,
@@ -991,6 +992,30 @@ class GerryPlotBase(ABC):
         if UNIT_Y_SCALE in external:
             return
         self._axes_state.record_default(UNIT_Y_SCALE, self._ax.get_yscale())
+
+    def _apply_aspect_now(self) -> None:
+        """Subclass hook: apply the desired aspect to ``self._ax``.
+
+        Base implementation is a no-op (gerrytools defaults to matplotlib's
+        ``"auto"``). Subclasses that need a fixed or computed aspect (e.g.
+        ``SeatsVotes``, ``PaintBall``) override this and call
+        ``self._ax.set_aspect(...)``. The base ``_apply_aspect`` helper then
+        records the resulting aspect as a gerrytools default so external
+        ``ax.set_aspect(...)`` changes between rebuilds are detected and
+        respected on the next pass.
+        """
+
+    def _apply_aspect(self, external: set[str]) -> None:
+        """Reconcile the ``aspect`` managed unit.
+
+        Subclass hook ``_apply_aspect_now`` controls what gerrytools applies.
+        External changes (a user ``ax.set_aspect("auto")`` between rebuilds)
+        win until a subclass override drives a new value through this path.
+        """
+        if UNIT_ASPECT in external:
+            return
+        self._apply_aspect_now()
+        self._axes_state.record_default(UNIT_ASPECT, self._ax.get_aspect())
 
     def update_xtick_labels(
         self, *, locations: list[float] | None = None, labels: list[str] | None = None
@@ -2006,6 +2031,7 @@ class GerryPlotBase(ABC):
         self._apply_title(external)
         self._apply_x_scale(external)
         self._apply_y_scale(external)
+        self._apply_aspect(external)
         self._apply_legend(external)
         # Apply ticks after the legend so positions reflect any legend-draw
         # side effects on layout.

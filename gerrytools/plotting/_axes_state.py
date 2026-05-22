@@ -43,6 +43,7 @@ UNIT_Y_SCALE = "y_scale"
 UNIT_FRAME = "frame"
 UNIT_LEGEND = "legend"
 UNIT_AXIS_VISIBILITY = "axis_visibility"
+UNIT_ASPECT = "aspect"
 
 _AUTOSCALE_PROTECTED: frozenset[str] = frozenset({UNIT_X_LIMITS, UNIT_Y_LIMITS})
 
@@ -61,6 +62,7 @@ _ALL_UNITS: tuple[str, ...] = (
     UNIT_FRAME,
     UNIT_LEGEND,
     UNIT_AXIS_VISIBILITY,
+    UNIT_ASPECT,
 )
 
 # Internal sentinel marking "gerrytools claimed the unit but has not yet
@@ -169,6 +171,7 @@ class _AxesSnapshot:
     frame: tuple[bool, bool, bool, bool]  # top, right, bottom, left
     legend: Legend | None
     axis_visibility: bool
+    aspect: str | float  # matplotlib's "auto" default or a numeric ratio
 
 
 # ---------------------------------------------------------------------------
@@ -323,6 +326,7 @@ def _read_snapshot(ax: Axes, *, title_pad: float | None) -> _AxesSnapshot:
         frame=_frame_snapshot(ax),
         legend=ax.get_legend(),
         axis_visibility=bool(ax.axison),
+        aspect=ax.get_aspect(),
     )
 
 
@@ -399,6 +403,23 @@ def _tick_style_equal(a: _TickStyleSnapshot, b: _TickStyleSnapshot) -> bool:
     )
 
 
+def _aspect_equal(a: object, b: object) -> bool:
+    """Compare matplotlib aspect values.
+
+    ``ax.get_aspect()`` returns either the string ``"auto"`` or a float
+    (``"equal"`` is normalized to ``1.0`` by matplotlib internally). String
+    and numeric values are never equal; numeric values use ``math.isclose``.
+    """
+    if isinstance(a, str) or isinstance(b, str):
+        return a == b
+    return math.isclose(
+        float(a),  # type: ignore[arg-type]
+        float(b),  # type: ignore[arg-type]
+        rel_tol=_VALUE_REL_TOL,
+        abs_tol=_VALUE_ABS_TOL,
+    )
+
+
 # Dispatch: (unit -> snapshot-field-accessor, equality-fn).
 def _snapshot_field(snapshot: _AxesSnapshot, unit: str) -> object:
     return {
@@ -416,6 +437,7 @@ def _snapshot_field(snapshot: _AxesSnapshot, unit: str) -> object:
         UNIT_FRAME: snapshot.frame,
         UNIT_LEGEND: snapshot.legend,
         UNIT_AXIS_VISIBILITY: snapshot.axis_visibility,
+        UNIT_ASPECT: snapshot.aspect,
     }[unit]
 
 
@@ -434,6 +456,8 @@ def _unit_equal(unit: str, a: object, b: object) -> bool:
         # Identity comparison: an external legend placed after last apply is a
         # different object than the one gerrytools tracked.
         return a is b
+    if unit == UNIT_ASPECT:
+        return _aspect_equal(a, b)
     # Frame, scales, axis_visibility: exact equality.
     return a == b
 
@@ -535,6 +559,11 @@ class _ManagedAxesState:
         if self._units[UNIT_AXIS_VISIBILITY].ownership == "unclaimed":
             if not bool(ax.axison):
                 self._mark_external(UNIT_AXIS_VISIBILITY, False)
+
+        if self._units[UNIT_ASPECT].ownership == "unclaimed":
+            current_aspect = ax.get_aspect()
+            if not _aspect_equal(current_aspect, default.aspect):
+                self._mark_external(UNIT_ASPECT, current_aspect)
 
     def reset_history(self) -> None:
         """Clear per-axes last-applied history and external classifications.

@@ -286,6 +286,27 @@ class ViolinPlot(CategoricalDistributionPlotBase):
                 showextrema=False,
             )
 
+            # ax.violinplot returns a dict mostly populated with bodies (a
+            # list of PolyCollection). showmeans/medians/extrema=False means
+            # cbars/cmins/cmaxes/cmeans/cmedians keys are absent. Track every
+            # artist that may have been created defensively.
+            for key in (
+                "bodies",
+                "cbars",
+                "cmins",
+                "cmaxes",
+                "cmeans",
+                "cmedians",
+            ):
+                value = vp.get(key)
+                if value is None:
+                    continue
+                if isinstance(value, list):
+                    for artist in value:
+                        self._artists.track(artist)
+                else:
+                    self._artists.track(value)
+
             bodies = cast(list[PolyCollection], vp.get("bodies", []))
             for patch in bodies:
                 patch.set_alpha(None)

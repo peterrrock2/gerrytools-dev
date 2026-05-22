@@ -671,7 +671,7 @@ class SeatsVotes(GerryPlotBase):
             )
             x_vals = [x_start, x_end]
             y_vals = [y_start, y_end]
-            self._ax.plot(
+            line_artists = self._ax.plot(
                 x_vals,
                 y_vals,
                 color=self._resolved_rgba(
@@ -683,13 +683,15 @@ class SeatsVotes(GerryPlotBase):
                 linewidth=line.linewidth,
                 zorder=line.zorder,
             )
+            self._artists.track(line_artists)
 
     def _draw_seats_votes_curves(self) -> None:
         """Draw the seats-votes curves on the plot."""
         for sv_series in self._sv_data_list:
             vote_shares, seat_shares = sv_series.seats_votes_curve_values()
 
-            self._ax.step(
+            # ax.step returns a list[Line2D] just like ax.plot.
+            step_artists = self._ax.step(
                 vote_shares,
                 seat_shares,
                 where="pre",
@@ -702,6 +704,7 @@ class SeatsVotes(GerryPlotBase):
                 linewidth=sv_series.resolved_linewidth(self.linewidth),
                 zorder=sv_series.zorder,
             )
+            self._artists.track(step_artists)
 
     def _draw_sv_markers(self) -> None:
         """Draw the overall election result markers on the plot."""
@@ -712,7 +715,7 @@ class SeatsVotes(GerryPlotBase):
             district_vote_shares = sv_series.pov_party_vote_counts / sv_series.total_vote_counts
             total_seat_share = float(np.mean(district_vote_shares > 0.5))
 
-            self._ax.plot(
+            marker_artists = self._ax.plot(
                 total_vote_share,
                 total_seat_share,
                 marker=sv_series.marker,
@@ -731,12 +734,18 @@ class SeatsVotes(GerryPlotBase):
                 markersize=sv_series.resolved_markersize(self.markersize),
                 zorder=sv_series.markerzorder,
             )
+            self._artists.track(marker_artists)
+
+    def _apply_aspect_now(self) -> None:
+        """SeatsVotes uses a 1:1 aspect ratio so the unit-square plotting region
+        is geometrically faithful to the seats-vs-votes interpretation.
+        """
+        self._ax.set_aspect("equal", adjustable="box")
 
     def _build_plot(self) -> None:
         """Build the plot by drawing all elements in the correct order."""
         self._draw_seats_votes_curves()
         self._draw_lines()
-        self._ax.set_aspect("equal", adjustable="box")
 
         if self._display_election_markers:
             self._draw_sv_markers()
@@ -744,18 +753,20 @@ class SeatsVotes(GerryPlotBase):
         if self._crosshair_settings is not None:
             x_settings = self._crosshair_settings["x"]
             y_settings = self._crosshair_settings["y"]
-            self._ax.axvspan(
+            vspan = self._ax.axvspan(
                 xmin=x_settings["xmin"],
                 xmax=x_settings["xmax"],
                 color=x_settings["color"],
                 zorder=x_settings["zorder"],
             )
-            self._ax.axhspan(
+            self._artists.track(vspan)
+            hspan = self._ax.axhspan(
                 ymin=y_settings["ymin"],
                 ymax=y_settings["ymax"],
                 color=y_settings["color"],
                 zorder=y_settings["zorder"],
             )
+            self._artists.track(hspan)
 
     def _get_sv_curve_legend_handles(self) -> list[LegendHandle]:
         """Generate legend handles for seats-votes curves.

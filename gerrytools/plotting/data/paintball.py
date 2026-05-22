@@ -546,18 +546,20 @@ class PaintBall(GerryPlotBase):
             field="crosshair_color",
         )
 
-        self._ax.axvline(
+        crosshair_v = self._ax.axvline(
             0.5,
             color=crosshair_color,
             linewidth=self.crosshair_width,
             zorder=-2,
         )
-        self._ax.axhline(
+        self._artists.track(crosshair_v)
+        crosshair_h = self._ax.axhline(
             0.5,
             color=crosshair_color,
             linewidth=self.crosshair_width,
             zorder=-2,
         )
+        self._artists.track(crosshair_h)
 
     def _draw_lines(self) -> None:
         """Draw all named and anonymous guide lines."""
@@ -565,7 +567,7 @@ class PaintBall(GerryPlotBase):
             x_start, y_start, x_end, y_end = (
                 self._compute_starting_ending_points_for_line_with_slope(line.slope)
             )
-            self._ax.plot(
+            named_line_artists = self._ax.plot(
                 [x_start, x_end],
                 [y_start, y_end],
                 color=self._resolved_rgba(
@@ -577,13 +579,14 @@ class PaintBall(GerryPlotBase):
                 linewidth=line.linewidth,
                 zorder=line.zorder,
             )
+            self._artists.track(named_line_artists)
 
         for lines in self._lines.values():
             for line in lines:
                 x_start, y_start, x_end, y_end = (
                     self._compute_starting_ending_points_for_line_with_slope(line.slope)
                 )
-                self._ax.plot(
+                line_artists = self._ax.plot(
                     [x_start, x_end],
                     [y_start, y_end],
                     color=self._resolved_rgba(
@@ -595,6 +598,7 @@ class PaintBall(GerryPlotBase):
                     linewidth=line.linewidth,
                     zorder=line.zorder,
                 )
+                self._artists.track(line_artists)
 
     def _paintball_coordinates(self) -> tuple[list[float], list[float]]:
         """Return transformed paintball coordinates in the unit square."""
@@ -633,7 +637,7 @@ class PaintBall(GerryPlotBase):
             self.markeredgealpha,
             field="markeredgecolor",
         )
-        self._ax.plot(
+        point_artists = self._ax.plot(
             x_coords,
             y_coords,
             linestyle="none",
@@ -644,6 +648,7 @@ class PaintBall(GerryPlotBase):
             markeredgewidth=self.markeredgewidth,
             zorder=2,
         )
+        self._artists.track(point_artists)
 
     def _draw_horizontal_hull(self) -> None:
         """Draw the horizontal hull polygon for paintball points."""
@@ -657,19 +662,21 @@ class PaintBall(GerryPlotBase):
 
         if len(hull_vertices) < 3:
             xs, ys = zip(*hull_vertices)
-            self._ax.plot(
+            hull_line_artists = self._ax.plot(
                 xs,
                 ys,
                 color=edge_rgba,
                 linewidth=self.hulledgewidth,
                 zorder=2,
             )
+            self._artists.track(hull_line_artists)
             return
 
         x_coords = [x for x, _ in hull_vertices] + [hull_vertices[0][0]]
         y_coords = [y for _, y in hull_vertices] + [hull_vertices[0][1]]
 
-        self._ax.fill(
+        # ``ax.fill`` returns a list of Polygon patches.
+        hull_polygons = self._ax.fill(
             x_coords,
             y_coords,
             facecolor=self._resolved_rgba(fillcolor, fillalpha, field="hullcolor"),
@@ -677,6 +684,13 @@ class PaintBall(GerryPlotBase):
             linewidth=self.hulledgewidth,
             zorder=2,
         )
+        self._artists.track(hull_polygons)
+
+    def _apply_aspect_now(self) -> None:
+        """PaintBall aspect tracks the ratio of data-transform factors so the
+        unit-square plotting region matches the configured ``xscale`` / ``yscale``.
+        """
+        self._ax.set_aspect(self.yscale / self.xscale, adjustable="box")
 
     def _build_plot(self) -> None:
         """Build the plot by drawing all elements in order."""
@@ -687,8 +701,6 @@ class PaintBall(GerryPlotBase):
             self._draw_horizontal_hull()
         else:
             self._draw_points()
-
-        self._ax.set_aspect(self.yscale / self.xscale, adjustable="box")
 
     @property
     def _legend_handles(self) -> list[LegendHandle]:
