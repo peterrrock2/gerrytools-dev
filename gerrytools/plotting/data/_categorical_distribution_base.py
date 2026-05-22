@@ -373,7 +373,7 @@ class CategoricalDistributionPlotBase(GerryPlotBase):
     def _draw_group_vlines(self) -> None:
         """Draw vertical guide lines at each category center."""
         for x in self._category_centers:
-            self._ax.axvline(
+            line = self._ax.axvline(
                 x,
                 color=self._resolved_rgba(
                     self._group_vline_settings.linecolor,
@@ -384,6 +384,7 @@ class CategoricalDistributionPlotBase(GerryPlotBase):
                 linewidth=self._group_vline_settings.linewidth,
                 zorder=self._group_vline_settings.zorder,
             )
+            self._artists.track(line)
 
     @property
     def _category_centers(self) -> np.ndarray:
@@ -421,7 +422,7 @@ class CategoricalDistributionPlotBase(GerryPlotBase):
             mask = np.isfinite(ys)
             if not np.any(mask):
                 continue
-            self._ax.plot(
+            point_lines = self._ax.plot(
                 xs[mask],
                 ys[mask],
                 linestyle="none",
@@ -429,6 +430,7 @@ class CategoricalDistributionPlotBase(GerryPlotBase):
                 rasterized=True,
                 **sdata.point_data.to_mpl_settings_dict(),
             )
+            self._artists.track(point_lines)
 
     def _get_pointset_legend_handles(self) -> list[LegendHandle]:
         """Generate legend handles for all point sets."""

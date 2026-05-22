@@ -12,6 +12,7 @@ from matplotlib.text import Text
 from matplotlib.transforms import Transform
 
 from gerrytools.colors import resolve_color_and_alpha
+from gerrytools.plotting._artist_registry import _ArtistRegistry
 from gerrytools.plotting.data._gerryplot_dataclasses import ArrowData, ArrowTextStyle
 
 # A color resolver: ``(color, alpha=None, *, field="color") -> RGBA``. The
@@ -101,10 +102,16 @@ class _AnnotationArrowRenderer:
         ax: Axes,
         fig: Figure,
         color_resolver: ColorResolver,
+        registry: _ArtistRegistry | None = None,
     ) -> None:
         self._ax = ax
         self._fig = fig
         self._resolved_rgba = color_resolver
+        self._registry = registry
+
+    def _track(self, artist: object) -> None:
+        if self._registry is not None and artist is not None:
+            self._registry.track(artist)  # type: ignore[arg-type]
 
     # -- public ---------------------------------------------------------
 
@@ -412,6 +419,7 @@ class _AnnotationArrowRenderer:
                     lw=style.arrowedgewidth,
                 ),
             )
+            self._track(bbox_artist)
             self._align_text_arrow_tip_to_position(
                 bbox_artist,
                 desired_tip=(tip_x + offset_x, tip_y + offset_y),
@@ -435,6 +443,7 @@ class _AnnotationArrowRenderer:
                 clip_on=arrow.placement.clip_on,
                 zorder=float(arrow.placement.zorder) + 0.01,
             )
+            self._track(text_artist)
             text_effects = self._annotation_text_outline_effects(arrow.textstyle)
             if text_effects is not None:
                 text_artist.set_path_effects(text_effects)
@@ -462,6 +471,7 @@ class _AnnotationArrowRenderer:
                 lw=style.arrowedgewidth,
             ),
         )
+        self._track(text_artist)
         self._align_text_arrow_tip_to_position(
             text_artist,
             desired_tip=(tip_x + offset_x, tip_y + offset_y),
@@ -523,7 +533,7 @@ class _AnnotationArrowRenderer:
                 field="annotation_arrow_outlinecolor",
             )
 
-        self._ax.annotate(
+        annotation = self._ax.annotate(
             "",
             xy=(tip_x, tip_y),
             xytext=(tail_x, tail_y),
@@ -547,6 +557,7 @@ class _AnnotationArrowRenderer:
                 linestyle=style.linestyle,
             ),
         )
+        self._track(annotation)
 
         text_value = arrow.text if arrow.text is not None else ""
         if text_value == "":
@@ -612,6 +623,7 @@ class _AnnotationArrowRenderer:
                 fontstyle=arrow.textstyle.fontstyle,
                 fontfamily=arrow.textstyle.fontfamily,
             )
+        self._track(text_artist)
         text_artist.set_clip_path(self._ax.patch)
         if text_effects is not None:
             text_artist.set_path_effects(text_effects)

@@ -327,6 +327,11 @@ class BoxPlot(CategoricalDistributionPlotBase):
                     boxplot_data.flier_options.to_mpl_settings_dict(),
                 ),
             )
+            # ``ax.boxplot`` returns a dict of artist lists keyed by component
+            # name (boxes, whiskers, caps, medians, means, fliers).
+            for key in ("boxes", "whiskers", "caps", "medians", "means", "fliers"):
+                for artist in bp.get(key, []):
+                    self._artists.track(artist)
 
             edgecolor = self._resolved_rgba(
                 boxplot_data.edgecolor,

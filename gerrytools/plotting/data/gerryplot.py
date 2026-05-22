@@ -15,6 +15,28 @@ from matplotlib.text import Text
 
 from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
+from gerrytools.plotting._artist_registry import _ArtistRegistry
+from gerrytools.plotting._axes_state import (
+    UNIT_FRAME,
+    UNIT_LEGEND,
+    UNIT_TITLE,
+    UNIT_X_LABEL,
+    UNIT_X_LIMITS,
+    UNIT_X_SCALE,
+    UNIT_X_TICK_STYLE,
+    UNIT_X_TICKS,
+    UNIT_Y_LABEL,
+    UNIT_Y_LIMITS,
+    UNIT_Y_SCALE,
+    UNIT_Y_TICK_STYLE,
+    UNIT_Y_TICKS,
+    _label_snapshot,
+    _LabelSnapshot,
+    _ManagedAxesState,
+    _tick_style_snapshot,
+    _title_snapshot,
+    _TitleSnapshot,
+)
 from gerrytools.plotting._figure_io import save_figure, show_figure
 from gerrytools.plotting._legend_utils import build_legend_options, save_legend_handles
 from gerrytools.plotting.data._annotations import _Annotations
@@ -35,6 +57,12 @@ from gerrytools.plotting.utils import _coerce_real_iter
 from gerrytools.typing import Color, LegendHandle, TickType
 
 logger = get_logger(__name__)
+
+# Internal sentinel marking "no explicit label/title opinion set". Distinct
+# from ``None``, which is a real public API value (``self.title = None`` is
+# the explicit-clear path). Never appears in any public signature, default,
+# getter, or ``__repr__``.
+_UNSET_TEXT: str = "__gerryplot_unset_text__"
 
 
 class GerryPlotBase(ABC):
@@ -72,6 +100,7 @@ class GerryPlotBase(ABC):
             ylabel (str | None, optional): The label for the y-axis. Defaults to None.
             title (str | None, optional): The title of the plot. Defaults to None.
         """
+        # --- Pass 1: resolve self._ax and self.fig ---
         if ax is not None:
             if figure_size is not None or dpi is not None:
                 warn(
@@ -105,12 +134,16 @@ class GerryPlotBase(ABC):
 
             self._finalizer = weakref.finalize(self, plt.close, self.fig)
 
-        self.include_legend = include_legend
-        self._legend_options = build_legend_options()
+        # --- Pass 2: initialize backing fields to internal "no opinion" values ---
+        # Property-wrapped fields use leading-underscore storage; text fields
+        # use the _UNSET_TEXT sentinel so the property setter's "explicit
+        # clear via None" path is distinguishable from constructor-omitted.
+        self._title: str = _UNSET_TEXT
+        self._xlabel: str = _UNSET_TEXT
+        self._ylabel: str = _UNSET_TEXT
+        self._include_legend: bool = True
 
-        self.xlabel = xlabel
-        self.ylabel = ylabel
-        self.title = title
+        self._legend_options = build_legend_options()
 
         self._xlabel_style: AxisLabelStyle | None = None
         self._ylabel_style: AxisLabelStyle | None = None
@@ -135,6 +168,101 @@ class GerryPlotBase(ABC):
             "left": True,
         }
 
+        # --- Pass 3: artist registry + managed-axes state ---
+        # Created and initialized BEFORE re-applying constructor args so any
+        # pre-existing state on a user-supplied axes is classified first.
+        self._artists = _ArtistRegistry()
+        self._axes_state = _ManagedAxesState()
+        self._axes_state_initialized: bool = False
+        self._axes_state.initialize_from_ax(self._ax)
+        self._axes_state_initialized = True
+
+        # --- Pass 4: re-apply non-default constructor args via property setters ---
+        # Setters reclaim their managed unit; omitted args stay "no opinion".
+        if title is not None:
+            self.title = title
+        if xlabel is not None:
+            self.xlabel = xlabel
+        if ylabel is not None:
+            self.ylabel = ylabel
+        if include_legend is not True:
+            self.include_legend = include_legend
+
+    # ------------------------------------------------------------------
+    # Property wrappers for label/title/legend (atomic managed-axes units)
+    # ------------------------------------------------------------------
+
+    @property
+    def title(self) -> str | None:
+        """Plot title, or None if unset."""
+        return None if self._title is _UNSET_TEXT else self._title
+
+    @title.setter
+    def title(self, value: str | None) -> None:
+        self._title = _UNSET_TEXT if value is _UNSET_TEXT else value  # type: ignore[assignment]
+        # Sentinel re-assignment only happens from internal code; user values
+        # are str | None. Reclaim only when the state machine is initialized
+        # (suppressed during the two-pass __init__).
+        if self._axes_state_initialized and value is not _UNSET_TEXT:
+            self._apply_title_now()
+            self._axes_state.reclaim_and_mark(UNIT_TITLE, self._snapshot_title())
+
+    @property
+    def xlabel(self) -> str | None:
+        """X-axis label text, or None if unset."""
+        return None if self._xlabel is _UNSET_TEXT else self._xlabel
+
+    @xlabel.setter
+    def xlabel(self, value: str | None) -> None:
+        self._xlabel = _UNSET_TEXT if value is _UNSET_TEXT else value  # type: ignore[assignment]
+        if self._axes_state_initialized and value is not _UNSET_TEXT:
+            self._apply_xlabel_now()
+            self._axes_state.reclaim_and_mark(UNIT_X_LABEL, self._snapshot_xlabel())
+
+    @property
+    def ylabel(self) -> str | None:
+        """Y-axis label text, or None if unset."""
+        return None if self._ylabel is _UNSET_TEXT else self._ylabel
+
+    @ylabel.setter
+    def ylabel(self, value: str | None) -> None:
+        self._ylabel = _UNSET_TEXT if value is _UNSET_TEXT else value  # type: ignore[assignment]
+        if self._axes_state_initialized and value is not _UNSET_TEXT:
+            self._apply_ylabel_now()
+            self._axes_state.reclaim_and_mark(UNIT_Y_LABEL, self._snapshot_ylabel())
+
+    @property
+    def include_legend(self) -> bool:
+        """Whether to render a legend on rebuild."""
+        return self._include_legend
+
+    @include_legend.setter
+    def include_legend(self, value: bool) -> None:
+        self._include_legend = bool(value)
+        # Legend identity is recorded by ``_apply_legend`` at the next
+        # rebuild. The store-and-claim path keeps last-applied history clean
+        # of placeholder values.
+        if self._axes_state_initialized:
+            self._axes_state.reclaim_without_value(UNIT_LEGEND)
+
+    # ------------------------------------------------------------------
+    # Snapshot helpers used by reclaim paths
+    # ------------------------------------------------------------------
+
+    def _snapshot_xlabel(self) -> _LabelSnapshot:
+        return _label_snapshot(self._ax, "x")
+
+    def _snapshot_ylabel(self) -> _LabelSnapshot:
+        return _label_snapshot(self._ax, "y")
+
+    def _snapshot_title(self) -> _TitleSnapshot:
+        # Title pad is unobservable via public matplotlib getters in 3.10.6,
+        # so we round-trip the last-applied pad rather than reading from mpl.
+        pad: float | None = None
+        if self._title_style is not None:
+            pad = self._title_style.pad
+        return _title_snapshot(self._ax, pad=pad)
+
     def bind_to_ax(self, ax: Axes | None) -> None:
         """Retarget this plot to render onto a different matplotlib ``Axes``.
 
@@ -151,6 +279,10 @@ class GerryPlotBase(ABC):
             ax (matplotlib.axes.Axes | None): The matplotlib axes to render onto,
                 or ``None`` to revert to a fresh-figure render.
         """
+        # Suppress reclaim during the re-classification step. Mirrors the
+        # two-pass init contract so initialize_from_ax sees a clean state.
+        self._axes_state_initialized = False
+
         if ax is None:
             self.fig, self._ax = plt.subplots()
             try:
@@ -171,6 +303,16 @@ class GerryPlotBase(ABC):
             if self._finalizer is not None:
                 self._finalizer.detach()
             self._finalizer = None
+
+        # Detach the artist registry from the old axes without removing its
+        # artists — rebind is non-destructive per the refactor plan.
+        self._artists = _ArtistRegistry()
+
+        # Reset per-axes last-applied history; reclaim flags survive because
+        # they describe plot configuration, not the previous axes.
+        self._axes_state.reset_history()
+        self._axes_state.initialize_from_ax(self._ax)
+        self._axes_state_initialized = True
 
     def add_vertical_lines(
         self,
@@ -654,67 +796,201 @@ class GerryPlotBase(ABC):
         """
         return None
 
-    def _set_x_axis(self) -> None:
-        """Set x-axis limits, ticks, and labels in the plot."""
-        x_limits = self._x_limits if self._x_limits is not None else self._ax.get_xlim()
-        self._ax.set_xlim(x_limits)
+    # ------------------------------------------------------------------
+    # Per-managed-unit apply helpers (used by the rebuild flow). Each:
+    #   - skips entirely when its unit is in the external set;
+    #   - otherwise applies gerrytools state to ``self._ax`` and records
+    #     either explicit-reclaim (via reclaim_and_mark) or default ownership
+    #     (via record_default) so the next rebuild's external detection works.
+    # ------------------------------------------------------------------
 
-        if self._x_tick_locations is not None:
-            x_tick_locations = list(self._x_tick_locations)
+    def _apply_x_limits(self, external: set[str]) -> None:
+        if UNIT_X_LIMITS in external:
+            return
+        if self._x_limits is not None:
+            self._ax.set_xlim(*self._x_limits)
+            self._axes_state.reclaim_and_mark(
+                UNIT_X_LIMITS, tuple(float(v) for v in self._ax.get_xlim())
+            )
         else:
-            default_locs = self._default_x_tick_locations()
-            x_tick_locations = (
-                list(default_locs) if default_locs is not None else self._ax.get_xticks().tolist()
+            # Implicit default: matplotlib's autoscale has set the data range.
+            self._axes_state.record_default(
+                UNIT_X_LIMITS, tuple(float(v) for v in self._ax.get_xlim())
             )
 
-        self._ax.set_xticks(x_tick_locations)
+    def _apply_y_limits(self, external: set[str]) -> None:
+        if UNIT_Y_LIMITS in external:
+            return
+        if self._y_limits is not None:
+            self._ax.set_ylim(*self._y_limits)
+            self._axes_state.reclaim_and_mark(
+                UNIT_Y_LIMITS, tuple(float(v) for v in self._ax.get_ylim())
+            )
+        else:
+            self._axes_state.record_default(
+                UNIT_Y_LIMITS, tuple(float(v) for v in self._ax.get_ylim())
+            )
 
+    def _apply_x_ticks(self, external: set[str]) -> None:
+        if UNIT_X_TICKS in external:
+            return
+        # Determine locations: explicit user set, subclass default, or
+        # leave matplotlib's locator alone. Materializing get_xticks() into
+        # a set_xticks() call would convert matplotlib's dynamic locator
+        # into a FixedLocator that persists across rebuilds — and because
+        # we no longer ax.clear() between rebuilds, that stale locator
+        # would expand xlim to cover its stored ticks on later rebuilds.
+        if self._x_tick_locations is not None:
+            x_tick_locations: list[float] | None = list(self._x_tick_locations)
+        else:
+            default_locs = self._default_x_tick_locations()
+            x_tick_locations = list(default_locs) if default_locs is not None else None
+        if x_tick_locations is not None:
+            self._ax.set_xticks(x_tick_locations)
         if self._x_tick_labels == []:
             self._ax.tick_params(axis="x", labelbottom=False)
+            self._record_x_ticks()
             return
-
-        # If user didn't provide labels, allow subclass defaults
         if self._x_tick_labels is None:
-            labels = self._default_x_tick_labels(x_tick_locations)
-            if labels is None:
+            if x_tick_locations is None:
+                # Matplotlib will compute labels from the locator at draw
+                # time; nothing to apply.
+                self._record_x_ticks()
                 return
-            self._ax.set_xticklabels(list(labels))
+            labels = self._default_x_tick_labels(x_tick_locations)
+            if labels is not None:
+                self._ax.set_xticklabels(list(labels))
+            self._record_x_ticks()
             return
-
-        # User provided labels
+        if x_tick_locations is None:
+            # Labels supplied without locations; fall back to current ticks.
+            x_tick_locations = self._ax.get_xticks().tolist()
         if len(self._x_tick_labels) != len(x_tick_locations):
             raise ValueError(
                 f"Expected {len(x_tick_locations)} x tick labels, got {len(self._x_tick_labels)}."
             )
         self._ax.set_xticklabels(list(self._x_tick_labels))
+        self._record_x_ticks()
 
-    def _set_y_axis(self) -> None:
-        """Set y-axis limits, ticks, and labels in the plot."""
-        y_limits = self._y_limits if self._y_limits is not None else self._ax.get_ylim()
-        self._ax.set_ylim(y_limits)
+    def _record_x_ticks(self) -> None:
+        """Record what we just applied for the x_ticks unit.
 
+        Reclaim-vs-default depends on whether a public setter has already
+        claimed the unit: store-and-claim (update_xtick_labels, set_xticks,
+        clear_xticks, clear_xtick_labels) calls ``reclaim_without_value``,
+        leaving the unit in the gerrytools_explicit ownership state. In that
+        case we keep ownership and record the concrete snapshot. Otherwise
+        this is an implicit default applied via subclass default hooks.
+        """
+        from gerrytools.plotting._axes_state import _tick_snapshot
+
+        snapshot = _tick_snapshot(self._ax, "x")
+        if self._axes_state.is_reclaimed(UNIT_X_TICKS):
+            self._axes_state.reclaim_and_mark(UNIT_X_TICKS, snapshot)
+        else:
+            self._axes_state.record_default(UNIT_X_TICKS, snapshot)
+
+    def _apply_y_ticks(self, external: set[str]) -> None:
+        if UNIT_Y_TICKS in external:
+            return
+        # See _apply_x_ticks for the "don't materialize matplotlib's
+        # default locator into a FixedLocator" rationale.
         if self._y_tick_locations is not None:
-            y_tick_locations = list(self._y_tick_locations)
+            y_tick_locations: list[float] | None = list(self._y_tick_locations)
             self._ax.set_yticks(y_tick_locations)
         else:
-            y_tick_locations = self._ax.get_yticks().tolist()
+            y_tick_locations = None
 
         if self._y_tick_labels is None:
+            self._record_y_ticks()
             return
-
         if self._y_tick_labels == []:
             self._ax.tick_params(axis="y", labelleft=False)
+            self._record_y_ticks()
             return
-
-        if self._y_tick_locations is None:
+        if y_tick_locations is None:
+            # Labels supplied without locations: materialize current ticks
+            # via set_yticks so set_yticklabels matches them and matplotlib
+            # does not warn about labels-without-fixed-locator.
+            y_tick_locations = self._ax.get_yticks().tolist()
             self._ax.set_yticks(y_tick_locations)
-
         if len(self._y_tick_labels) != len(y_tick_locations):
             raise ValueError(
                 f"Expected {len(y_tick_locations)} y tick labels, got {len(self._y_tick_labels)}."
             )
-
         self._ax.set_yticklabels(list(self._y_tick_labels))
+        self._record_y_ticks()
+
+    def _record_y_ticks(self) -> None:
+        from gerrytools.plotting._axes_state import _tick_snapshot
+
+        snapshot = _tick_snapshot(self._ax, "y")
+        if self._axes_state.is_reclaimed(UNIT_Y_TICKS):
+            self._axes_state.reclaim_and_mark(UNIT_Y_TICKS, snapshot)
+        else:
+            self._axes_state.record_default(UNIT_Y_TICKS, snapshot)
+
+    def _apply_x_tick_style(self, external: set[str]) -> None:
+        if UNIT_X_TICK_STYLE in external:
+            return
+        if self._x_tick_style is None:
+            return
+        self._apply_tick_style("x", self._x_tick_style)
+        self._axes_state.reclaim_and_mark(UNIT_X_TICK_STYLE, _tick_style_snapshot(self._ax, "x"))
+
+    def _apply_y_tick_style(self, external: set[str]) -> None:
+        if UNIT_Y_TICK_STYLE in external:
+            return
+        if self._y_tick_style is None:
+            return
+        self._apply_tick_style("y", self._y_tick_style)
+        self._axes_state.reclaim_and_mark(UNIT_Y_TICK_STYLE, _tick_style_snapshot(self._ax, "y"))
+
+    def _apply_xlabel(self, external: set[str]) -> None:
+        if UNIT_X_LABEL in external:
+            return
+        if self._xlabel is _UNSET_TEXT:
+            # No gerrytools opinion. Leave any pre-set text alone.
+            return
+        self._apply_xlabel_now()
+        self._axes_state.reclaim_and_mark(UNIT_X_LABEL, self._snapshot_xlabel())
+
+    def _apply_ylabel(self, external: set[str]) -> None:
+        if UNIT_Y_LABEL in external:
+            return
+        if self._ylabel is _UNSET_TEXT:
+            return
+        self._apply_ylabel_now()
+        self._axes_state.reclaim_and_mark(UNIT_Y_LABEL, self._snapshot_ylabel())
+
+    def _apply_title(self, external: set[str]) -> None:
+        if UNIT_TITLE in external:
+            return
+        if self._title is _UNSET_TEXT:
+            return
+        self._apply_title_now()
+        self._axes_state.reclaim_and_mark(UNIT_TITLE, self._snapshot_title())
+
+    def _apply_x_scale(self, external: set[str]) -> None:
+        """Reconcile the ``x_scale`` managed unit.
+
+        Gerrytools data plots do not currently set a matplotlib axis scale
+        (``"linear" / "log" / "symlog"``); PaintBall's ``set_xscale`` is a
+        data-transform factor, not a call to ``ax.set_xscale``. So the apply
+        helper records the current scale as a gerrytools default so the next
+        rebuild's external-detection has an anchor: if the user runs
+        ``ax.set_xscale("log")`` between rebuilds, the snapshot will differ
+        from this recorded default and the unit will yield to external state.
+        """
+        if UNIT_X_SCALE in external:
+            return
+        self._axes_state.record_default(UNIT_X_SCALE, self._ax.get_xscale())
+
+    def _apply_y_scale(self, external: set[str]) -> None:
+        """Reconcile the ``y_scale`` managed unit. See ``_apply_x_scale``."""
+        if UNIT_Y_SCALE in external:
+            return
+        self._axes_state.record_default(UNIT_Y_SCALE, self._ax.get_yscale())
 
     def update_xtick_labels(
         self, *, locations: list[float] | None = None, labels: list[str] | None = None
@@ -753,6 +1029,7 @@ class GerryPlotBase(ABC):
                 )
             self._x_tick_locations = list(locations)
             self._x_tick_labels = list(labels)
+            self._claim_x_ticks()
             return
 
         if locations is not None:
@@ -769,13 +1046,16 @@ class GerryPlotBase(ABC):
             if locations == [] and labels is None:
                 self._x_tick_locations = []
                 self._x_tick_labels = []
+                self._claim_x_ticks()
                 return
             self._x_tick_locations = list(locations)
+            self._claim_x_ticks()
             return
 
         if labels is not None:
             if labels == []:
                 self._x_tick_labels = []
+                self._claim_x_ticks()
                 return
 
             if (
@@ -788,7 +1068,16 @@ class GerryPlotBase(ABC):
                     f"{len(self._x_tick_locations)}."
                 )
             self._x_tick_labels = list(labels)
+            self._claim_x_ticks()
             return
+
+    def _claim_x_ticks(self) -> None:
+        if self._axes_state_initialized:
+            self._axes_state.reclaim_without_value(UNIT_X_TICKS)
+
+    def _claim_y_ticks(self) -> None:
+        if self._axes_state_initialized:
+            self._axes_state.reclaim_without_value(UNIT_Y_TICKS)
 
     def update_ytick_labels(
         self, *, locations: list[float] | None = None, labels: list[str] | None = None
@@ -827,6 +1116,7 @@ class GerryPlotBase(ABC):
                 )
             self._y_tick_locations = list(locations)
             self._y_tick_labels = list(labels)
+            self._claim_y_ticks()
             return
 
         if locations is not None:
@@ -843,13 +1133,16 @@ class GerryPlotBase(ABC):
             if locations == [] and labels is None:
                 self._y_tick_locations = []
                 self._y_tick_labels = []
+                self._claim_y_ticks()
                 return
             self._y_tick_locations = list(locations)
+            self._claim_y_ticks()
             return
 
         if labels is not None:
             if labels == []:
                 self._y_tick_labels = []
+                self._claim_y_ticks()
                 return
             if (
                 self._y_tick_locations is not None
@@ -861,6 +1154,7 @@ class GerryPlotBase(ABC):
                     f"{len(self._y_tick_locations)}."
                 )
             self._y_tick_labels = list(labels)
+            self._claim_y_ticks()
             return
 
     @staticmethod
@@ -984,43 +1278,38 @@ class GerryPlotBase(ABC):
                     fontfamily=style.fontfamily,
                 )
 
-    def _apply_deferred_tick_styles(self) -> None:
-        """Apply the tick styles if they were set.
+    # ------------------------------------------------------------------
+    # Atomic label/title writers (shared by property setters and the rebuild
+    # flow). ``_apply_<unit>_now`` writes immediately; ``_apply_<unit>``
+    # (defined below) adds the rebuild-time external-skip guard.
+    # ------------------------------------------------------------------
 
-        To be called after the axes have been fully configured so that any call to ax.clear()
-        does not wipe out the tick styles.
+    def _apply_xlabel_now(self) -> None:
+        text = self.xlabel
+        if text is None:
+            return
+        if self._xlabel_style is None:
+            self._ax.set_xlabel(text)
+        else:
+            self._ax.set_xlabel(text, **self._xlabel_style.to_mpl_settings_dict())
 
-        Returns:
-            None
-        """
-        if self._x_tick_style is not None:
-            self._apply_tick_style("x", self._x_tick_style)
-        if self._y_tick_style is not None:
-            self._apply_tick_style("y", self._y_tick_style)
+    def _apply_ylabel_now(self) -> None:
+        text = self.ylabel
+        if text is None:
+            return
+        if self._ylabel_style is None:
+            self._ax.set_ylabel(text)
+        else:
+            self._ax.set_ylabel(text, **self._ylabel_style.to_mpl_settings_dict())
 
-    def _apply_deferred_label_styles(self) -> None:
-        """Apply xlabel/ylabel/title text and any configured styles.
-
-        Designed to run after ``_build_plot()`` so that any subclass call to ``ax.clear()``
-        doesn't wipe out label/title configuration.
-        """
-        if self.xlabel is not None:
-            if self._xlabel_style is None:
-                self._ax.set_xlabel(self.xlabel)
-            else:
-                self._ax.set_xlabel(self.xlabel, **self._xlabel_style.to_mpl_settings_dict())
-
-        if self.ylabel is not None:
-            if self._ylabel_style is None:
-                self._ax.set_ylabel(self.ylabel)
-            else:
-                self._ax.set_ylabel(self.ylabel, **self._ylabel_style.to_mpl_settings_dict())
-
-        if self.title is not None:
-            if self._title_style is None:
-                self._ax.set_title(self.title)
-            else:
-                self._ax.set_title(self.title, **self._title_style.to_mpl_settings_dict())
+    def _apply_title_now(self) -> None:
+        text = self.title
+        if text is None:
+            return
+        if self._title_style is None:
+            self._ax.set_title(text)
+        else:
+            self._ax.set_title(text, **self._title_style.to_mpl_settings_dict())
 
     def set_xaxis_label_style(
         self,
@@ -1063,6 +1352,15 @@ class GerryPlotBase(ABC):
             fontalpha=fontalpha,
             labelpad=labelpad,
         )
+        # x_label is an atomic text+style managed unit. Reclaim and apply
+        # immediately so future ax-level edits are detected as external.
+        if self._axes_state_initialized and self.xlabel is not None:
+            self._apply_xlabel_now()
+            self._axes_state.reclaim_and_mark(UNIT_X_LABEL, self._snapshot_xlabel())
+        elif self._axes_state_initialized:
+            # Style without text yet: claim the unit so we re-apply on next
+            # text assignment; concrete value recorded then.
+            self._axes_state.reclaim_without_value(UNIT_X_LABEL)
 
     def set_yaxis_label_style(
         self,
@@ -1105,6 +1403,11 @@ class GerryPlotBase(ABC):
             fontalpha=fontalpha,
             labelpad=labelpad,
         )
+        if self._axes_state_initialized and self.ylabel is not None:
+            self._apply_ylabel_now()
+            self._axes_state.reclaim_and_mark(UNIT_Y_LABEL, self._snapshot_ylabel())
+        elif self._axes_state_initialized:
+            self._axes_state.reclaim_without_value(UNIT_Y_LABEL)
 
     def set_title_style(
         self,
@@ -1150,6 +1453,11 @@ class GerryPlotBase(ABC):
             loc=loc,
             pad=pad,
         )
+        if self._axes_state_initialized and self.title is not None:
+            self._apply_title_now()
+            self._axes_state.reclaim_and_mark(UNIT_TITLE, self._snapshot_title())
+        elif self._axes_state_initialized:
+            self._axes_state.reclaim_without_value(UNIT_TITLE)
 
     def set_xlabel(self, text: str | None) -> None:
         """Set deferred x-axis label text.
@@ -1187,14 +1495,23 @@ class GerryPlotBase(ABC):
     def clear_xlabel_style(self) -> None:
         """Clear the x-axis label styling, reverting to matplotlib defaults."""
         self._xlabel_style = None
+        if self._axes_state_initialized and self.xlabel is not None:
+            self._apply_xlabel_now()
+            self._axes_state.reclaim_and_mark(UNIT_X_LABEL, self._snapshot_xlabel())
 
     def clear_ylabel_style(self) -> None:
         """Clear the y-axis label styling, reverting to matplotlib defaults."""
         self._ylabel_style = None
+        if self._axes_state_initialized and self.ylabel is not None:
+            self._apply_ylabel_now()
+            self._axes_state.reclaim_and_mark(UNIT_Y_LABEL, self._snapshot_ylabel())
 
     def clear_title_style(self) -> None:
         """Clear the plot title styling, reverting to matplotlib defaults."""
         self._title_style = None
+        if self._axes_state_initialized and self.title is not None:
+            self._apply_title_now()
+            self._axes_state.reclaim_and_mark(UNIT_TITLE, self._snapshot_title())
 
     def set_xaxis_tick_style(
         self,
@@ -1246,6 +1563,10 @@ class GerryPlotBase(ABC):
             fontfamily=fontfamily,
             ticktype=ticktype,
         )
+        # Store-and-claim: tick style depends on the rebuild flow having
+        # already laid out ticks (so label-text artists exist).
+        if self._axes_state_initialized:
+            self._axes_state.reclaim_without_value(UNIT_X_TICK_STYLE)
 
     def set_yaxis_tick_style(
         self,
@@ -1297,24 +1618,34 @@ class GerryPlotBase(ABC):
             fontfamily=fontfamily,
             ticktype=ticktype,
         )
+        if self._axes_state_initialized:
+            self._axes_state.reclaim_without_value(UNIT_Y_TICK_STYLE)
 
     def clear_xtick_labels(self) -> None:
         """Clear x-tick labels."""
         self._x_tick_labels = []
+        if self._axes_state_initialized:
+            self._axes_state.reclaim_without_value(UNIT_X_TICKS)
 
     def clear_ytick_labels(self) -> None:
         """Clear y-tick labels."""
         self._y_tick_labels = []
+        if self._axes_state_initialized:
+            self._axes_state.reclaim_without_value(UNIT_Y_TICKS)
 
     def clear_xticks(self) -> None:
         """Clear x-tick locations and labels."""
         self._x_tick_locations = []
         self._x_tick_labels = []
+        if self._axes_state_initialized:
+            self._axes_state.reclaim_without_value(UNIT_X_TICKS)
 
     def clear_yticks(self) -> None:
         """Clear y-tick locations and labels."""
         self._y_tick_locations = []
         self._y_tick_labels = []
+        if self._axes_state_initialized:
+            self._axes_state.reclaim_without_value(UNIT_Y_TICKS)
 
     def set_xticks(
         self,
@@ -1366,6 +1697,14 @@ class GerryPlotBase(ABC):
             right (float): Right x-axis limit.
         """
         self._x_limits = (float(left), float(right))
+        # Apply-now: matplotlib resolves a (left, right) pair against any
+        # axes immediately. Record the getter-read value so a later external
+        # set_xlim is detected as a difference.
+        if self._axes_state_initialized:
+            self._ax.set_xlim(*self._x_limits)
+            self._axes_state.reclaim_and_mark(
+                UNIT_X_LIMITS, tuple(float(v) for v in self._ax.get_xlim())
+            )
 
     def set_ylim(self, bottom: float, top: float) -> None:
         """Set y-axis limits.
@@ -1377,6 +1716,11 @@ class GerryPlotBase(ABC):
             top (float): Top y-axis limit.
         """
         self._y_limits = (float(bottom), float(top))
+        if self._axes_state_initialized:
+            self._ax.set_ylim(*self._y_limits)
+            self._axes_state.reclaim_and_mark(
+                UNIT_Y_LIMITS, tuple(float(v) for v in self._ax.get_ylim())
+            )
 
     def show_or_hide_frame(
         self,
@@ -1402,6 +1746,9 @@ class GerryPlotBase(ABC):
             "left": show_left,
             "bottom": show_bottom,
         }
+        if self._axes_state_initialized:
+            self._apply_frame_visibility_now()
+            self._axes_state.reclaim_and_mark(UNIT_FRAME, self._snapshot_frame())
 
     def _get_named_line_legend_handles(self) -> list[LegendHandle]:
         """Get legend handles for all named lines.
@@ -1525,6 +1872,10 @@ class GerryPlotBase(ABC):
             labelspacing=labelspacing,
             columnspacing=columnspacing,
         )
+        # Legend identity is recorded by ``_apply_legend`` at the next
+        # rebuild after the legend is re-placed with these new options.
+        if self._axes_state_initialized:
+            self._axes_state.reclaim_without_value(UNIT_LEGEND)
 
     def save_legend(
         self,
@@ -1557,39 +1908,121 @@ class GerryPlotBase(ABC):
             **legend_kwargs,
         )
 
-    def _update_legend(self) -> None:
-        """Update the legend on the plot."""
-        if not self._legend_handles:
-            return
+    # ------------------------------------------------------------------
+    # Frame, legend, and the top-level rebuild flow
+    # ------------------------------------------------------------------
 
-        self._ax.legend(handles=self._legend_handles, **(self._legend_options.to_dict()))
+    def _snapshot_frame(self) -> tuple[bool, bool, bool, bool]:
+        return (
+            self._ax.spines["top"].get_visible(),
+            self._ax.spines["right"].get_visible(),
+            self._ax.spines["bottom"].get_visible(),
+            self._ax.spines["left"].get_visible(),
+        )
 
-    def _apply_frame_visibility(self) -> None:
-        """Apply frame visibility settings to the axes."""
-        if (
-            self._frame_visibility is None
-        ):  # pragma: no cover - always initialized to a dict in __init__
-            return  # pragma: no cover
+    def _apply_frame_visibility_now(self) -> None:
+        """Write frame visibility to the axes without ownership bookkeeping.
 
+        Shared by the public setter and the rebuild flow's external-aware
+        applier below.
+        """
         for spine, visible in self._frame_visibility.items():
             self._ax.spines[spine].set_visible(visible)
 
+    def _apply_frame_visibility(self, external: set[str]) -> None:
+        if UNIT_FRAME in external:
+            return
+        self._apply_frame_visibility_now()
+        snapshot = self._snapshot_frame()
+        if self._axes_state.is_reclaimed(UNIT_FRAME):
+            self._axes_state.reclaim_and_mark(UNIT_FRAME, snapshot)
+        else:
+            self._axes_state.record_default(UNIT_FRAME, snapshot)
+
+    def _apply_legend(self, external: set[str]) -> None:
+        """Place, update, or remove the legend per the managed-unit contract.
+
+        Decision tree:
+        - External legend present → skip entirely.
+        - User wants no legend AND gerrytools owns the unit → remove and record.
+        - No handles AND gerrytools owns the unit → remove and record.
+        - include_legend is True and handles exist → place and record identity.
+        """
+        if UNIT_LEGEND in external:
+            return
+        is_reclaimed = self._axes_state.is_reclaimed(UNIT_LEGEND)
+        if not self._include_legend:
+            if is_reclaimed:
+                current = self._ax.get_legend()
+                if current is not None:
+                    current.remove()
+                self._axes_state.reclaim_and_mark(UNIT_LEGEND, None)
+            return
+        handles = self._legend_handles
+        if not handles:
+            if is_reclaimed:
+                current = self._ax.get_legend()
+                if current is not None:
+                    current.remove()
+                self._axes_state.reclaim_and_mark(UNIT_LEGEND, None)
+            return
+        # Remove any prior gerrytools legend on this axes so the new one
+        # supersedes it (matplotlib only renders one legend slot per axes).
+        prior = self._ax.get_legend()
+        if prior is not None and is_reclaimed:
+            prior.remove()
+        self._ax.legend(handles=handles, **(self._legend_options.to_dict()))
+        new_legend = self._ax.get_legend()
+        if new_legend is not None:
+            self._artists.track(new_legend)
+        self._axes_state.reclaim_and_mark(UNIT_LEGEND, new_legend)
+
     def _build_and_apply_settings(self) -> None:
-        """Build the plot and apply all settings."""
-        self._ax.clear()
+        """Rebuild the plot: snapshot → remove gerrytools artists → redraw → apply units.
+
+        See ``docs/plan_artist_registry_refactor.md`` for the full ordering
+        rationale. Highlights:
+        - The pre-redraw snapshot is taken *before* removing artists so we can
+          detect direct matplotlib changes since the last apply.
+        - Only gerrytools-tracked artists are removed; external artists
+          survive.
+        - Autoscale-protected units are restored after artist drawing so
+          matplotlib's autoscale cannot clobber externally set limits.
+        - Ticks are applied after the legend so positions are consistent
+          with any side effects from the legend draw.
+        """
+        before = self._axes_state.snapshot(self._ax)
+        external = self._axes_state.detect_external_changes(before)
+
+        self._artists.remove_all()
         self._build_plot()
-        self._set_x_axis()
-        self._set_y_axis()
+
+        self._axes_state.restore_autoscale_protected(self._ax, before, external)
+        self._apply_x_limits(external)
+        self._apply_y_limits(external)
+        self._apply_frame_visibility(external)
+        self._apply_xlabel(external)
+        self._apply_ylabel(external)
+        self._apply_title(external)
+        self._apply_x_scale(external)
+        self._apply_y_scale(external)
+        self._apply_legend(external)
+        # Apply ticks after the legend so positions reflect any legend-draw
+        # side effects on layout.
+        self._apply_x_ticks(external)
+        self._apply_y_ticks(external)
+        self._apply_x_tick_style(external)
+        self._apply_y_tick_style(external)
+
+        # Annotations (arrows / vlines / hlines / bands) render last so
+        # their canvas-draw-and-measure alignment passes (used for arrow
+        # tip placement) see the final ticks, limits, and label layout.
         self._annotations.apply(
             self._ax,
             fig=self.fig,
             color_resolver=self._resolved_rgba,
+            registry=self._artists,
         )
-        self._apply_frame_visibility()
-        self._apply_deferred_tick_styles()
-        self._apply_deferred_label_styles()
-        if self.include_legend:
-            self._update_legend()
 
     @property
     def ax(self) -> Axes:

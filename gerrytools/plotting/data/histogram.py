@@ -660,7 +660,7 @@ class Histogram(GerryPlotBase):
                     offset = 0.0
                     if self._bin_alignment == "center":
                         offset = 0.5 * bin_widths[0]
-                    self._ax.stairs(
+                    step_patch = self._ax.stairs(
                         hist_heights,
                         bin_edges - offset,
                         fill=False,
@@ -677,13 +677,14 @@ class Histogram(GerryPlotBase):
                         zorder=hdata.zorder,
                         label=hdata.name,
                     )
+                    self._artists.track(step_patch)
                     continue
 
                 hist_edges = bin_edges[:-1].copy()
                 if n_bins_per_bar > 1:
                     hist_edges += (bin_widths / n_bins_per_bar) * i
 
-                self._ax.bar(
+                bar_container = self._ax.bar(
                     hist_edges,
                     hist_heights,
                     width=bin_widths / n_bins_per_bar,
@@ -706,6 +707,8 @@ class Histogram(GerryPlotBase):
                     linewidth=hdata.edgewidth,
                     zorder=hdata.zorder,
                 )
+                # BarContainer is iterable over its Rectangle patches.
+                self._artists.track(bar_container)
 
                 if histtype == "stack":
                     hist_bottoms += hist_heights
@@ -814,7 +817,7 @@ class Histogram(GerryPlotBase):
                         centers = (bin_edges[:-1] + bin_edges[1:]) / 2.0
                         x_positions[i] = centers[bin_idx]
 
-            self._ax.plot(
+            point_lines = self._ax.plot(
                 x_positions,
                 y_positions,
                 linestyle="",
@@ -834,6 +837,7 @@ class Histogram(GerryPlotBase):
                 zorder=pointlist.point_data.zorder,
                 label=pointlist.name,
             )
+            self._artists.track(point_lines)
 
     def _build_plot(self) -> None:
         """Build the histogram plot."""

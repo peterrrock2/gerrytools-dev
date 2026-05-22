@@ -16,6 +16,7 @@ from typing import Callable
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
+from gerrytools.plotting._artist_registry import _ArtistRegistry
 from gerrytools.plotting.data._additional_renderers import _AnnotationArrowRenderer
 from gerrytools.plotting.data._gerryplot_dataclasses import (
     ArrowData,
@@ -65,18 +66,26 @@ class _Annotations:
         *,
         fig: Figure,
         color_resolver: ColorResolver,
+        registry: _ArtistRegistry | None = None,
     ) -> None:
         """Render every annotation onto ``ax``.
 
         ``fig`` is required by the arrow renderer (canvas draw + axes-bbox
         measurements). ``color_resolver`` is passed in so this module does not
-        hold a reference back to `GerryPlotBase`.
+        hold a reference back to `GerryPlotBase`. ``registry`` collects every
+        artist drawn so the rebuild flow can remove only gerrytools-managed
+        artists on the next pass.
         """
-        self._draw_verticals(ax, color_resolver)
-        self._draw_horizontals(ax, color_resolver)
-        self._draw_arrows(ax, fig=fig, color_resolver=color_resolver)
+        self._draw_verticals(ax, color_resolver, registry)
+        self._draw_horizontals(ax, color_resolver, registry)
+        self._draw_arrows(ax, fig=fig, color_resolver=color_resolver, registry=registry)
 
-    def _draw_verticals(self, ax: Axes, color_resolver: ColorResolver) -> None:
+    def _draw_verticals(
+        self,
+        ax: Axes,
+        color_resolver: ColorResolver,
+        registry: _ArtistRegistry | None,
+    ) -> None:
         for band in self.vertical_bands:
             if band.linecolor is None or band.linewidth == 0.0:
                 edgecolor = "none"
@@ -86,7 +95,7 @@ class _Annotations:
                     band.linealpha,
                     field="linecolor",
                 )
-            ax.axvspan(
+            polygon = ax.axvspan(
                 band.lower_bound,
                 band.upper_bound,
                 facecolor=color_resolver(
@@ -99,13 +108,15 @@ class _Annotations:
                 linewidth=band.linewidth,
                 zorder=band.zorder,
             )
+            if registry is not None:
+                registry.track(polygon)
 
         for line in self.vertical_lines:
             line_values = line.values
             assert isinstance(line_values, Iterable)
             for value in line_values:
                 assert isinstance(value, (int, float))
-                ax.axvline(
+                line2d = ax.axvline(
                     value,
                     color=color_resolver(
                         line.linecolor,
@@ -116,8 +127,15 @@ class _Annotations:
                     linewidth=line.linewidth,
                     zorder=line.zorder,
                 )
+                if registry is not None:
+                    registry.track(line2d)
 
-    def _draw_horizontals(self, ax: Axes, color_resolver: ColorResolver) -> None:
+    def _draw_horizontals(
+        self,
+        ax: Axes,
+        color_resolver: ColorResolver,
+        registry: _ArtistRegistry | None,
+    ) -> None:
         for band in self.horizontal_bands:
             if band.linecolor is None or band.linewidth == 0.0:
                 edgecolor = "none"
@@ -127,7 +145,7 @@ class _Annotations:
                     band.linealpha,
                     field="linecolor",
                 )
-            ax.axhspan(
+            polygon = ax.axhspan(
                 band.lower_bound,
                 band.upper_bound,
                 facecolor=color_resolver(
@@ -140,13 +158,15 @@ class _Annotations:
                 linewidth=band.linewidth,
                 zorder=band.zorder,
             )
+            if registry is not None:
+                registry.track(polygon)
 
         for line in self.horizontal_lines:
             line_values = line.values
             assert isinstance(line_values, Iterable)
             for value in line_values:
                 assert isinstance(value, (int, float))
-                ax.axhline(
+                line2d = ax.axhline(
                     value,
                     color=color_resolver(
                         line.linecolor,
@@ -157,6 +177,8 @@ class _Annotations:
                     linewidth=line.linewidth,
                     zorder=line.zorder,
                 )
+                if registry is not None:
+                    registry.track(line2d)
 
     def _draw_arrows(
         self,
@@ -164,6 +186,7 @@ class _Annotations:
         *,
         fig: Figure,
         color_resolver: ColorResolver,
+        registry: _ArtistRegistry | None,
     ) -> None:
         if not self.annotation_arrows:
             return
@@ -171,5 +194,6 @@ class _Annotations:
             ax=ax,
             fig=fig,
             color_resolver=color_resolver,
+            registry=registry,
         )
         renderer.render_all(self.annotation_arrows)
