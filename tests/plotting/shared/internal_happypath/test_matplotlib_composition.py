@@ -213,3 +213,61 @@ class TestChainedTouches:
         hist.ax  # second render
         assert len(ax.images) == 1
         assert any(t.get_text() == "Annotation" for t in ax.texts)
+
+
+# ---------------------------------------------------------------------------
+# matplotlib environment canary: annotation handles must stay removable
+# ---------------------------------------------------------------------------
+
+
+class TestAnnotationHandlesAreRemovable:
+    """Tripwire for the artist registry's core assumption.
+
+    The registry replaces ``ax.clear()`` by calling ``.remove()`` on each
+    artist gerrytools created during a render. That only works while
+    matplotlib's annotation APIs keep returning a live, removable handle.
+    If a future matplotlib version changes any of these to return ``None``
+    or an object whose ``.remove()`` is a no-op, the registry would
+    silently leak artists across rebuilds (the registry swallows removal
+    errors by design, so the failure would be invisible in normal use).
+
+    These run once and fail loudly the moment that contract breaks, so a
+    matplotlib upgrade surfaces the regression here rather than as drifting
+    artist counts in unrelated plot tests.
+    """
+
+    def test_axvline_returns_removable_handle(self):
+        self._assert_removable(lambda ax: ax.axvline(0.5))
+
+    def test_axhline_returns_removable_handle(self):
+        self._assert_removable(lambda ax: ax.axhline(0.5))
+
+    def test_axvspan_returns_removable_handle(self):
+        self._assert_removable(lambda ax: ax.axvspan(0.1, 0.2))
+
+    def test_axhspan_returns_removable_handle(self):
+        self._assert_removable(lambda ax: ax.axhspan(0.1, 0.2))
+
+    def test_annotate_returns_removable_handle(self):
+        self._assert_removable(lambda ax: ax.annotate("note", (0.5, 0.5)))
+
+    @staticmethod
+    def _assert_removable(draw):
+        """Draw via ``draw(ax)`` and assert the handle is live and removable.
+
+        Membership is checked against ``ax.get_children()`` rather than a
+        specific container (``ax.lines`` / ``ax.patches`` / ``ax.texts``) so
+        the canary does not care which list a given matplotlib version files
+        the artist under — only that the returned handle is attached and that
+        ``.remove()`` actually detaches it.
+        """
+        fig, ax = plt.subplots()
+        try:
+            handle = draw(ax)
+            assert handle is not None, "matplotlib returned no handle"
+            assert hasattr(handle, "remove"), f"{type(handle)!r} is not removable"
+            assert handle in ax.get_children(), "handle was not attached to the axes"
+            handle.remove()
+            assert handle not in ax.get_children(), "handle survived .remove()"
+        finally:
+            plt.close(fig)

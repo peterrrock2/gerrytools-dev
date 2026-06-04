@@ -7,9 +7,6 @@ overlays, neighbouring subplot content, etc.) untouched.
 External artists are never added to the registry. `remove_all()` therefore
 never touches them; that is the load-bearing contract that replaces
 `ax.clear()`.
-
-Colorbars are tracked separately because matplotlib exposes `Colorbar.remove()`
-distinctly from the underlying axes/artists.
 """
 
 from __future__ import annotations
@@ -17,7 +14,6 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from matplotlib.artist import Artist
-from matplotlib.colorbar import Colorbar
 
 
 class _ArtistRegistry:
@@ -25,7 +21,6 @@ class _ArtistRegistry:
 
     def __init__(self) -> None:
         self._tracked: list[Artist] = []
-        self._colorbars: list[Colorbar] = []
 
     def track(self, artist: Artist | Iterable[Artist] | None) -> None:
         """Record one or more artists as gerrytools-managed.
@@ -44,11 +39,8 @@ class _ArtistRegistry:
                 continue
             self._tracked.append(item)
 
-    def track_colorbar(self, cb: Colorbar) -> None:
-        self._colorbars.append(cb)
-
     def remove_all(self) -> None:
-        """Remove every tracked artist and colorbar from its axes.
+        """Remove every tracked artist from its axes.
 
         Removal exceptions are swallowed per-artist because some matplotlib
         container artists (e.g. transient tick artists, already-detached
@@ -61,9 +53,3 @@ class _ArtistRegistry:
             except (NotImplementedError, ValueError):
                 pass
         self._tracked.clear()
-        for cb in self._colorbars:
-            try:
-                cb.remove()
-            except (NotImplementedError, ValueError):
-                pass
-        self._colorbars.clear()
