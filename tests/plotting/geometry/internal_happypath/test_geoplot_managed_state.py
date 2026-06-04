@@ -1,6 +1,7 @@
-"""Regression tests for the artist-registry / managed-axes-state refactor in geometry plots.
+"""Regression tests for the artist-registry / managed-axes-state design in geometry plots.
 
-Covers Phase 4 of ``docs/plan_artist_registry_refactor.md``:
+Geometry-side coverage of the contract gerrytools plots maintain on a
+shared matplotlib axes:
 
 - artist counts stay flat across N rebuilds (no leak);
 - external matplotlib content (text, imshow) on a shared axes survives

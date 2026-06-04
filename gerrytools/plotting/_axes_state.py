@@ -1,7 +1,7 @@
 """`_ManagedAxesState` — per-unit ownership tracking for axes-level state.
 
-The artist-registry refactor replaces ``ax.clear()`` with two cooperating
-mechanisms:
+Gerrytools plots avoid ``ax.clear()`` on rebuild and instead rely on two
+cooperating mechanisms:
 
 1. The artist registry removes only the matplotlib artists gerrytools created.
 2. This module tracks who most recently set each *axes-level* setting
@@ -9,8 +9,8 @@ mechanisms:
    uses that to decide, on every rebuild, whether to reapply gerrytools state
    or yield to direct matplotlib changes the user made.
 
-Most-recent-wins per-unit. See ``docs/plan_artist_registry_refactor.md`` for
-the full design and ``CONTEXT.md`` for the domain language this module uses.
+Resolution is most-recent-wins per unit: whichever party (gerrytools or the
+user) touched a given unit last owns it on the next rebuild.
 """
 
 from __future__ import annotations
@@ -73,7 +73,7 @@ _NO_LAST_APPLIED = object()
 
 OwnershipState = Literal["external", "gerrytools_explicit", "gerrytools_default", "unclaimed"]
 
-# Tolerances for autoscale-protected limit comparisons. The plan calls for
+# Tolerances for autoscale-protected limit comparisons, compared via
 # ``math.isclose(..., rel_tol=1e-9, abs_tol=1e-12)``.
 _LIMIT_REL_TOL = 1e-9
 _LIMIT_ABS_TOL = 1e-12
@@ -112,7 +112,7 @@ class _TitleSnapshot:
     ``pad`` has no stable public getter in matplotlib 3.10.6; the snapshot
     field is always populated from the last applied value, not from
     matplotlib. External direct changes to title pad are therefore not
-    detected — documented limitation in the refactor plan.
+    detected — a known limitation of matplotlib's title API.
     """
 
     text: str
@@ -489,7 +489,7 @@ class _ManagedAxesState:
     ``self._x_limits``) stays on the plot object; this class only knows about
     "who applied what to which axes most recently" at the matplotlib level.
 
-    See the module docstring and the refactor plan for the full contract.
+    See the module docstring for the full contract.
     """
 
     def __init__(self) -> None:
@@ -600,8 +600,19 @@ class _ManagedAxesState:
     def detect_external_changes(self, snapshot: _AxesSnapshot) -> set[str]:
         """Return units that should be treated as externally owned this rebuild.
 
-        Dispatch per current ownership state — see the docstring on the helper
-        in ``_axes_state.py`` of the refactor plan for the full contract.
+        Per-unit dispatch by current ownership state:
+
+        - ``external``: kept in the returned set without value comparison.
+          Once a unit yields, it stays external until a gerrytools API
+          explicitly reclaims it.
+        - ``gerrytools_explicit`` or ``gerrytools_default`` with a recorded
+          last-applied value: compare snapshot to last-applied using the
+          per-unit equality rules; if they differ, mark external and
+          transition ownership so subsequent rebuilds keep it external.
+        - ``gerrytools_explicit`` with no recorded value (store-and-claim
+          ran but the apply hasn't happened yet): never added.
+        - ``unclaimed`` (no last-applied history yet): never added; the
+          next apply records the resulting ownership.
         """
         external: set[str] = set()
         for unit, state in self._units.items():

@@ -249,12 +249,12 @@ class GerryPlotBase(ABC):
     def _claim_legend_if_named(self, name: str | None) -> None:
         """Reclaim the legend unit when an ``add_*`` is given a user-supplied name.
 
-        Precedence rule 5 in the refactor plan: any ``add_*`` call with a
-        non-None ``name`` reclaims the legend unit, because the resulting
-        legend content is derived from named plot elements. ``add_*`` calls
-        with ``name=None`` do not reclaim — they may still contribute to the
-        legend handles (subclasses often fall back to an auto-generated label),
-        but they should not displace an externally-placed legend.
+        Any ``add_*`` call with a non-None ``name`` reclaims the legend unit,
+        because the resulting legend content is derived from named plot
+        elements. ``add_*`` calls with ``name=None`` do not reclaim — they
+        may still contribute to the legend handles (subclasses often fall
+        back to an auto-generated label), but they should not displace an
+        externally-placed legend.
 
         Subclasses' named-add methods (``add_histogram``, ``add_boxplot_datasets``,
         etc.) call this helper immediately after appending to their data list.
@@ -322,7 +322,7 @@ class GerryPlotBase(ABC):
             self._finalizer = None
 
         # Detach the artist registry from the old axes without removing its
-        # artists — rebind is non-destructive per the refactor plan.
+        # artists — rebind is non-destructive.
         self._artists = _ArtistRegistry()
 
         # Reset per-axes last-applied history; reclaim flags survive because
@@ -2028,8 +2028,7 @@ class GerryPlotBase(ABC):
     def _build_and_apply_settings(self) -> None:
         """Rebuild the plot: snapshot → remove gerrytools artists → redraw → apply units.
 
-        See ``docs/plan_artist_registry_refactor.md`` for the full ordering
-        rationale. Highlights:
+        Ordering highlights:
         - The pre-redraw snapshot is taken *before* removing artists so we can
           detect direct matplotlib changes since the last apply.
         - Only gerrytools-tracked artists are removed; external artists

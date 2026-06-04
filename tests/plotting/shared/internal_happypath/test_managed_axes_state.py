@@ -1,7 +1,7 @@
-"""Regression matrix for the artist-registry / managed-axes-state refactor.
+"""Regression matrix for the artist-registry / managed-axes-state design.
 
-This module is the executable counterpart to the Phase 3 regression matrix
-called out in ``docs/plan_artist_registry_refactor.md``. It exercises:
+Exercises the contract gerrytools plots maintain on a shared matplotlib
+axes:
 
 - external artist preservation across rebuilds;
 - gerrytools artist non-accumulation across N rebuilds;
@@ -18,8 +18,7 @@ called out in ``docs/plan_artist_registry_refactor.md``. It exercises:
 - ``bind_to_ax`` reclaim-state carry, last-applied reset, and reactivation
   of yielded explicit state.
 
-Tests are organized by category; Histogram and BoxPlot are the canonical
-representatives per the refactor plan.
+Histogram and BoxPlot are the canonical representatives.
 """
 
 from __future__ import annotations

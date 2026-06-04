@@ -125,9 +125,9 @@ class _GeoLayer(ABC):
             **kwargs (object): Layer-specific keyword arguments.
 
         Returns:
-            list[Artist]: Every matplotlib artist this layer created on ``ax``,
-            so the artist-registry refactor can remove only gerrytools-managed
-            artists on rebuild while leaving external artists untouched.
+            list[Artist]: Every matplotlib artist this layer created on ``ax``.
+            On rebuild, only these gerrytools-managed artists are removed, so
+            any artists the user added directly to ``ax`` are left untouched.
         """
         raise NotImplementedError  # pragma: no cover - abstract stub
 
