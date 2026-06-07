@@ -723,7 +723,13 @@ class Histogram(GerryPlotBase):
         bin_edges = self._compute_bins()
         max_heights = np.zeros(len(bin_edges) - 1)
 
-        def marker_clearance(y_top, markersize_pt, markeredgewidth_pt, marker, pad_pt=0.0):
+        def marker_clearance(
+            y_top: float,
+            markersize_pt: float,
+            markeredgewidth_pt: float,
+            marker: str,
+            pad_pt: float = 0.0,
+        ) -> float:
             """Compute data-space clearance above a bar for one marker glyph.
 
             Args:

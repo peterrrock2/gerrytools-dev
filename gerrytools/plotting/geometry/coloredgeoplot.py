@@ -1,5 +1,6 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import cast
 
 import matplotlib.pyplot as plt
 from geopandas import GeoDataFrame
@@ -227,6 +228,9 @@ class ColoredGeoPlot(GeoPlot):
             edgewidth (float): Width of geometry edges. Default is 0.5.
             zorder (int): Z-order for rendering. Default is 2.
         """
+        if plancolumn is None:
+            raise ValueError("'plancolumn' must be provided for a districting plan layer")
+
         if geosource is None:
             plan_gdf = self.gdf
         else:
@@ -507,7 +511,7 @@ class ColoredGeoPlot(GeoPlot):
 
         layer_ticks = layer_defaults.get("ticks")
         if isinstance(layer_ticks, list):
-            colorbar.set_ticks(layer_ticks)
+            colorbar.set_ticks(cast("Sequence[float]", layer_ticks))
 
         if layer.datacolumn is not None:
             colorbar.set_label(str(layer.datacolumn))

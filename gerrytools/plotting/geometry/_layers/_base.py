@@ -1,6 +1,7 @@
 """`_GeoLayer` ABC — the contract every geometry layer satisfies."""
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import geopandas as gpd
@@ -135,7 +136,7 @@ class _GeoLayer(ABC):
 def _capture_geopandas_artists(
     ax: Axes,
     *,
-    plot_call,
+    plot_call: Callable[[], object],
 ) -> list[Artist]:
     """Snapshot ``ax`` collection/line/patch/text counts around a geopandas call.
 

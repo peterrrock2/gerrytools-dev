@@ -5,6 +5,7 @@ from typing import Literal, Sequence, TypedDict
 import numpy as np
 from matplotlib.axes import Axes
 from matplotlib.lines import Line2D
+from numpy.typing import NDArray
 
 from gerrytools.logging import get_logger
 from gerrytools.plotting.data._geometry import line_segment_through_unit_square
@@ -298,8 +299,8 @@ class SeatsVotes(GerryPlotBase):
 
     def add_seat_votes_data(
         self,
-        pov_party_vote_shares: Sequence[int | float],
-        total_vote_shares: Sequence[int | float] | None = None,
+        pov_party_vote_shares: Sequence[int | float] | NDArray,
+        total_vote_shares: Sequence[int | float] | NDArray | None = None,
         name: str | None = None,
         *,
         line_options: SeatsVotesLineOptions | None = None,
@@ -322,11 +323,13 @@ class SeatsVotes(GerryPlotBase):
         """Add a seats-votes curve to the plot.
 
         Args:
-            pov_party_vote_shares (Sequence[int | float]): A sequence of vote counts or vote shares
-                for the party of interest in each district. Vote shares should be values between
-                0 and 1, and, if provided, `total_vote_shares` cannot be provided.
-            total_vote_shares (Sequence[int | float], optional): A sequence of total vote counts
-                or shares in each district. If None, then `pov_party_vote_shares` is assumed to
+            pov_party_vote_shares (Sequence[int | float] | NDArray): A sequence or array of vote
+                counts or vote shares for the party of interest in each district. Vote shares
+                should be values between 0 and 1, and, if provided, `total_vote_shares` cannot be
+                provided.
+            total_vote_shares (Sequence[int | float] | NDArray, optional): A sequence or array of
+                total vote counts or shares in each district. If None, then `pov_party_vote_shares`
+                is assumed to
                 be vote shares (values between 0 and 1) and total vote share is assumed to be 1.0
                 for all districts. If provided, must be the same shape as `pov_party_vote_shares`.
                 Defaults to None.

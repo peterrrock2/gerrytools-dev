@@ -18,7 +18,7 @@ from __future__ import annotations
 import math
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, cast
 
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
@@ -27,6 +27,7 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from matplotlib.legend import Legend
 from matplotlib.ticker import AutoLocator, MaxNLocator, NullLocator
+from matplotlib.typing import ColorType
 
 # Public unit identifiers used throughout the rebuild flow.
 UNIT_X_LIMITS = "x_limits"
@@ -180,7 +181,9 @@ class _AxesSnapshot:
 
 
 def _rgba(color: object) -> tuple[float, float, float, float]:
-    r, g, b, a = mcolors.to_rgba(color)
+    # matplotlib artist getters (e.g. ``get_color``) return loosely-typed color
+    # values; ``to_rgba`` validates them at runtime.
+    r, g, b, a = mcolors.to_rgba(cast(ColorType, color))
     return (float(r), float(g), float(b), float(a))
 
 
@@ -514,9 +517,13 @@ class _ManagedAxesState:
             if not ax.get_autoscaley_on():
                 self._mark_external(UNIT_Y_LIMITS, tuple(float(v) for v in ax.get_ylim()))
 
-        for unit, which in ((UNIT_X_LABEL, "x"), (UNIT_Y_LABEL, "y")):
+        label_axis_pairs: tuple[tuple[str, Literal["x", "y"]], ...] = (
+            (UNIT_X_LABEL, "x"),
+            (UNIT_Y_LABEL, "y"),
+        )
+        for unit, which in label_axis_pairs:
             if self._units[unit].ownership == "unclaimed":
-                current = _label_snapshot(ax, which)  # type: ignore[arg-type]
+                current = _label_snapshot(ax, which)
                 default_label = default.x_label if which == "x" else default.y_label
                 if not _label_equal(current, default_label):
                     self._mark_external(unit, current)
@@ -532,9 +539,13 @@ class _ManagedAxesState:
                     current_ticks = _tick_snapshot(ax, "x" if unit == UNIT_X_TICKS else "y")
                     self._mark_external(unit, current_ticks)
 
-        for unit, which in ((UNIT_X_TICK_STYLE, "x"), (UNIT_Y_TICK_STYLE, "y")):
+        tick_style_axis_pairs: tuple[tuple[str, Literal["x", "y"]], ...] = (
+            (UNIT_X_TICK_STYLE, "x"),
+            (UNIT_Y_TICK_STYLE, "y"),
+        )
+        for unit, which in tick_style_axis_pairs:
             if self._units[unit].ownership == "unclaimed":
-                current_style = _tick_style_snapshot(ax, which)  # type: ignore[arg-type]
+                current_style = _tick_style_snapshot(ax, which)
                 default_style = default.x_tick_style if which == "x" else default.y_tick_style
                 if not _tick_style_equal(current_style, default_style):
                     self._mark_external(unit, current_style)

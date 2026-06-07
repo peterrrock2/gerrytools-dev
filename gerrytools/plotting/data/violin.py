@@ -7,6 +7,7 @@ from typing import cast
 
 import numpy as np
 import pandas as pd
+from matplotlib.artist import Artist
 from matplotlib.axes import Axes
 from matplotlib.collections import PolyCollection
 from matplotlib.patches import Patch
@@ -303,9 +304,9 @@ class ViolinPlot(CategoricalDistributionPlotBase):
                     continue
                 if isinstance(value, list):
                     for artist in value:
-                        self._artists.track(artist)
+                        self._artists.track(cast(Artist, artist))
                 else:
-                    self._artists.track(value)
+                    self._artists.track(cast(Artist, value))
 
             bodies = cast(list[PolyCollection], vp.get("bodies", []))
             for patch in bodies:

@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, cast
 from warnings import warn
 
 import geopandas as gpd
@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from geopandas import GeoDataFrame, GeoSeries
 from matplotlib.axes import Axes
+from matplotlib.figure import Figure
 from shapely.geometry import Point, box
 
 from gerrytools.plotting._artist_registry import _ArtistRegistry
@@ -68,6 +69,8 @@ class GeoPlot(ABC):
             the rendering process.
     """
 
+    fig: Figure
+
     def __init__(
         self,
         gdf: GeoDataFrame,
@@ -108,7 +111,7 @@ class GeoPlot(ABC):
                     UserWarning,
                     stacklevel=2,
                 )
-            self.fig = ax.figure
+            self.fig = cast(Figure, ax.figure)
             self._ax = ax
             # The user owns this figure; gerrytools must not mutate
             # figure-level layout (e.g. ``subplots_adjust``) on it.
@@ -959,7 +962,7 @@ class GeoPlot(ABC):
             except Exception:  # pragma: no cover
                 pass  # pragma: no cover
         else:
-            self.fig = ax.figure
+            self.fig = cast(Figure, ax.figure)
             self._ax = ax
             self._figure_is_shared = True
         self._canvas = self.fig.canvas

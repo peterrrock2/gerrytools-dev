@@ -2,6 +2,8 @@ import math
 import random
 from string import hexdigits as hex
 
+from gerrytools.typing import HexColor
+
 DISTRICTR_COLOR_DICT = {
     "tombblue": "#0099cd",
     "nacho": "#ffca5d",
@@ -45,15 +47,14 @@ DISTRICTR_COLOR_DICT = {
 }
 
 
-def hexshift(color, *, seed: int = 42) -> str:
-    """
-    Randomly modifies the provided hexadecimal color.
+def hexshift(color: str, *, seed: int = 42) -> str:
+    """Randomly modifies the provided hexadecimal color.
 
     Args:
         color (str): A hexadecimal color string; e.g. `"#FFFF00"`.
 
     Returns:
-        A hexadecimal color string.
+        str: A hexadecimal color string.
     """
     rng = random.Random(seed)
 
@@ -71,7 +72,20 @@ def hexshift(color, *, seed: int = 42) -> str:
     return color.replace(char, sub)
 
 
-def districtr(N):
+def districtr(N: int) -> list[HexColor]:
+    """Returns a list of N hex colors from the districtr palette.
+
+    When ``N`` exceeds the number of base palette colors, the palette is
+    extended by appending hex-shifted variants of the base colors.
+
+    Args:
+        N (int): The number of colors to return.
+
+    Returns:
+        list[HexColor]: A list of ``N`` hex color strings from the districtr
+        palette.
+    """
+
     colors = list(DISTRICTR_COLOR_DICT.values())
 
     repeats = math.ceil(N / len(colors))

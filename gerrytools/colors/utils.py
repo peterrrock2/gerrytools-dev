@@ -3,6 +3,8 @@ from typing import Union, cast
 
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
 from matplotlib.patches import Rectangle
 
 from gerrytools.typing import Color
@@ -13,8 +15,8 @@ def preview_palette(
     figsize: tuple[float, float] = (6, 1),
     show_indices: bool = False,
     show_hex: bool = False,
-    ax=None,
-):
+    ax: Axes | None = None,
+) -> tuple[Figure, Axes]:
     """
     Preview a color palette as horizontal swatches.
 
@@ -35,7 +37,7 @@ def preview_palette(
     if ax is None:
         fig, ax = plt.subplots(figsize=figsize)
     else:
-        fig = ax.figure
+        fig = cast(Figure, ax.figure)
 
     # Draw swatches as vertical bars across the axis
     for i, c in enumerate(rgb_colors):
@@ -81,7 +83,7 @@ def compare_palettes(
     palettes: Union[Mapping[str, Sequence[Color]], Sequence[Sequence[Color]]],
     figsize: tuple[float, float] | None = None,
     show_hex: bool = False,
-):
+) -> tuple[Figure, Axes]:
     """
     Compare multiple color palettes as horizontal rows.
 

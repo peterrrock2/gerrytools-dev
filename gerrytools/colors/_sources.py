@@ -20,7 +20,7 @@ import matplotlib.colors as mcolors
 
 from gerrytools.colors.districtr import DISTRICTR_COLOR_DICT
 from gerrytools.colors.latex_full import LATEX_COLOR_DICT
-from gerrytools.typing import Color
+from gerrytools.typing import Color, HexColor
 
 # ---------------------------------------------------------------------------
 # Public constants. core.py re-exports these; this module is the single source.
@@ -156,8 +156,11 @@ _REGISTRY: tuple[NamedColorSource, ...] = (
 # ---------------------------------------------------------------------------
 
 
-def _resolve_named_color(query: str) -> Color:
+def _resolve_named_color(query: str) -> HexColor:
     """Resolve a color name through the registry in precedence order.
+
+    Every registry source maps names to hex strings, so the resolved value is
+    always a hex color string.
 
     Raises ``KeyError`` when no source defines ``query`` (matching the legacy
     ``get_named_color`` contract).

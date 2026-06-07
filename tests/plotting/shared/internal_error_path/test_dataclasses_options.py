@@ -27,6 +27,7 @@ from gerrytools.plotting import (
 class TestLineOptions:
     def test_defaults_construct_cleanly(self):
         options = LineOptions()
+        assert isinstance(options.linecolor, str)
         assert options.linecolor.startswith("#")
         assert options.linewidth == 1.0
         assert options.zorder == 3
@@ -51,6 +52,7 @@ class TestLineOptions:
 class TestBandOptions:
     def test_defaults_construct_cleanly(self):
         options = BandOptions()
+        assert isinstance(options.bandcolor, str)
         assert options.bandcolor.startswith("#")
         assert options.linewidth == 1.0
         assert options.zorder == 3
@@ -75,6 +77,7 @@ class TestBandOptions:
 class TestHistogramOptions:
     def test_defaults_construct_cleanly(self):
         options = HistogramOptions()
+        assert isinstance(options.facecolor, str)
         assert options.facecolor.startswith("#")
         assert options.edgecolor == "none"  # bar edges hidden by default
         assert options.edgewidth == 0.0

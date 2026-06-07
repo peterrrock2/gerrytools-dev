@@ -1,5 +1,6 @@
 """`_CategoricalColorLayer` — categorical color mapping over a data column."""
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import matplotlib.pyplot as plt
@@ -77,13 +78,13 @@ class _CategoricalColorLayer(_GeoLayer):
     @staticmethod
     def __map_unique_values_to_colors(
         unique_values: pd.Index,
-        color_list: list[Color],
+        color_list: Sequence[Color],
     ) -> CategoryColorMap:
         """Map unique values in the data to colors from the provided list. Filters out NaN values.
 
         Args:
             unique_values (pd.Index): The unique values to map.
-            color_list (list[Color]): The list of colors to use for mapping.
+            color_list (Sequence[Color]): The colors to use for mapping.
         """
         n_colors = len(color_list)
         non_na_values: list[CategoryKey] = []

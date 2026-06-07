@@ -30,7 +30,7 @@ def show_figure(
         **kwargs (object): Additional keyword arguments passed to ``Figure.savefig``.
             Defaults: ``bbox_inches="tight"``, ``dpi=fig.dpi``.
     """
-    savefig_kwargs: MplKwargs = dict(kwargs)  # type: ignore[arg-type]
+    savefig_kwargs: MplKwargs = dict(kwargs)
     savefig_kwargs.setdefault("bbox_inches", "tight")
     savefig_kwargs.setdefault("dpi", fig.dpi)
 

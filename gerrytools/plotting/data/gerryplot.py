@@ -3,12 +3,13 @@ import weakref
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
 from numbers import Real
-from typing import Literal, Sequence
+from typing import Literal, Sequence, cast
 from warnings import warn
 
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
+from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 from matplotlib.text import Text
@@ -69,6 +70,8 @@ _UNSET_TEXT: str = "__gerryplot_unset_text__"
 class GerryPlotBase(ABC):
     """Abstract base class for GerryPlot plotting classes."""
 
+    fig: Figure
+
     def __init__(
         self,
         figure_size: tuple[float, float] | None = None,
@@ -110,7 +113,7 @@ class GerryPlotBase(ABC):
                     UserWarning,
                     stacklevel=2,
                 )
-            self.fig = ax.figure
+            self.fig = cast(Figure, ax.figure)
             self._ax = ax
             # User owns the figure; do not register a finalizer to close it.
             self._finalizer: weakref.finalize | None = None
@@ -314,7 +317,7 @@ class GerryPlotBase(ABC):
                 pass  # pragma: no cover
             self._finalizer = weakref.finalize(self, plt.close, self.fig)
         else:
-            self.fig = ax.figure
+            self.fig = cast(Figure, ax.figure)
             self._ax = ax
             # User owns the figure now; clear any finalizer we registered earlier.
             if self._finalizer is not None:

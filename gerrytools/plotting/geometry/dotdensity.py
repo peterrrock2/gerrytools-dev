@@ -30,7 +30,9 @@ logger = get_logger(__name__)
 MAX_CORES = max(int(os.cpu_count() or 1) - 2, 1)
 
 
-def _random_xy_in_poly(poly: shapely.Geometry, n_points: int, *, rng: Generator):
+def _random_xy_in_poly(
+    poly: shapely.Geometry, n_points: int, *, rng: Generator
+) -> tuple[NDArray, NDArray]:
     """Generate random x, y coordinates within a polygon.
 
     Args:
@@ -84,8 +86,8 @@ def _make_random_points(
     datacolumn_name: str,
     color: Color,
     rng: Generator,
-    n_jobs=-1,
-    n_chunks=10,
+    n_jobs: int = -1,
+    n_chunks: int = 10,
 ) -> tuple[NDArray, NDArray, NDArray]:
     """Generates random points within polygons in a GeoDataFrame.
 
@@ -106,7 +108,7 @@ def _make_random_points(
         gdf.iloc[i : min(len(gdf), i + chunk_size)] for i in range(0, len(gdf), chunk_size)
     ]
 
-    def process_chunk(chunk: GeoDataFrame, chunk_seed: int):
+    def process_chunk(chunk: GeoDataFrame, chunk_seed: int) -> tuple[NDArray, NDArray, NDArray]:
         """Generate random dot coordinates for one GeoDataFrame chunk.
 
         Args:
@@ -195,7 +197,7 @@ class DotDensityPlot(GeoPlot):
         edgewidth: float = 0.6,
         rng_seed: int | None = None,
         rng: Generator | None = None,
-    ):
+    ) -> None:
         """Initialize a DotDensityPlot instance.
 
         By default, dot density plots will include an outline layer based on the
@@ -308,7 +310,7 @@ class DotDensityPlot(GeoPlot):
         """Set the RNG seed used for deterministic dot placement."""
         self._rng, self._rng_seed = resolve_numpy_rng(seed=seed, field_name="rng_seed")
 
-    def _close(self):
+    def _close(self) -> None:
         """Clean up temporary directory used for caching dot density points."""
         # Safe to call multiple times
         if getattr(self, "_DotDensityPlot__temp_dir", None) is not None:

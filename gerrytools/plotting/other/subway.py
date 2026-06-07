@@ -1,4 +1,5 @@
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
@@ -8,7 +9,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 
 from gerrytools.colors import convert_color_to_hexa_or_none
-from gerrytools.typing import Color
+from gerrytools.typing import Color, HexColor
 
 
 @dataclass(frozen=True)
@@ -60,7 +61,7 @@ def _validate_subway_settings(
     n_bands: int | None,
     max_items_per_band: int | None,
     sign_options: SubwaySignOptions,
-):
+) -> None:
     """Validate settings for subway sign plotting.
 
     Args:
@@ -328,7 +329,7 @@ def _normalize_colors_and_adjust_item_order(
     max_items_per_band: int | None,
     reverse_display_order: bool,
     sign_options: SubwaySignOptions,
-):
+) -> list[tuple[HexColor, str]]:
     """Normalize colors to hex format and adjust item order for ragged edges and reverse display.
 
     Args:
@@ -392,8 +393,8 @@ def _draw_sign(
     x_step: float,
     y_step: float,
     radius: float,
-    text_outline_effects: list,
-):
+    text_outline_effects: Sequence[patheffects.AbstractPathEffect],
+) -> None:
     """Draw a single subway sign on the given axes.
 
     Args:
@@ -409,7 +410,8 @@ def _draw_sign(
         x_step (float): The horizontal step size between sign centers.
         y_step (float): The vertical step size between sign centers.
         radius (float): The radius of the sign circle.
-        text_outline_effects (list): Path effects for outlining the text.
+        text_outline_effects (Sequence[patheffects.AbstractPathEffect]): Path effects for
+            outlining the text.
     """
     normalized_face_color = mcolors.to_rgba(face_color)
 
@@ -459,7 +461,7 @@ def _draw_sign(
         fontsize=sign_options.fontsize,
         fontweight=sign_options.fontweight,
     )
-    text_artist.set_path_effects(text_outline_effects)
+    text_artist.set_path_effects(list(text_outline_effects))
 
 
 def subway_signs(
@@ -472,7 +474,7 @@ def subway_signs(
     reverse_display_order: bool = False,
     sign_options: SubwaySignOptions | None = None,
     save_path: str | None = None,
-):
+) -> None:
     """Draw a grid of colored 'subway signs' with labels.
 
     Args:

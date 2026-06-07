@@ -100,9 +100,9 @@ class TestBoxPlotSnapshots:
         plot = BoxPlot(
             figure_size=(8, 5),
             dpi=100,
-            include_boxplot_group_vlines=True,
             title="Boxplot with Group Lines",
         )
+        plot.enable_boxplot_group_vlines()
         plot.add_boxplot_datasets(data, facecolor="amber", name="Series")
         img = render_plot(plot, tmp_path)
 
