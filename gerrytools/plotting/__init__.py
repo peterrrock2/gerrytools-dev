@@ -14,7 +14,7 @@ from gerrytools.plotting.data import (
     LineData,
     TextArrowStyle,
 )
-from gerrytools.plotting.data.boxplot import BoxPlot
+from gerrytools.plotting.data.boxplot import BoxPlot, BoxPlotStats
 from gerrytools.plotting.data.histogram import Histogram
 from gerrytools.plotting.data.options import (
     BandOptions,
@@ -60,6 +60,7 @@ __all__ = [
     "BandOptions",
     "BoxPlot",
     "BoxPlotOptions",
+    "BoxPlotStats",
     "ColormapLayer",
     "ColorbarOptions",
     "ColoredGeoPlot",

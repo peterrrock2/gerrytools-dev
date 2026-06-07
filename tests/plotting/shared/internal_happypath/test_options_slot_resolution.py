@@ -31,6 +31,7 @@ from gerrytools.plotting import (  # noqa: E402
     ViolinPlot,
     ViolinPlotOptions,
 )
+from gerrytools.plotting.data.boxplot import BoxPlotSetData  # noqa: E402
 
 # ----------------------------------------------------------------------
 # add_vertical_lines / add_horizontal_lines accept line_options=
@@ -141,6 +142,7 @@ class TestBoxPlotOptionsSlot:
             options=BoxPlotOptions(facecolor="red", percentiles=(5, 95)),
         )
         bp = plot._boxplot_data_list[0]
+        assert isinstance(bp, BoxPlotSetData)
         assert bp.facecolor == "#ff0000"
         assert bp.percentiles == (5, 95)
 
