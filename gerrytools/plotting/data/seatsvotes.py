@@ -10,7 +10,11 @@ from numpy.typing import NDArray
 from gerrytools.logging import get_logger
 from gerrytools.plotting.data._geometry import line_segment_through_unit_square
 from gerrytools.plotting.data.gerryplot import GerryPlotBase
-from gerrytools.plotting.data.options import SeatsVotesLineOptions, SeatsVotesMarkerOptions
+from gerrytools.plotting.data.options import (
+    DEFAULT_EDGE_WIDTH,
+    SeatsVotesLineOptions,
+    SeatsVotesMarkerOptions,
+)
 from gerrytools.typing import Color, LegendHandle
 
 logger = get_logger(__name__)
@@ -357,7 +361,9 @@ class SeatsVotes(GerryPlotBase):
                 uses markerfacecolor.
             markeredgealpha (float | None, optional): Marker edge alpha. Defaults to None, which
                 uses markerfacealpha.
-            markeredgewidth (float, optional): Marker edge width. Defaults to 0.0.
+            markeredgewidth (float, optional): Marker edge width. Defaults to None (unset): when a
+                visible ``markeredgecolor`` is given but this is left unset, it falls back to 0.8 so
+                the edge is drawn. Pass ``markeredgewidth=0`` explicitly to keep the edge hidden.
             markerzorder (int, optional): The z-order of the marker point. Defaults to 2.
             markerlabel (str | None, optional): The label for the election-result marker in the
                 legend. If not
@@ -416,6 +422,17 @@ class SeatsVotes(GerryPlotBase):
         resolved_markerzorder = (
             markerzorder if markerzorder is not None else marker_base.markerzorder
         )
+
+        # A visible marker edge color with zero width draws nothing. If the caller named an edge
+        # color but left ``markeredgewidth`` unset, fall back to a default so the edge shows. An
+        # explicit ``markeredgewidth=0`` is left untouched and still hides the edge.
+        if (
+            markeredgewidth is None
+            and resolved_markeredgewidth == 0.0
+            and resolved_markeredgecolor is not None
+            and str(resolved_markeredgecolor).strip().lower() != "none"
+        ):
+            resolved_markeredgewidth = DEFAULT_EDGE_WIDTH
 
         self._sv_data_list.append(
             SeatsVotesData(

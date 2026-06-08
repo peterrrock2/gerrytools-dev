@@ -17,7 +17,7 @@ from numpy.typing import NDArray
 from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
 from gerrytools.plotting.data.gerryplot import GerryPlotBase
-from gerrytools.plotting.data.options import HistogramOptions
+from gerrytools.plotting.data.options import DEFAULT_EDGE_WIDTH, HistogramOptions
 from gerrytools.plotting.mpl.marker_options import PointMarkerOptions
 from gerrytools.typing import BinsType, Color, HistType, LegendHandle, NumericArrayLike
 
@@ -443,10 +443,14 @@ class Histogram(GerryPlotBase):
             facecolor (Color, optional): The face color of the points. Defaults to "black".
             facealpha (float | None, optional): The alpha transparency of the points.
                 Defaults to None.
-            edgecolor (Color, optional): The edge color of the histogram bars. Defaults to "black".
+            edgecolor (Color, optional): The edge color of the histogram bars. Defaults to "none"
+                (no visible edge).
             edgealpha (float | None, optional): The alpha transparency of the histogram bar edges.
                 Defaults to None.
-            edgewidth (float, optional): The width of the histogram bar edges. Defaults to 0.0.
+            edgewidth (float, optional): The width of the histogram bar edges. Defaults to None
+                (unset): when a visible ``edgecolor`` is given but ``edgewidth`` is left unset, it
+                falls back to 0.8 so ``edgecolor`` alone produces edged bars. Pass ``edgewidth=0``
+                explicitly to keep the edge hidden.
             histtype (HistType, optional): The type of histogram to add. Must be one of
                 'overlay', 'stack', 'weave', 'outline'. Defaults to 'overlay'.
             zorder (int, optional): The z-order of the points. Defaults to 2.
@@ -462,6 +466,16 @@ class Histogram(GerryPlotBase):
         resolved_histtype = histtype if histtype is not None else base.histtype
         resolved_zorder = zorder if zorder is not None else base.zorder
 
+        # An edge color with zero width is invisible. If the caller named a visible edge color
+        # but left ``edgewidth`` unset, fall back to a default so ``edgecolor=`` alone draws the
+        # edge. An explicit ``edgewidth=0`` is left untouched and still hides the edge.
+        if (
+            edgewidth is None
+            and resolved_edgewidth == 0.0
+            and str(resolved_edgecolor).strip().lower() != "none"
+        ):
+            resolved_edgewidth = DEFAULT_EDGE_WIDTH
+
         hist_list = self._hist_data_dict.get(resolved_histtype, None)
         if hist_list is None:
             raise ValueError(
@@ -474,10 +488,10 @@ class Histogram(GerryPlotBase):
                 if not self.hide_warnings:
                     warn(
                         "Outline histogram specified with edgewidth <= 0; setting edgewidth "
-                        "to 0.8.",
+                        f"to {DEFAULT_EDGE_WIDTH}.",
                         UserWarning,
                     )
-                resolved_edgewidth = 0.8
+                resolved_edgewidth = DEFAULT_EDGE_WIDTH
             if resolved_facecolor != "none":
                 if not self.hide_warnings:
                     warn(

@@ -24,6 +24,12 @@ from gerrytools.typing import Color, HistType
 logger = get_logger(__name__)
 
 
+# Edge width applied when a visible edge color is set but no width is given. An edge
+# color with zero width draws nothing, so asking for a color is taken to mean "draw the
+# edge": the width falls back to this default rather than forcing the caller to set both.
+DEFAULT_EDGE_WIDTH = 0.8
+
+
 # ---------------------------------------------------------------------------
 # Lines and bands (used by GerryPlotBase add_*_lines / add_*_band).
 # ---------------------------------------------------------------------------
