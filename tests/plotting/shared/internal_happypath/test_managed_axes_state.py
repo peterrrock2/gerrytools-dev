@@ -636,9 +636,7 @@ _NAMED_ADD_CASES = [
         id="SeatsVotes.add_custom_line",
     ),
     pytest.param(
-        # PaintBall's include_legend=False default is an explicit opinion that claims the legend
-        # unit at construction; pass True for a clean baseline.
-        lambda: PaintBall(include_legend=True),
+        PaintBall,
         lambda plot: plot.add_lines_with_slope([1.0], name="guide"),
         id="PaintBall.add_lines_with_slope",
     ),
@@ -699,7 +697,7 @@ _UNNAMED_ADD_CASES = [
         id="SeatsVotes.add_custom_line",
     ),
     pytest.param(
-        lambda: PaintBall(include_legend=True),
+        PaintBall,
         lambda plot: plot.add_lines_with_slope([1.0]),
         id="PaintBall.add_lines_with_slope",
     ),

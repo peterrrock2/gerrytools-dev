@@ -200,6 +200,35 @@ class TestPaintBallDefaultLines:
         pb = simple_paintball()
         assert pb.include_legend is False
 
+    def test_default_constructor_does_not_claim_legend_unit(self):
+        pb = PaintBall()
+        assert pb.include_legend is False
+        assert not pb._axes_state.is_reclaimed("legend")
+
+    def test_explicit_include_legend_false_claims_legend_unit(self):
+        pb = PaintBall(include_legend=False)
+        assert pb.include_legend is False
+        assert pb._axes_state.is_reclaimed("legend")
+
+    def test_explicit_include_legend_true_claims_legend_unit(self):
+        pb = PaintBall(include_legend=True)
+        assert pb.include_legend is True
+        assert pb._axes_state.is_reclaimed("legend")
+
+    def test_default_paintball_leaves_external_legend_alone(self):
+        import matplotlib.pyplot as plt
+
+        _, user_ax = plt.subplots()
+        user_ax.plot([0, 1], [0, 1], label="external")
+        user_ax.legend()
+        external_legend = user_ax.get_legend()
+        assert external_legend is not None
+
+        pb = PaintBall(ax=user_ax)
+        pb.add_voteshare_seatshare_data([0.4, 0.5, 0.6], [0.3, 0.5, 0.7])
+        pb.ax
+        assert pb._ax.get_legend() is external_legend
+
 
 # ==================================
 # == ADD VOTESHARE SEATSHARE DATA ==

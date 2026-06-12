@@ -74,28 +74,24 @@ class PaintBall(GerryPlotBase):
         dpi: int | None = None,
         *,
         ax: Axes | None = None,
-        include_legend: bool = False,
+        include_legend: bool | None = None,
         xlabel: str | None = None,
         ylabel: str | None = None,
         title: str | None = None,
     ) -> None:
         """Initialize an empty paintball plot.
 
-        Mirrors the constructor pattern of every other plot in
-        ``gerrytools.plotting`` — the canvas is created empty; data and guide
-        lines are added via the corresponding ``add_*`` methods after
-        construction.
-
         Args:
-            figure_size (tuple[float, float] | None, optional): Figure size in
-                inches. Defaults to ``(10, 10)`` when ``ax`` is not provided.
-            dpi (int | None, optional): Figure DPI. Defaults to ``300`` when
-                ``ax`` is not provided.
+            figure_size (tuple[float, float] | None, optional): Figure size in inches. Defaults to
+                ``(10, 10)`` when ``ax`` is not provided.
+            dpi (int | None, optional): Figure DPI. Defaults to ``300`` when ``ax`` is not provided.
             ax (matplotlib.axes.Axes | None, optional): Render onto an existing
-                matplotlib ``Axes`` instead of creating a fresh figure.
-                Defaults to None.
-            include_legend (bool, optional): Whether to include the legend.
-                Defaults to False.
+                matplotlib ``Axes`` instead of creating a fresh figure. Defaults to None.
+            include_legend (bool | None, optional): Whether to include the legend. ``None`` (the
+                default) means "no opinion": the legend is omitted (PaintBall's class default) but
+                legend ownership is left unclaimed, so an external legend on a shared axes is left
+                alone. An explicit ``True``/``False`` claims the legend unit, exactly like passing
+                ``include_legend=False`` to any other plot class. Defaults to None.
             xlabel (str | None, optional): X-axis label text. Defaults to None.
             ylabel (str | None, optional): Y-axis label text. Defaults to None.
             title (str | None, optional): Plot title text. Defaults to None.
@@ -108,19 +104,27 @@ class PaintBall(GerryPlotBase):
             plot.add_proportionality_line()
             plot.show()
         """
-        # PaintBall prefers a square 10x10 figure; only apply this default when
-        # the user hasn't otherwise specified a size or supplied their own axes.
+
         if figure_size is None and ax is None:
             figure_size = (10, 10)
         super().__init__(
             figure_size=figure_size,
             dpi=dpi,
             ax=ax,
-            include_legend=include_legend,
+            include_legend=True,
             xlabel=xlabel,
             ylabel=ylabel,
             title=title,
         )
+
+        # PaintBall defaults to no legend (a paintball cloud has no useful auto-legend), but the
+        # *default* must not count as a user opinion, so write the backing field directly so the
+        # legend unit stays unclaimed. An explicit True/False goes through the property setter
+        # and claims the unit, like include_legend=False on any other plot.
+        if include_legend is None:
+            self._include_legend = False
+        else:
+            self.include_legend = include_legend
 
         self._voteshare_data: list[float] = []
         self._seatshare_data: list[float] = []
