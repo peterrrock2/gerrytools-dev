@@ -297,7 +297,7 @@ class Histogram(GerryPlotBase):
         self.grid = False
         self._bins: BinsType | None = None
         self._bin_alignment = "edge"
-        self.as_denisty_plot = False
+        self.as_density_plot = False
         self._binwidth: float | None = None
 
         self._hist_data_dict: dict[str, list[HistogramData]] = {
@@ -335,6 +335,9 @@ class Histogram(GerryPlotBase):
         - ‘sqrt’: Square root (of data size) estimator, used by Excel and other programs for its
             speed and simplicity.
 
+        Clears any bin width previously set via :meth:`set_bins_by_width`,
+        mirroring how :meth:`set_bins_by_width` clears explicit bins.
+
         Args:
             bins (BinsType): Bin specification (array of bin edges, integer number of bins, or
                 string specifying binning strategy). If None, defaults to 'auto'.
@@ -343,6 +346,7 @@ class Histogram(GerryPlotBase):
             None
         """
         self._bins = bins
+        self._binwidth = None
 
     def set_bins_by_width(self, binwidth: float | None) -> None:
         """Set histogram bins by specifying a fixed bin width.
@@ -386,7 +390,7 @@ class Histogram(GerryPlotBase):
 
     def transform_to_density(self) -> None:
         """Transform the histogram to a density plot."""
-        self.as_denisty_plot = True
+        self.as_density_plot = True
 
     def add_histogram(
         self,
@@ -439,9 +443,11 @@ class Histogram(GerryPlotBase):
             weights (Iterable[float] | NDArray | None, optional): Optional weights for
                 the histogram values. Defaults to None.
             column (str | None, optional): The column name to use if values is a DataFrame.
-            name (str | None, optional): The name of the point set. Defaults to None.
-            facecolor (Color, optional): The face color of the points. Defaults to "black".
-            facealpha (float | None, optional): The alpha transparency of the points.
+            name (str | None, optional): The name of the histogram series for the legend.
+                Defaults to None.
+            facecolor (Color, optional): The fill color of the histogram bars.
+                Defaults to "denim".
+            facealpha (float | None, optional): The alpha transparency of the histogram bars.
                 Defaults to None.
             edgecolor (Color, optional): The edge color of the histogram bars. Defaults to "none"
                 (no visible edge).
@@ -453,7 +459,7 @@ class Histogram(GerryPlotBase):
                 explicitly to keep the edge hidden.
             histtype (HistType, optional): The type of histogram to add. Must be one of
                 'overlay', 'stack', 'weave', 'outline'. Defaults to 'overlay'.
-            zorder (int, optional): The z-order of the points. Defaults to 2.
+            zorder (int, optional): The z-order of the histogram. Defaults to 2.
         """
         vals, wts = _coerce_values_and_weights(values, weights=weights, column=column)
 
@@ -479,7 +485,7 @@ class Histogram(GerryPlotBase):
         hist_list = self._hist_data_dict.get(resolved_histtype, None)
         if hist_list is None:
             raise ValueError(
-                f"Invalid histtype {resolved_histtype!r}; must be one of"
+                f"Invalid histtype {resolved_histtype!r}; must be one of "
                 "'overlay', 'stack', 'weave', 'outline'."
             )
 
@@ -544,12 +550,12 @@ class Histogram(GerryPlotBase):
         y_offset: float = 0.0,
         centered_on_bin: bool = False,
     ) -> None:
-        """Add a set of points to the figure.
+        """Add a set of points drawn just above the histogram bars.
 
         Args:
-            values (dict[str, float] | list[float] | pd.Series | pd.DataFrame):
-                The pointset values. Can be a dictionary mapping labels to values,
-                a list of values, a Series, or a DataFrame.
+            values (float | list[float] | pd.Series | pd.DataFrame | NDArray):
+                The pointset values. Can be a single value, a list of values,
+                a Series, an array, or a DataFrame.
             column (str | None, optional): The column name to use if values is a DataFrame.
             name (str | None, optional): The name of the point set. Defaults to None.
             facecolor (Color, optional): The face color of the points. Defaults to "black".
@@ -563,9 +569,9 @@ class Histogram(GerryPlotBase):
                 marker edges. Defaults to None.
             markeredgewidth (float, optional): The width of the point marker edges.
                 Defaults to 0.8.
-            zorder (int, optional): The z-order of the points. Defaults to 2.
-            y_offset (float | None, optional): An absolute x-offset from category center.
-                Defaults to None.
+            zorder (int, optional): The z-order of the points. Defaults to 3.
+            y_offset (float, optional): An absolute y-offset added above the bar top for
+                the first point landing in each bin. Defaults to 0.0.
             centered_on_bin (bool, optional): If True, center the points on the histogram
                 bins. Defaults to False.
 
@@ -667,7 +673,7 @@ class Histogram(GerryPlotBase):
                     hdata.values,
                     bins=bin_edges,
                     weights=hdata.weights,
-                    density=self.as_denisty_plot,
+                    density=self.as_density_plot,
                 )[0]
 
                 # Special case for outline histograms that does the outline only (no internal
@@ -794,7 +800,7 @@ class Histogram(GerryPlotBase):
                     hdata.values,
                     bins=bin_edges,
                     weights=hdata.weights,
-                    density=self.as_denisty_plot,
+                    density=self.as_density_plot,
                 )[0]
 
                 if histtype == "stack":

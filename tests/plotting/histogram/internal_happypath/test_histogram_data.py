@@ -18,7 +18,7 @@ class TestHistogramConstruction:
     def test_default_construction(self):
         h = Histogram()
         assert h.grid is False
-        assert h.as_denisty_plot is False
+        assert h.as_density_plot is False
         assert h._bins is None
         assert h._binwidth is None
 

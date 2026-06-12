@@ -42,6 +42,15 @@ class TestHistogramBins:
         assert h._binwidth is None
         assert h._bins is None
 
+    def test_set_bins_clears_prior_binwidth(self):
+        # Mirror of the reset above: set_bins and set_bins_by_width are
+        # mutually exclusive, so each clears the other's setting.
+        h = Histogram()
+        h.set_bins_by_width(0.5)
+        h.set_bins(20)
+        assert h._bins == 20
+        assert h._binwidth is None
+
     def test_center_data_on_bin_edges(self):
         h = Histogram()
         h.center_data_on_bin_edges()
@@ -57,7 +66,7 @@ class TestHistogramDensity:
     def test_transform_to_density(self):
         h = Histogram()
         h.transform_to_density()
-        assert h.as_denisty_plot is True
+        assert h.as_density_plot is True
 
 
 # ==================

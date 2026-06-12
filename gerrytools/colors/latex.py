@@ -78,7 +78,7 @@ def _xcolor_mix_hex(hex_colors_list: list[str], percentages_list: list[float | i
     """
     if len(hex_colors_list) != len(percentages_list) + 1:
         raise ValueError(
-            "Number of colors must be one more than number of percentages to define the : "
+            "Number of colors must be one more than number of percentages to define the "
             f"interpolation correctly. Found {len(hex_colors_list)} colors and "
             f"{len(percentages_list)} percentages."
         )
@@ -127,7 +127,7 @@ def get_color_from_latex_string(latex_color_string: str) -> str:
     pct_tokens = list(map(float, tokens[1::2]))
     if not all(0.0 <= p <= 100.0 for p in pct_tokens):
         raise ValueError(
-            f"Percentages must be in [0,100], interpreted the following perdcentages: "
+            f"Percentages must be in [0,100], interpreted the following percentages: "
             f"{pct_tokens} in {latex_color_string!r}"
         )
 

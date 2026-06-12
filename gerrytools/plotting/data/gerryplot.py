@@ -1785,16 +1785,19 @@ class GerryPlotBase(ABC):
         self,
         show_top: bool = True,
         show_right: bool = True,
-        show_left: bool = True,
         show_bottom: bool = True,
+        show_left: bool = True,
     ) -> None:
-        """Hide the frame of the plot.
+        """Set the visibility of each spine of the plot frame.
+
+        The parameter order (top, right, bottom, left) matches the frame
+        snapshot tuple used by the managed-axes state.
 
         Args:
             show_top (bool, optional): Whether to show the top spine. Defaults to True.
             show_right (bool, optional): Whether to show the right spine. Defaults to True.
-            show_left (bool, optional): Whether to show the left spine. Defaults to True.
             show_bottom (bool, optional): Whether to show the bottom spine. Defaults to True.
+            show_left (bool, optional): Whether to show the left spine. Defaults to True.
 
         Returns:
             None
@@ -1802,8 +1805,8 @@ class GerryPlotBase(ABC):
         self._frame_visibility = {
             "top": show_top,
             "right": show_right,
-            "left": show_left,
             "bottom": show_bottom,
+            "left": show_left,
         }
         if self._axes_state_initialized:
             self._apply_frame_visibility_now()

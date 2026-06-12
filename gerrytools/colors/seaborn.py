@@ -4,7 +4,7 @@ import seaborn as sns
 def redbluecmap(n: int) -> list[tuple[float, float, float]]:
     """
     Generates a red/white/blue color palette in `n` colors, using the
-    `coolwarm` diverging colormap from seaborn.
+    `bwr` diverging colormap (reversed, so red comes first) from seaborn.
 
     Args:
         n (int): The number of colors to generate.
@@ -21,7 +21,7 @@ def redbluecmap(n: int) -> list[tuple[float, float, float]]:
 def greenpurplecmap(n: int) -> list[tuple[float, float, float]]:
     """
     Generates a green/white/purple color palette in `n` colors, using the
-    `PiYG` diverging colormap from seaborn.
+    `PRGn` diverging colormap (reversed, so green comes first) from seaborn.
 
     Args:
         n (int): The number of colors to generate.
@@ -58,7 +58,7 @@ def flare(n: int) -> list[tuple[float, float, float]]:
 
 def purples(n: int) -> list[tuple[float, float, float]]:
     """
-    Generates a list of `n` shades of purple basesd on the `Purples`
+    Generates a list of `n` shades of purple based on the `Purples`
     Matplotlib/seaborn colormap.
 
     Args:
@@ -72,7 +72,7 @@ def purples(n: int) -> list[tuple[float, float, float]]:
 
 def greens(n: int) -> list[tuple[float, float, float]]:
     """
-    Generates a list of `n` shades of purple basesd on the `Greens`
+    Generates a list of `n` shades of green based on the `Greens`
     Matplotlib/seaborn colormap.
 
     Args:
