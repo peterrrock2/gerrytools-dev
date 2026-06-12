@@ -1,4 +1,3 @@
-import math
 import random
 from string import hexdigits as hex
 
@@ -87,7 +86,24 @@ def districtr(N: int) -> list[HexColor]:
     """
 
     colors = list(DISTRICTR_COLOR_DICT.values())
+    if N <= len(colors):
+        return colors[:N]
 
-    repeats = math.ceil(N / len(colors))
-    tail = [hexshift(c) for c in colors * (repeats - 1)]
-    return (colors + (tail if tail else []))[:N]
+    # Vary the seed per shift: hexshift is deterministic for a fixed seed, so reusing one seed
+    # would make every extension round identical. Skip any shift that collides with a color already
+    # in the palette.
+    seen = set(colors)
+    extended = list(colors)
+    seed = 42
+    remaining_attempts = 100 * N
+    while len(extended) < N:
+        for color in colors:
+            shifted = hexshift(color, seed=seed)
+            seed += 1
+            remaining_attempts -= 1
+            if shifted not in seen or remaining_attempts <= 0:
+                seen.add(shifted)
+                extended.append(shifted)
+                if len(extended) == N:
+                    break
+    return extended

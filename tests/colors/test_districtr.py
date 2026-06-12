@@ -2,9 +2,9 @@ from string import hexdigits
 
 from gerrytools.colors.districtr import DISTRICTR_COLOR_DICT, districtr, hexshift
 
-# =================
+# ==================
 # == HEX SHIFTING ==
-# =================
+# ==================
 
 
 class TestHexshift:
@@ -53,3 +53,12 @@ class TestDistrictrPalette:
         assert extended[: len(base_colors)] == base_colors
         assert extended[len(base_colors)] != base_colors[0]
         assert extended[len(base_colors) + 1] != base_colors[1]
+
+    def test_districtr_extension_rounds_do_not_repeat(self):
+        n_colors = 3 * len(DISTRICTR_COLOR_DICT) + 3
+        palette = districtr(n_colors)
+        assert len(palette) == n_colors
+        assert len(set(palette)) == n_colors
+
+    def test_districtr_extension_is_deterministic(self):
+        assert districtr(200) == districtr(200)
