@@ -32,14 +32,14 @@ class TestBasicFormatters:
         value, rendered = formatter("raw", "X")
 
         assert value == "raw"
-        assert rendered.startswith(r"\parbox[c][4mm][c]{4}")
+        assert rendered.startswith(r"\parbox[c][4mm][c]{4mm}")
 
     def test_boxed_center_wraps_content_and_preserves_value(self):
         formatter = boxed_center(3, height=5, unit="mm")
         value, rendered = formatter(7, "X")
 
         assert value == 7
-        assert rendered.startswith(r"\parbox[c][5mm][c]{3}")
+        assert rendered.startswith(r"\parbox[c][5mm][c]{3mm}")
         assert r"\centering\strut X" in rendered
 
     def test_wrap_with_tex_command_wraps_rendered_string(self):

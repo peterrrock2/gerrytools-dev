@@ -38,8 +38,10 @@ def tex_gradient_command(
 ) -> str:
     """Generates a LaTeX command for gradient coloring of numerical values.
 
-    Emits a LaTeX command \\<cmd_str>{x} that colors the cell with a
-    gradient of <color_name> from  (full color) to 1 (white).
+    Emits a LaTeX command \\<cmd_str>{x} that colors the cell with a gradient of <color_name> from
+    lo (full color) to hi (white). Values outside ``[lo, hi]`` are clamped, and a degenerate range
+    (``hi == lo``) is guarded against division by zero, matching the two-color and diverging
+    gradient commands.
 
     Requires: xcolor (with [table]), colortbl, xfp, siunitx.
 
@@ -62,7 +64,8 @@ def tex_gradient_command(
         "\n"
         r"\begingroup"
         "\n"
-        rf"\cellcolor{{{color_name}!\fpeval{{round(100*(1-(#1-{lo})/({hi}-{lo})),0)}}}}%"
+        rf"\cellcolor{{{color_name}!\fpeval{{round(100*(1-min(1, max(0, "
+        rf"(#1-{lo})/max({hi}-{lo}, 1e-12)))),0)}}}}%"
         "\n"
         r"\num[round-precision=4]{#1}%"
         "\n"

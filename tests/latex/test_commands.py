@@ -50,7 +50,10 @@ class TestCommandGeneration:
         out = tex_gradient_command(cmd_str="shade", color_name="denim", lo=1.0, hi=9.0)
 
         assert r"\newcommand{\shade}[1]{%" in out
-        assert r"\cellcolor{denim!\fpeval{round(100*(1-(#1-1.0)/(9.0-1.0)),0)}}%" in out
+        assert (
+            r"\cellcolor{denim!\fpeval{round(100*(1-min(1, max(0, "
+            r"(#1-1.0)/max(9.0-1.0, 1e-12)))),0)}}%"
+        ) in out
         assert r"\num[round-precision=4]{#1}%" in out
 
     def test_twocolor_gradient_command_includes_precision_and_color_mix(self):

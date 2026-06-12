@@ -130,7 +130,7 @@ def boxed_center(width: int, height: int | None = None, unit: str = "mm") -> Cel
         Returns:
             tuple[TableCellValue, str]: Original value and wrapped LaTeX string.
         """
-        return v, rf"\parbox[c][{height}{unit}][c]{{{width}}}{{\centering\strut {s}}}"
+        return v, rf"\parbox[c][{height}{unit}][c]{{{width}{unit}}}{{\centering\strut {s}}}"
 
     return _inner_boxed_center
 
