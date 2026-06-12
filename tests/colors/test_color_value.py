@@ -124,11 +124,11 @@ class TestColorFromTuples:
         assert result.hex6 == "#ff0000"
         assert result.alpha == pytest.approx(0.5, abs=1 / 255)
 
-    def test_from_any_base_alpha_pair_with_none_base_is_transparent_black(self):
+    def test_from_any_base_alpha_pair_with_none_base_is_none_sentinel(self):
         result = _Color.from_any(("none", 0.25))
-        # The (none, alpha) shape produces transparent black, NOT the none sentinel
-        assert not result.is_none
-        assert result.hex6 == "#000000"
+
+        assert result.is_none
+        assert result.hex6 == "none"
         assert result.alpha == 0.0
 
 

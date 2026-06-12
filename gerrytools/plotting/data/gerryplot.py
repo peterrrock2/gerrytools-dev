@@ -96,8 +96,9 @@ class GerryPlotBase(ABC):
                 matplotlib ``Axes`` instead of creating a fresh figure. Useful for
                 callers familiar with matplotlib / seaborn idioms who want to compose
                 this plot into a larger figure they control. When provided, the
-                plot's lazy build will draw onto this axes (clearing any existing
-                content on it first). Defaults to None.
+                plot's lazy build draws onto this axes; content already on the
+                axes is left in place, and on rebuilds only the artists this
+                plot created are removed. Defaults to None.
             include_legend (bool, optional): Whether to include a legend in the plot.
                 Defaults to True.
             xlabel (str | None, optional): The label for the x-axis. Defaults to None.

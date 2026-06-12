@@ -179,7 +179,9 @@ class _Color:
         )
         base_color = cls.from_any(cast(MplCompatibleColor, base_color_input))
         if base_color.is_none:
-            return cls(hex6="#000000", alpha=0.0)
+            # A "none" base is fully transparent regardless of the requested alpha; preserve the
+            # sentinel so is_none checks downstream still fire.
+            return cls.none()
         rgba_with_override = mcolors.to_rgba(base_color.hex6, alpha=validated_alpha)
         return cls._from_resolved(rgba_with_override)
 

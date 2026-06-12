@@ -117,7 +117,7 @@ class TestConvertColorToHexaOrNone:
         assert result == "#ff000080"
 
     def test_convert_none_base_with_alpha_tuple_becomes_transparent(self):
-        assert convert_color_to_hexa_or_none(("none", 0.25)) == "#00000000"
+        assert convert_color_to_hexa_or_none(("none", 0.25)) == "none"
 
     def test_convert_ambiguous_rgb_tuple_raises(self):
         with pytest.raises(ValueError, match="Ambiguous RGB tuple"):
