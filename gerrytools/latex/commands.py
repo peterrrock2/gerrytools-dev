@@ -117,7 +117,7 @@ def tex_twocolor_gradient_command(
         "\n"
         r"  \edef\heatt{\fpeval{min(1, max(0, (#1-\heatlo)/\heatrange))}}%"
         "\n"
-        r"  \edef\heatpct{\fpeval{round(100*\heatt,0)}}%"
+        r"  \edef\heatpct{\fpeval{round(100*(1-\heatt),0)}}%"
         "\n"
         rf"  \edef\heatcolorspec{{{color_lo}!\heatpct!{color_hi}}}%"
         "\n"

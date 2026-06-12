@@ -65,6 +65,7 @@ class TestCommandGeneration:
 
         assert r"\newcommand{\heat}[1]{%" in out
         assert r"\edef\heatlo{-1.0}\edef\heathi{1.0}%" in out
+        assert r"\edef\heatpct{\fpeval{round(100*(1-\heatt),0)}}%" in out
         assert r"\edef\heatcolorspec{denim!\heatpct!amber}%" in out
         assert r"\num[round-precision=3]{#1}%" in out
 
