@@ -639,9 +639,17 @@ class Histogram(GerryPlotBase):
         bins = np.histogram_bin_edges(all_values, bins=bins)
         return bins
 
-    def _draw_histograms(self) -> None:
-        """Draw the histograms on the plot."""
-        bin_edges = self._compute_bins()
+    def _draw_histograms(self, bin_edges: NDArray[np.float64]) -> NDArray[np.float64]:
+        """Draw the histograms on the plot.
+
+        Args:
+            bin_edges (NDArray[np.float64]): Shared bin edges computed once per build.
+
+        Returns:
+            NDArray[np.float64]: Per-bin maximum bar-top heights across every series (stacked tops
+            for ``"stack"`` series), used by ``_draw_points`` to place markers above the bars.
+        """
+        max_heights = np.zeros(len(bin_edges) - 1)
         bin_widths = np.diff(bin_edges)
 
         if self._bin_alignment == "center" and not np.allclose(bin_widths, bin_widths[0]):
@@ -671,6 +679,8 @@ class Histogram(GerryPlotBase):
                     weights=hdata.weights,
                     density=self.as_density_plot,
                 )[0]
+                if histtype != "stack":
+                    max_heights = np.maximum(max_heights, hist_heights)
 
                 # Special case for outline histograms that does the outline only (no internal
                 # vertical lines)
@@ -730,15 +740,23 @@ class Histogram(GerryPlotBase):
 
                 if histtype == "stack":
                     hist_bottoms += hist_heights
+                    max_heights = np.maximum(max_heights, hist_bottoms)
 
-    def _draw_points(self) -> None:
+        return max_heights
+
+    def _draw_points(
+        self, bin_edges: NDArray[np.float64], max_heights: NDArray[np.float64]
+    ) -> None:
         """Draw the points on the histogram plot.
 
-        Computes the maximum heights of the histogram bars to position the points
-        just above the bars, taking into account marker size and edge width.
+        Positions each point just above the tallest bar in its bin, taking marker size and edge
+        width into account.
+
+        Args:
+            bin_edges (NDArray[np.float64]): Shared bin edges computed once per build.
+            max_heights (NDArray[np.float64]): Per-bin maximum bar-top heights from
+                ``_draw_histograms``. Mutated in place as points stack above bars.
         """
-        bin_edges = self._compute_bins()
-        max_heights = np.zeros(len(bin_edges) - 1)
 
         def marker_clearance(
             y_top: float,
@@ -787,25 +805,6 @@ class Histogram(GerryPlotBase):
             p = self._ax.transData.transform((0.0, y_top))
             y2 = self._ax.transData.inverted().transform(p + np.array([0.0, px]))[1]
             return y2 - y_top
-
-        for histtype, histlist in self._hist_data_dict.items():
-            hist_bottoms = np.zeros(len(bin_edges) - 1)
-
-            for i, hdata in enumerate(histlist):
-                hist_heights = np.histogram(
-                    hdata.values,
-                    bins=bin_edges,
-                    weights=hdata.weights,
-                    density=self.as_density_plot,
-                )[0]
-
-                if histtype == "stack":
-                    hist_bottoms += hist_heights
-                    hist_top = hist_bottoms
-                else:
-                    hist_top = hist_heights
-
-                max_heights = np.maximum(max_heights, hist_top)
 
         for pointlist in self._histpointlist_list:
             x_positions = np.array(pointlist.values)
@@ -868,8 +867,9 @@ class Histogram(GerryPlotBase):
         if sum(len(lst) for lst in self._hist_data_dict.values()) == 0:
             raise ValueError("No histogram sets added yet.")
         self._ax.grid(self.grid)
-        self._draw_histograms()
-        self._draw_points()
+        bin_edges = self._compute_bins()
+        max_heights = self._draw_histograms(bin_edges)
+        self._draw_points(bin_edges, max_heights)
 
     def _get_histogram_legend_handles(self) -> list[LegendHandle]:
         """Get legend handles for the histogram sets."""
