@@ -1,28 +1,14 @@
 from dataclasses import dataclass
-from typing import Iterable, Literal
+from typing import Iterable, get_args
 
 from gerrytools.colors import convert_color_to_hexa_or_none
 from gerrytools.latex._colors import is_latex_color_expression
 from gerrytools.latex._geometry import line_segment_through_unit_square
 from gerrytools.latex.document import TexDocument
 from gerrytools.logging import get_logger
-from gerrytools.typing import Color
+from gerrytools.typing import Color, TikzLineStyle
 
 logger = get_logger(__name__)
-
-
-TikzLineStyle = Literal[
-    "solid",
-    "dashed",
-    "dotted",
-    "dashdotted",
-    "loosely dashed",
-    "loosely dotted",
-    "loosely dashdotted",
-    "densely dashed",
-    "densely dotted",
-    "densely dashdotted",
-]
 
 
 @dataclass(frozen=True)
@@ -43,36 +29,30 @@ class PaintBallLine:
 
     def __post_init__(self):
         linestyle_str = str(self.linestyle)
-        if linestyle_str not in (
-            "solid",
-            "dashed",
-            "dotted",
-            "dashdotted",
-            "loosely dashed",
-            "loosely dotted",
-            "loosely dashdotted",
-            "densely dashed",
-            "densely dotted",
-            "densely dashdotted",
-        ):
+        valid_linestyles = get_args(TikzLineStyle)
+        if linestyle_str not in valid_linestyles:
             raise ValueError(
-                f"Invalid linestyle: {linestyle_str}. "
-                "Must be a valid TikZ line style ('soilid', 'dashed', 'dotted', "
-                "'dashdotted', 'loosely dashed', 'loosely dotted', "
-                "'loosely dashdotted', 'densely dashed', 'densely dotted', "
-                "'densely dashdotted')."
+                f"Invalid linestyle: {linestyle_str}. Must be a valid TikZ line style "
+                f"({', '.join(repr(style) for style in valid_linestyles)})."
             )
 
 
 @dataclass(slots=True)
 class PaintBallOptions:
-    """Class for storing paintball plot options
-
+    """Class for storing paintball plot options.
 
     Attributes:
         markersize (float): The size of the markers in points.
         markercolor (Color): The color of the markers.
         markeralpha (float): The opacity of the markers (0.0 to 1.0).
+        markeredgecolor (Color): The color of the marker edges.
+        markeredgewidth (float): The width of the marker edges in points.
+        markeredgealpha (float): The opacity of the marker edges (0.0 to 1.0).
+        hullcolor (Color | None): The fill color of the convex hull, or None for no fill.
+        hullalpha (float | None): The opacity of the hull fill (0.0 to 1.0).
+        hulledgecolor (Color | None): The color of the hull edge, or None for no edge.
+        hulledgewidth (float | None): The width of the hull edge in points.
+        hulledgealpha (float | None): The opacity of the hull edge (0.0 to 1.0).
         crosshair_color (Color): The color of the crosshair lines.
         crosshair_width (float): The width of the crosshair lines.
         xlim (tuple[float, float]): The x-axis limits.

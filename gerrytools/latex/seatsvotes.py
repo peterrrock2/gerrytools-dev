@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Literal, Sequence, TypedDict
+from typing import Literal, Sequence, TypedDict, get_args
 
 import numpy as np
 
@@ -12,7 +12,7 @@ from gerrytools.latex._geometry import line_segment_through_unit_square
 from gerrytools.latex._text import latex_escape
 from gerrytools.latex.document import TexDocument
 from gerrytools.logging import get_logger
-from gerrytools.typing import Color
+from gerrytools.typing import Color, TikzLineStyle
 
 logger = get_logger(__name__)
 
@@ -25,19 +25,27 @@ def _to_tikz_linestyle(linestyle: str) -> str:
 
     Returns:
         str: Equivalent TikZ line style token.
+
+    Raises:
+        ValueError: If ``linestyle`` is neither a known Matplotlib token nor a valid TikZ line
+            style. Unknown tokens used to pass through silently and break the LaTeX compile instead.
     """
     style_map = {
         "-": "solid",
         "--": "dashed",
         ":": "dotted",
         "-.": "dashdotted",
-        "solid": "solid",
-        "dashed": "dashed",
-        "dotted": "dotted",
         "dashdot": "dashdotted",
-        "dashdotted": "dashdotted",
     }
-    return style_map.get(str(linestyle), str(linestyle))
+    mapped_style = style_map.get(str(linestyle), str(linestyle))
+    valid_linestyles = get_args(TikzLineStyle)
+    if mapped_style not in valid_linestyles:
+        raise ValueError(
+            f"Invalid linestyle: {linestyle!r}. Must be a Matplotlib token "
+            f"({', '.join(repr(token) for token in style_map)}) or a TikZ line style "
+            f"({', '.join(repr(style) for style in valid_linestyles)})."
+        )
+    return mapped_style
 
 
 @dataclass(slots=True, frozen=True)
@@ -704,12 +712,14 @@ class SeatsVotes:
             entries.append((line.linecolor, line.linestyle, line.label))
         return entries
 
-    def _to_latex_color(self, color: Color, *, prefix: str) -> _TikzColorToken:
+    def _to_latex_color(self, color: Color) -> _TikzColorToken:
         """Convert a color token into an internal TikZ color representation.
+
+        Unlike ``PaintBall._to_latex_color``, no auto-color name is registered on the document and
+        HTML hex tokens are emitted inline via ``\\color[HTML]{...}``, so no name prefix is needed.
 
         Args:
             color (Color): Input color token.
-            prefix (str): Unused; kept for API consistency with related classes.
 
         Returns:
             _TikzColorToken: Color token encoded as one of:
@@ -933,7 +943,7 @@ class SeatsVotes:
         )
         for idx, (row_type, color, linestyle, label) in enumerate(legend_rows):
             y_pos = y_start - idx * y_step
-            color_token = self._to_latex_color(color, prefix="svleg")
+            color_token = self._to_latex_color(color)
 
             if row_type == "line":
                 tikz_style = _to_tikz_linestyle(linestyle)
@@ -985,8 +995,8 @@ class SeatsVotes:
             x_settings = self._crosshair_settings["x"]
             y_settings = self._crosshair_settings["y"]
 
-            x_color = self._to_latex_color(x_settings["color"], prefix="svcross")
-            y_color = self._to_latex_color(y_settings["color"], prefix="svcross")
+            x_color = self._to_latex_color(x_settings["color"])
+            y_color = self._to_latex_color(y_settings["color"])
 
             lines.append(
                 self._fill_rectangle_command(
@@ -1014,7 +1024,7 @@ class SeatsVotes:
             x_start, y_start, x_end, y_end = (
                 self._compute_starting_ending_points_for_line_with_slope(line.slope)
             )
-            line_color = self._to_latex_color(line.linecolor, prefix="svline")
+            line_color = self._to_latex_color(line.linecolor)
             tikz_style = _to_tikz_linestyle(line.linestyle)
             lines.append(
                 self._draw_path_command(
@@ -1030,7 +1040,7 @@ class SeatsVotes:
 
         for sv_series in self._sv_data_list:
             vote_shares, seat_shares = sv_series.seats_votes_curve_values()
-            curve_color = self._to_latex_color(sv_series.linecolor, prefix="svcurve")
+            curve_color = self._to_latex_color(sv_series.linecolor)
             curve_path = self._step_path(vote_shares, seat_shares)
             lines.append(
                 self._draw_path_command(
@@ -1045,7 +1055,7 @@ class SeatsVotes:
 
         if self._display_election_markers:
             for sv_series in self._sv_data_list:
-                marker_color = self._to_latex_color(sv_series.markercolor, prefix="svmarker")
+                marker_color = self._to_latex_color(sv_series.markercolor)
                 total_vote_share = float(
                     sv_series.pov_party_vote_counts.sum() / sv_series.total_vote_counts.sum()
                 )

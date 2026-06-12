@@ -26,8 +26,13 @@ class TestSeatsVotesUtilities:
         assert _to_tikz_linestyle("-.") == "dashdotted"
         assert _to_tikz_linestyle("dashdot") == "dashdotted"
 
-    def test_to_tikz_linestyle_preserves_unknown_tikz_styles(self):
+    def test_to_tikz_linestyle_preserves_valid_tikz_styles(self):
         assert _to_tikz_linestyle("loosely dashed") == "loosely dashed"
+        assert _to_tikz_linestyle("densely dotted") == "densely dotted"
+
+    def test_to_tikz_linestyle_rejects_unknown_tokens(self):
+        with pytest.raises(ValueError, match="Invalid linestyle"):
+            _to_tikz_linestyle("wavy")
 
 
 # ============================
@@ -322,15 +327,15 @@ class TestSeatsVotesInternalBuilders:
     def test_color_helpers_support_xcolor_html_and_none(self):
         plot = SeatsVotes()
 
-        assert plot._to_latex_color("denim!20!amber", prefix="sv") == _TikzColorToken(
+        assert plot._to_latex_color("denim!20!amber") == _TikzColorToken(
             kind="xcolor",
             value="denim!20!amber",
         )
-        assert plot._to_latex_color("#ab12cd", prefix="sv") == _TikzColorToken(
+        assert plot._to_latex_color("#ab12cd") == _TikzColorToken(
             kind="html",
             value="AB12CD",
         )
-        assert plot._to_latex_color("none", prefix="sv") == _TikzColorToken(
+        assert plot._to_latex_color("none") == _TikzColorToken(
             kind="none",
             value="none",
         )
@@ -345,7 +350,7 @@ class TestSeatsVotesInternalBuilders:
         )
         assert SeatsVotes._color_prefix(_TikzColorToken(kind="none", value="none")) == ""
 
-        assert plot._to_latex_color(None, prefix="sv") == _TikzColorToken(  # type: ignore[arg-type]
+        assert plot._to_latex_color(None) == _TikzColorToken(  # type: ignore[arg-type]
             kind="none",
             value="none",
         )

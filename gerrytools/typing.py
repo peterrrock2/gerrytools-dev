@@ -70,6 +70,20 @@ IndexCellWrapper: TypeAlias = Callable[[TableIndexValue, str], tuple[TableIndexV
 # Type alias for tick types in Matplotlib
 TickType = Literal["major", "minor", "both"]
 
+TikzLineStyle = Literal[
+    "solid",
+    "dashed",
+    "dotted",
+    "dashdotted",
+    "loosely dashed",
+    "loosely dotted",
+    "loosely dashdotted",
+    "densely dashed",
+    "densely dotted",
+    "densely dashdotted",
+]
+"""Valid TikZ line-style tokens; the single source for runtime validation too."""
+
 # Type alias for histogram
 BinsType = int | Sequence[float] | str | NDArray
 HistType = Literal["overlay", "stack", "weave", "outline"]
