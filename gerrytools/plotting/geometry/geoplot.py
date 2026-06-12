@@ -12,6 +12,7 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from shapely.geometry import Point, box
 
+from gerrytools._ipython import in_jupyter_kernel
 from gerrytools.plotting._artist_registry import _ArtistRegistry
 from gerrytools.plotting._axes_state import (
     UNIT_AXIS_VISIBILITY,
@@ -125,14 +126,8 @@ class GeoPlot(ABC):
 
             # IMPORTANT: prevent implicit display in notebooks
             # Only close in Jupyter so init doesn't display
-            try:
-                from IPython import get_ipython
-
-                ip = get_ipython()
-                if ip is not None and getattr(ip, "kernel", None) is not None:  # pragma: no cover
-                    plt.close(self.fig)  # pragma: no cover
-            except Exception:  # pragma: no cover
-                pass  # pragma: no cover
+            if in_jupyter_kernel():  # pragma: no cover - only reachable in a live Jupyter kernel
+                plt.close(self.fig)  # pragma: no cover
 
         self._canvas = self.fig.canvas  # renderer/manager handled by backend
 
@@ -956,14 +951,8 @@ class GeoPlot(ABC):
         if ax is None:
             self.fig, self._ax = plt.subplots(dpi=self._figure_dpi)
             self._figure_is_shared = False
-            try:
-                from IPython import get_ipython
-
-                ip = get_ipython()
-                if ip is not None and getattr(ip, "kernel", None) is not None:  # pragma: no cover
-                    plt.close(self.fig)  # pragma: no cover
-            except Exception:  # pragma: no cover
-                pass  # pragma: no cover
+            if in_jupyter_kernel():  # pragma: no cover - only reachable in a live Jupyter kernel
+                plt.close(self.fig)  # pragma: no cover
         else:
             self.fig = cast(Figure, ax.figure)
             self._ax = ax

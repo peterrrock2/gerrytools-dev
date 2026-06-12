@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends import BackendFilter, backend_registry
 from matplotlib.figure import Figure
 
+from gerrytools._ipython import in_jupyter_kernel
 from gerrytools.typing import MplKwargs
 
 
@@ -34,14 +35,10 @@ def show_figure(
     savefig_kwargs.setdefault("bbox_inches", "tight")
     savefig_kwargs.setdefault("dpi", fig.dpi)
 
-    # Notebook: display PNG inline
-    try:
-        from IPython import get_ipython
-
-        ip = get_ipython()
-        if (
-            ip is not None and getattr(ip, "kernel", None) is not None
-        ):  # pragma: no cover - only reachable inside a live Jupyter kernel
+    # Notebook: display PNG inline. Display failures fall through to the
+    # backend-based paths below, matching the previous broad try/except.
+    if in_jupyter_kernel():  # pragma: no cover - only reachable inside a live Jupyter kernel
+        try:
             from IPython.display import Image, display
 
             buf = BytesIO()
@@ -49,8 +46,8 @@ def show_figure(
             buf.seek(0)
             display(Image(data=buf.getvalue()))
             return
-    except Exception:  # pragma: no cover -- unreachable in standard environments
-        pass  # pragma: no cover
+        except Exception:
+            pass
 
     backend = matplotlib.get_backend()
     if backend not in backend_registry.list_builtin(BackendFilter.INTERACTIVE):

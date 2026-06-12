@@ -14,6 +14,7 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 from matplotlib.text import Text
 
+from gerrytools._ipython import in_jupyter_kernel
 from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
 from gerrytools.plotting._artist_registry import _ArtistRegistry
@@ -130,16 +131,8 @@ class GerryPlotBase(ABC):
 
             # IMPORTANT: prevent implicit display in notebooks
             # Only close in Jupyter so init doesn't display
-            try:
-                from IPython import get_ipython
-
-                ip = get_ipython()
-                if (
-                    ip is not None and getattr(ip, "kernel", None) is not None
-                ):  # pragma: no cover - only reachable inside a live Jupyter kernel
-                    plt.close(self.fig)  # pragma: no cover
-            except Exception:  # pragma: no cover - IPython import failure is suppressed
-                pass  # pragma: no cover
+            if in_jupyter_kernel():  # pragma: no cover - only reachable in a live Jupyter kernel
+                plt.close(self.fig)  # pragma: no cover
 
             self._finalizer = weakref.finalize(self, plt.close, self.fig)
 
@@ -313,16 +306,8 @@ class GerryPlotBase(ABC):
                 figsize=self._figure_size,
                 dpi=self._figure_dpi,
             )
-            try:
-                from IPython import get_ipython
-
-                ip = get_ipython()
-                if (
-                    ip is not None and getattr(ip, "kernel", None) is not None
-                ):  # pragma: no cover - only reachable inside a live Jupyter kernel
-                    plt.close(self.fig)  # pragma: no cover
-            except Exception:  # pragma: no cover - IPython import failure is suppressed
-                pass  # pragma: no cover
+            if in_jupyter_kernel():  # pragma: no cover - only reachable in a live Jupyter kernel
+                plt.close(self.fig)  # pragma: no cover
             self._finalizer = weakref.finalize(self, plt.close, self.fig)
         else:
             self.fig = cast(Figure, ax.figure)

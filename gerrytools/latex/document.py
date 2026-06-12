@@ -7,6 +7,7 @@ import weakref
 from pathlib import Path
 from typing import Iterable, Optional
 
+from gerrytools._ipython import in_jupyter_kernel as _in_jupyter_kernel
 from gerrytools.latex._colors import to_latex_xcolor_or_html_spec
 from gerrytools.logging import get_logger
 from gerrytools.typing import Color
@@ -131,22 +132,6 @@ def _which_any(names: Iterable[str]) -> Optional[str]:  # pragma: no cover
         if shutil.which(n):
             return n
     return None
-
-
-def _in_jupyter_kernel() -> bool:  # pragma: no cover
-    """Checks if the current environment is a IPython (Jupyter) kernel.
-
-    Returns:
-        bool: True if running in a IPython (Jupyter) kernel, False otherwise.
-    """
-    try:
-        # Import here this doesn't need to be installed to run package
-        from IPython.core.getipython import get_ipython
-
-        ip = get_ipython()
-        return ip is not None and "IPKernelApp" in getattr(ip, "config", {})
-    except Exception:
-        return False
 
 
 class TexDocument:
