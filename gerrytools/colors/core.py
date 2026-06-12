@@ -107,12 +107,14 @@ def resolve_color_and_alpha(
         allow_none (bool): Whether "none" is an acceptable color. Defaults to True.
         field (str): The name of the field being processed, for error messages.
         owner (str | None): An optional owner name for logging context.
-        logger (logging.Logger | None): An optional logger for debug messages.
+        logger (logging.Logger | None): An optional logger for debug messages
+            (both parse-failure diagnostics and alpha-override notes). Falls
+            back to this module's logger for parse diagnostics when None.
 
     Returns:
         ResolvedColor: A tuple of (hex6_or_none, resolved_alpha).
     """
-    resolved_color = _Color.from_any(color, logger=gt_logger)
+    resolved_color = _Color.from_any(color, logger=logger if logger is not None else gt_logger)
 
     if resolved_color.is_none:
         if not allow_none:

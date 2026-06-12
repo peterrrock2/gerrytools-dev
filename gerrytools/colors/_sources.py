@@ -134,6 +134,10 @@ _MATPLOTLIB_NAMED_AS_HEX: dict[str, str] = {
 # Registry. Order is precedence: earlier sources win.
 # ---------------------------------------------------------------------------
 
+# Deliberate: gerrytools resolves "green" to bright #00ff00 (CSS/X11 "lime")
+# instead of matplotlib's dark #008000, which reads as forest green in plots.
+# This entry is also the canonical regression case for the overrides source
+# outranking matplotlib (see tests/colors/test_sources.py).
 _OVERRIDES_SOURCE = NamedColorSource(name="overrides", mapping={"green": "#00ff00"})
 _GERRYTOOLS_SOURCE = NamedColorSource(name="gerrytools", mapping=GERRYTOOLS_EXTRA_COLORS_DICT)
 _COLOR_CORRECTED_SOURCE = NamedColorSource(name="color-corrected", mapping=COLOR_CORRECTED_BASESET)

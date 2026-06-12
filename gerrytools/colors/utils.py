@@ -23,9 +23,12 @@ def preview_palette(
     Args:
         colors: Sequence of colors. Each can be a hex string (e.g. "#ff0000")
             or an RGB triple with components in [0, 1].
-        figsize: Size of the figure (width, height).
+        figsize: Size of the figure (width, height). Ignored when ``ax`` is
+            provided.
         show_indices: If True, annotate each swatch with its index.
         show_hex: If True, annotate each swatch with its hex code.
+        ax: Optional existing axes to draw onto. If None, a fresh figure and
+            axes are created.
 
     Returns:
         The Matplotlib figure and axes.
@@ -75,7 +78,7 @@ def preview_palette(
     for spine in ax.spines.values():
         spine.set_visible(False)
 
-    plt.tight_layout()
+    fig.tight_layout()
     return fig, ax
 
 
@@ -161,5 +164,5 @@ def compare_palettes(
     for spine in ax.spines.values():
         spine.set_visible(False)
 
-    plt.tight_layout()
+    fig.tight_layout()
     return fig, ax
