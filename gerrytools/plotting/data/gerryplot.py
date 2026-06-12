@@ -36,6 +36,7 @@ from gerrytools.plotting._axes_state import (
     _label_snapshot,
     _LabelSnapshot,
     _ManagedAxesState,
+    _tick_snapshot,
     _tick_style_snapshot,
     _title_snapshot,
     _TitleSnapshot,
@@ -66,6 +67,65 @@ logger = get_logger(__name__)
 # the explicit-clear path). Never appears in any public signature, default,
 # getter, or ``__repr__``.
 _UNSET_TEXT: str = "__gerryplot_unset_text__"
+
+
+def _resolve_tick_label_update(
+    current_locations: list[float] | None,
+    current_labels: list[str] | None,
+    *,
+    locations: list[float] | None,
+    labels: list[str] | None,
+) -> tuple[list[float] | None, list[str] | None]:
+    """Validate a tick locations/labels update and return the new field pair.
+
+    Shared by ``update_xtick_labels`` and ``update_ytick_labels``: the update rules (length
+    agreement, clear-both-or-neither, partial updates against existing values) are axis-independent.
+    Returns the new ``(locations, labels)`` values, where an entry not touched by the update keeps
+    its current value.
+
+    Raises:
+        ValueError: If the lengths of provided locations and labels do not match each other or the
+            existing values, or if only one side of a clear is requested.
+    """
+    if locations is not None and labels is not None:
+        if (locations == [] and labels != []) or (labels == [] and locations != []):
+            raise ValueError("If clearing ticks/labels, clear both (locations=[] and labels=[]).")
+        if labels != [] and locations != [] and len(locations) != len(labels):
+            raise ValueError(
+                f"Locations length {len(locations)} does not match labels length {len(labels)}."
+            )
+        return list(locations), list(labels)
+
+    if locations is not None:
+        if (
+            current_labels is not None
+            and current_labels != []
+            and locations != []
+            and len(locations) != len(current_labels)
+        ):
+            raise ValueError(
+                f"Locations length {len(locations)} does not match existing labels length "
+                f"{len(current_labels)}."
+            )
+        if locations == []:
+            return [], []
+        return list(locations), current_labels
+
+    if labels is not None:
+        if labels == []:
+            return current_locations, []
+        if (
+            current_locations is not None
+            and current_locations != []
+            and len(labels) != len(current_locations)
+        ):
+            raise ValueError(
+                f"Labels length {len(labels)} does not match existing locations length "
+                f"{len(current_locations)}."
+            )
+        return current_locations, list(labels)
+
+    return current_locations, current_labels
 
 
 class GerryPlotBase(ABC):
@@ -809,6 +869,32 @@ class GerryPlotBase(ABC):
         """
         return None
 
+    def _default_y_tick_locations(self) -> list[float] | None:
+        """Get subclass-provided default y-tick locations.
+
+        No subclass currently overrides this; it exists so the shared ``_apply_ticks`` flow treats
+        both axes uniformly.
+
+        Returns:
+            list[float] | None: Default y-tick locations, or None to keep Matplotlib defaults.
+        """
+        return None
+
+    def _default_y_tick_labels(self, tick_locations: list[float]) -> list[str] | None:
+        """Get subclass-provided default y-tick labels.
+
+        No subclass currently overrides this; it exists so the shared ``_apply_ticks`` flow treats
+        both axes uniformly.
+
+        Args:
+            tick_locations (list[float]): Final y-tick locations selected for the axes.
+
+        Returns:
+            list[str] | None: Tick labels aligned to ``tick_locations``, or None to keep current
+                labels.
+        """
+        return None
+
     # ------------------------------------------------------------------
     # Per-managed-unit apply helpers (used by the rebuild flow). Each:
     #   - skips entirely when its unit is in the external set;
@@ -844,107 +930,80 @@ class GerryPlotBase(ABC):
                 UNIT_Y_LIMITS, tuple(float(v) for v in self._ax.get_ylim())
             )
 
-    def _apply_x_ticks(self, external: set[str]) -> None:
-        if UNIT_X_TICKS in external:
-            return
-        # Determine locations: explicit user set, subclass default, or
-        # leave matplotlib's locator alone. Materializing get_xticks() into
-        # a set_xticks() call would convert matplotlib's dynamic locator
-        # into a FixedLocator that persists across rebuilds — and because
-        # we no longer ax.clear() between rebuilds, that stale locator
-        # would expand xlim to cover its stored ticks on later rebuilds.
-        if self._x_tick_locations is not None:
-            x_tick_locations: list[float] | None = list(self._x_tick_locations)
+    def _apply_ticks(self, axis: Literal["x", "y"], external: set[str]) -> None:
+        """Apply explicit or subclass-default tick locations/labels for one axis."""
+        if axis == "x":
+            unit = UNIT_X_TICKS
+            explicit_locations = self._x_tick_locations
+            explicit_labels = self._x_tick_labels
+            set_ticks = self._ax.set_xticks
+            set_ticklabels = self._ax.set_xticklabels
+            get_ticks = self._ax.get_xticks
+            default_locations_hook = self._default_x_tick_locations
+            default_labels_hook = self._default_x_tick_labels
+            hide_labels_kwargs: dict[str, bool] = {"labelbottom": False}
         else:
-            default_locs = self._default_x_tick_locations()
-            x_tick_locations = list(default_locs) if default_locs is not None else None
-        if x_tick_locations is not None:
-            self._ax.set_xticks(x_tick_locations)
-        if self._x_tick_labels == []:
-            self._ax.tick_params(axis="x", labelbottom=False)
-            self._record_x_ticks()
+            unit = UNIT_Y_TICKS
+            explicit_locations = self._y_tick_locations
+            explicit_labels = self._y_tick_labels
+            set_ticks = self._ax.set_yticks
+            set_ticklabels = self._ax.set_yticklabels
+            get_ticks = self._ax.get_yticks
+            default_locations_hook = self._default_y_tick_locations
+            default_labels_hook = self._default_y_tick_labels
+            hide_labels_kwargs = {"labelleft": False}
+
+        if unit in external:
             return
-        if self._x_tick_labels is None:
-            if x_tick_locations is None:
-                # Matplotlib will compute labels from the locator at draw
-                # time; nothing to apply.
-                self._record_x_ticks()
+        # Determine locations: explicit user set, subclass default, or leave matplotlib's locator
+        # alone. Materializing get_ticks() into a set_ticks() call would convert matplotlib's
+        # dynamic locator into a FixedLocator that persists across rebuilds.
+        if explicit_locations is not None:
+            tick_locations: list[float] | None = list(explicit_locations)
+        else:
+            default_locations = default_locations_hook()
+            tick_locations = list(default_locations) if default_locations is not None else None
+        if tick_locations is not None:
+            set_ticks(tick_locations)
+        if explicit_labels == []:
+            self._ax.tick_params(axis=axis, **hide_labels_kwargs)
+            self._record_ticks(axis)
+            return
+        if explicit_labels is None:
+            if tick_locations is None:
+                # Matplotlib will compute labels from the locator at draw time; nothing to apply.
+                self._record_ticks(axis)
                 return
-            labels = self._default_x_tick_labels(x_tick_locations)
-            if labels is not None:
-                self._ax.set_xticklabels(list(labels))
-            self._record_x_ticks()
+            default_labels = default_labels_hook(tick_locations)
+            if default_labels is not None:
+                set_ticklabels(list(default_labels))
+            self._record_ticks(axis)
             return
-        if x_tick_locations is None:
-            # Labels supplied without locations: materialize current ticks
-            # via set_xticks so set_xticklabels matches them and matplotlib
-            # does not warn about labels-without-fixed-locator.
-            x_tick_locations = self._ax.get_xticks().tolist()
-            self._ax.set_xticks(x_tick_locations)
-        if len(self._x_tick_labels) != len(x_tick_locations):
+        if tick_locations is None:
+            tick_locations = [float(tick) for tick in get_ticks()]
+            set_ticks(tick_locations)
+        if len(explicit_labels) != len(tick_locations):
             raise ValueError(
-                f"Expected {len(x_tick_locations)} x tick labels, got {len(self._x_tick_labels)}."
+                f"Expected {len(tick_locations)} {axis} tick labels, got {len(explicit_labels)}."
             )
-        self._ax.set_xticklabels(list(self._x_tick_labels))
-        self._record_x_ticks()
+        set_ticklabels(list(explicit_labels))
+        self._record_ticks(axis)
 
-    def _record_x_ticks(self) -> None:
-        """Record what we just applied for the x_ticks unit.
+    def _record_ticks(self, axis: Literal["x", "y"]) -> None:
+        """Record what we just applied for one axis's ticks unit.
 
-        Reclaim-vs-default depends on whether a public setter has already
-        claimed the unit: store-and-claim (update_xtick_labels, set_xticks,
-        clear_xticks, clear_xtick_labels) calls ``reclaim_without_value``,
-        leaving the unit in the gerrytools_explicit ownership state. In that
-        case we keep ownership and record the concrete snapshot. Otherwise
-        this is an implicit default applied via subclass default hooks.
+        Reclaim-vs-default depends on whether a public setter has already claimed the unit:
+        store-and-claim (update_xtick_labels, set_xticks, clear_xticks, clear_xtick_labels,
+        and their y equivalents) calls ``reclaim_without_value``, leaving the unit in the
+        gerrytools_explicit ownership state. In that case we keep ownership and record the
+        concrete snapshot. Otherwise this is an implicit default applied via subclass default hooks.
         """
-        from gerrytools.plotting._axes_state import _tick_snapshot
-
-        snapshot = _tick_snapshot(self._ax, "x")
-        if self._axes_state.is_reclaimed(UNIT_X_TICKS):
-            self._axes_state.reclaim_and_mark(UNIT_X_TICKS, snapshot)
+        unit = UNIT_X_TICKS if axis == "x" else UNIT_Y_TICKS
+        snapshot = _tick_snapshot(self._ax, axis)
+        if self._axes_state.is_reclaimed(unit):
+            self._axes_state.reclaim_and_mark(unit, snapshot)
         else:
-            self._axes_state.record_default(UNIT_X_TICKS, snapshot)
-
-    def _apply_y_ticks(self, external: set[str]) -> None:
-        if UNIT_Y_TICKS in external:
-            return
-        # See _apply_x_ticks for the "don't materialize matplotlib's
-        # default locator into a FixedLocator" rationale.
-        if self._y_tick_locations is not None:
-            y_tick_locations: list[float] | None = list(self._y_tick_locations)
-            self._ax.set_yticks(y_tick_locations)
-        else:
-            y_tick_locations = None
-
-        if self._y_tick_labels is None:
-            self._record_y_ticks()
-            return
-        if self._y_tick_labels == []:
-            self._ax.tick_params(axis="y", labelleft=False)
-            self._record_y_ticks()
-            return
-        if y_tick_locations is None:
-            # Labels supplied without locations: materialize current ticks
-            # via set_yticks so set_yticklabels matches them and matplotlib
-            # does not warn about labels-without-fixed-locator.
-            y_tick_locations = self._ax.get_yticks().tolist()
-            self._ax.set_yticks(y_tick_locations)
-        if len(self._y_tick_labels) != len(y_tick_locations):
-            raise ValueError(
-                f"Expected {len(y_tick_locations)} y tick labels, got {len(self._y_tick_labels)}."
-            )
-        self._ax.set_yticklabels(list(self._y_tick_labels))
-        self._record_y_ticks()
-
-    def _record_y_ticks(self) -> None:
-        from gerrytools.plotting._axes_state import _tick_snapshot
-
-        snapshot = _tick_snapshot(self._ax, "y")
-        if self._axes_state.is_reclaimed(UNIT_Y_TICKS):
-            self._axes_state.reclaim_and_mark(UNIT_Y_TICKS, snapshot)
-        else:
-            self._axes_state.record_default(UNIT_Y_TICKS, snapshot)
+            self._axes_state.record_default(unit, snapshot)
 
     def _apply_x_tick_style(self, external: set[str]) -> None:
         if UNIT_X_TICK_STYLE in external:
@@ -1055,61 +1114,13 @@ class GerryPlotBase(ABC):
         if locations is None and labels is None:
             return
 
-        if locations is not None and labels is not None:
-            if (locations == [] and labels not in (None, [])) or (
-                labels == [] and locations not in (None, [])
-            ):
-                raise ValueError(
-                    "If clearing ticks/labels, clear both (locations=[] and labels=[])."
-                )
-
-            if labels != [] and locations != [] and len(locations) != len(labels):
-                raise ValueError(
-                    f"Locations length {len(locations)} does not match labels length {len(labels)}."
-                )
-            self._x_tick_locations = list(locations)
-            self._x_tick_labels = list(labels)
-            self._claim_x_ticks()
-            return
-
-        if locations is not None:
-            if (
-                self._x_tick_labels is not None
-                and self._x_tick_labels != []
-                and locations != []
-                and len(locations) != len(self._x_tick_labels)
-            ):
-                raise ValueError(
-                    f"Locations length {len(locations)} does not match existing labels length "
-                    f"{len(self._x_tick_labels)}."
-                )
-            if locations == [] and labels is None:
-                self._x_tick_locations = []
-                self._x_tick_labels = []
-                self._claim_x_ticks()
-                return
-            self._x_tick_locations = list(locations)
-            self._claim_x_ticks()
-            return
-
-        if labels is not None:
-            if labels == []:
-                self._x_tick_labels = []
-                self._claim_x_ticks()
-                return
-
-            if (
-                self._x_tick_locations is not None
-                and self._x_tick_locations != []
-                and len(labels) != len(self._x_tick_locations)
-            ):
-                raise ValueError(
-                    f"Labels length {len(labels)} does not match existing locations length "
-                    f"{len(self._x_tick_locations)}."
-                )
-            self._x_tick_labels = list(labels)
-            self._claim_x_ticks()
-            return
+        self._x_tick_locations, self._x_tick_labels = _resolve_tick_label_update(
+            self._x_tick_locations,
+            self._x_tick_labels,
+            locations=locations,
+            labels=labels,
+        )
+        self._claim_x_ticks()
 
     def _claim_x_ticks(self) -> None:
         if self._axes_state_initialized:
@@ -1127,10 +1138,8 @@ class GerryPlotBase(ABC):
         Overrides existing values if provided.
 
         Args:
-            locations (list[float] | None, optional): New y-tick locations. Defaults
-                to None.
-            labels (list[str] | None, optional): New y-tick labels. Defaults to
-                None.
+            locations (list[float] | None, optional): New y-tick locations. Defaults to None.
+            labels (list[str] | None, optional): New y-tick labels. Defaults to None.
 
         Raises:
             ValueError: If the lengths of provided locations and labels do not match
@@ -1142,60 +1151,13 @@ class GerryPlotBase(ABC):
         if locations is None and labels is None:
             return
 
-        if locations is not None and labels is not None:
-            if (locations == [] and labels not in (None, [])) or (
-                labels == [] and locations not in (None, [])
-            ):
-                raise ValueError(
-                    "If clearing ticks/labels, clear both (locations=[] and labels=[])."
-                )
-
-            if labels != [] and locations != [] and len(locations) != len(labels):
-                raise ValueError(
-                    f"Locations length {len(locations)} does not match labels length {len(labels)}."
-                )
-            self._y_tick_locations = list(locations)
-            self._y_tick_labels = list(labels)
-            self._claim_y_ticks()
-            return
-
-        if locations is not None:
-            if (
-                self._y_tick_labels is not None
-                and self._y_tick_labels != []
-                and locations != []
-                and len(locations) != len(self._y_tick_labels)
-            ):
-                raise ValueError(
-                    f"Locations length {len(locations)} does not match existing labels length "
-                    f"{len(self._y_tick_labels)}."
-                )
-            if locations == [] and labels is None:
-                self._y_tick_locations = []
-                self._y_tick_labels = []
-                self._claim_y_ticks()
-                return
-            self._y_tick_locations = list(locations)
-            self._claim_y_ticks()
-            return
-
-        if labels is not None:
-            if labels == []:
-                self._y_tick_labels = []
-                self._claim_y_ticks()
-                return
-            if (
-                self._y_tick_locations is not None
-                and self._y_tick_locations != []
-                and len(labels) != len(self._y_tick_locations)
-            ):
-                raise ValueError(
-                    f"Labels length {len(labels)} does not match existing locations length "
-                    f"{len(self._y_tick_locations)}."
-                )
-            self._y_tick_labels = list(labels)
-            self._claim_y_ticks()
-            return
+        self._y_tick_locations, self._y_tick_labels = _resolve_tick_label_update(
+            self._y_tick_locations,
+            self._y_tick_labels,
+            locations=locations,
+            labels=labels,
+        )
+        self._claim_y_ticks()
 
     @staticmethod
     def _apply_ticklabel_textprops(
@@ -2054,16 +2016,16 @@ class GerryPlotBase(ABC):
         self._apply_y_scale(external)
         self._apply_aspect(external)
         self._apply_legend(external)
-        # Apply ticks after the legend so positions reflect any legend-draw
-        # side effects on layout.
-        self._apply_x_ticks(external)
-        self._apply_y_ticks(external)
+
+        # Apply ticks after the legend so positions reflect any legend-draw side effects on layout.
+        self._apply_ticks("x", external)
+        self._apply_ticks("y", external)
         self._apply_x_tick_style(external)
         self._apply_y_tick_style(external)
 
-        # Annotations (arrows / vlines / hlines / bands) render last so
-        # their canvas-draw-and-measure alignment passes (used for arrow
-        # tip placement) see the final ticks, limits, and label layout.
+        # Annotations (arrows / vlines / hlines / bands) render last so their
+        # canvas-draw-and-measure alignment passes (used for arrow tip placement) see the final
+        # ticks, limits, and label layout.
         self._annotations.apply(
             self._ax,
             fig=self.fig,
