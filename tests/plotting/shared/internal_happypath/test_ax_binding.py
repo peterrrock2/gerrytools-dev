@@ -177,6 +177,78 @@ class TestGeoPlotAxParameter:
 
 
 # ----------------------------------------------------------------------
+# Figure lifecycle: self-created figures close on garbage collection
+# ----------------------------------------------------------------------
+
+
+def _simple_gdf():
+    import geopandas as gpd
+    from shapely.geometry import Polygon
+
+    return gpd.GeoDataFrame(
+        {"name": ["A"], "geometry": [Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])]},
+        crs="EPSG:4326",
+    )
+
+
+class TestFigureLifecycle:
+    """Self-created figures must not accumulate in pyplot's figure manager.
+
+    ``plt.subplots()`` registers every figure with pyplot's global manager, which holds a strong
+    reference until ``plt.close``. Both plot base classes register a ``weakref.finalize`` so a
+    plot going out of scope closes its own figure; user-supplied figures are never touched.
+    """
+
+    def test_histogram_figures_close_when_plots_collected(self):
+        import gc
+
+        plt.close("all")
+        for _ in range(5):
+            plot = Histogram()
+            plot.add_histogram([1.0, 2.0, 3.0])
+        del plot
+        gc.collect()
+        assert plt.get_fignums() == []
+
+    def test_geoplot_figures_close_when_plots_collected(self):
+        import gc
+
+        plt.close("all")
+        gdf = _simple_gdf()
+        for _ in range(5):
+            plot = ColoredGeoPlot(gdf)
+        del plot
+        gc.collect()
+        assert plt.get_fignums() == []
+
+    def test_user_axes_figure_survives_plot_collection(self):
+        import gc
+
+        plt.close("all")
+        fig, user_ax = plt.subplots()
+        plot = Histogram(ax=user_ax)
+        del plot
+        gc.collect()
+        assert plt.get_fignums() == [fig.number]
+
+        geo_plot = ColoredGeoPlot(_simple_gdf(), ax=user_ax)
+        del geo_plot
+        gc.collect()
+        assert plt.get_fignums() == [fig.number]
+
+    def test_geoplot_rebind_to_user_ax_detaches_finalizer(self):
+        import gc
+
+        plt.close("all")
+        plot = ColoredGeoPlot(_simple_gdf())
+        fig, user_ax = plt.subplots()
+        plot.bind_to_ax(user_ax)
+        del plot
+        gc.collect()
+        assert fig.number in plt.get_fignums()
+
+
+# ----------------------------------------------------------------------
 # Renamed methods are reachable
 # ----------------------------------------------------------------------
 

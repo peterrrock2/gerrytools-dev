@@ -1,3 +1,4 @@
+import weakref
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -117,9 +118,11 @@ class GeoPlot(ABC):
                 )
             self.fig = cast(Figure, ax.figure)
             self._ax = ax
-            # The user owns this figure; gerrytools must not mutate
-            # figure-level layout (e.g. ``subplots_adjust``) on it.
+
+            # The user owns this figure; gerrytools must not mutate figure-level layout
+            # (e.g. ``subplots_adjust``) on it, and must not register a finalizer to close it.
             self._figure_is_shared: bool = True
+            self._finalizer: weakref.finalize | None = None
         else:
             self.fig, self._ax = plt.subplots(dpi=self._figure_dpi)
             self._figure_is_shared = False
@@ -128,6 +131,10 @@ class GeoPlot(ABC):
             # Only close in Jupyter so init doesn't display
             if in_jupyter_kernel():  # pragma: no cover - only reachable in a live Jupyter kernel
                 plt.close(self.fig)  # pragma: no cover
+
+            # Close the self-created figure when this plot is garbage collected; pyplot's figure
+            # manager otherwise keeps it alive forever. Mirrors GerryPlotBase.
+            self._finalizer = weakref.finalize(self, plt.close, self.fig)
 
         self._canvas = self.fig.canvas  # renderer/manager handled by backend
 
@@ -944,8 +951,7 @@ class GeoPlot(ABC):
             ax (matplotlib.axes.Axes | None): The matplotlib axes to render
                 onto, or ``None`` to revert to a fresh-figure render.
         """
-        # Suppress reclaim during the re-classification step. Mirrors the
-        # two-pass init contract.
+        # Suppress reclaim during the re-classification step. Mirrors the two-pass init contract.
         self._axes_state_initialized = False
 
         if ax is None:
@@ -953,14 +959,20 @@ class GeoPlot(ABC):
             self._figure_is_shared = False
             if in_jupyter_kernel():  # pragma: no cover - only reachable in a live Jupyter kernel
                 plt.close(self.fig)  # pragma: no cover
+            self._finalizer = weakref.finalize(self, plt.close, self.fig)
         else:
             self.fig = cast(Figure, ax.figure)
             self._ax = ax
             self._figure_is_shared = True
+            # User owns the figure now; clear any finalizer we registered earlier. Mirrors
+            # GerryPlotBase.bind_to_ax.
+            if self._finalizer is not None:
+                self._finalizer.detach()
+            self._finalizer = None
         self._canvas = self.fig.canvas
 
-        # Detach registry from old axes (non-destructive rebind); reset
-        # per-axes history, classify new axes, re-enable reclaim.
+        # Detach registry from old axes (non-destructive rebind); reset per-axes history, classify
+        # new axes, re-enable reclaim.
         self._artists = _ArtistRegistry()
         self._axes_state.reset_history()
         self._axes_state.initialize_from_ax(self._ax)
