@@ -8,6 +8,7 @@ from matplotlib.lines import Line2D
 from gerrytools.logging import get_logger
 from gerrytools.plotting.data.gerryplot import GerryPlotBase
 from gerrytools.plotting.mpl.marker_options import PointMarkerOptions
+from gerrytools.plotting.utils import _replace_non_none
 from gerrytools.typing import Color, LegendHandle
 
 logger = get_logger(__name__)
@@ -131,25 +132,16 @@ class ScatterPlot(GerryPlotBase):
                 zorder=1,
             )
         )
-        resolved_marker_options = PointMarkerOptions(
-            marker=marker if marker is not None else base.marker,
-            markersize=markersize if markersize is not None else base.markersize,
-            markerfacecolor=(
-                markerfacecolor if markerfacecolor is not None else base.markerfacecolor
-            ),
-            markerfacealpha=(
-                markerfacealpha if markerfacealpha is not None else base.markerfacealpha
-            ),
-            markeredgecolor=(
-                markeredgecolor if markeredgecolor is not None else base.markeredgecolor
-            ),
-            markeredgealpha=(
-                markeredgealpha if markeredgealpha is not None else base.markeredgealpha
-            ),
-            markeredgewidth=(
-                markeredgewidth if markeredgewidth is not None else base.markeredgewidth
-            ),
-            zorder=zorder if zorder is not None else base.zorder,
+        resolved_marker_options = _replace_non_none(
+            base,
+            marker=marker,
+            markersize=markersize,
+            markerfacecolor=markerfacecolor,
+            markerfacealpha=markerfacealpha,
+            markeredgecolor=markeredgecolor,
+            markeredgealpha=markeredgealpha,
+            markeredgewidth=markeredgewidth,
+            zorder=zorder,
         )
 
         pointset_data = ScatterData(

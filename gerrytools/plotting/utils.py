@@ -1,7 +1,11 @@
+import dataclasses
 from collections.abc import Iterable
 from numbers import Real
+from typing import Any, TypeVar, cast
 
 from gerrytools.typing import Numeric, NumericIterable
+
+DataclassT = TypeVar("DataclassT")
 
 
 def _coerce_real_iter(values: Numeric | NumericIterable, *, field: str) -> list[float]:
@@ -48,3 +52,25 @@ def sort_elections(elec_list: Iterable[str]) -> list[str]:
     tuplified_elecs = list(map(lambda x: (x[:-2], x[-2:]), sorted(elec_list)))
     sorted_tuples = sorted(tuplified_elecs, key=lambda x: x[1])
     return [tup[0] + tup[1] for tup in sorted_tuples]
+
+
+def _replace_non_none(options: DataclassT, **overrides: object) -> DataclassT:
+    """Copy a dataclass, applying only the overrides that are not None.
+
+    Shared by ``add_*`` methods that accept both a pre-built options dataclass and individual
+    override kwargs: an explicit kwarg wins, while ``None`` means "keep the value from the options
+    dataclass." The merged result goes through the dataclass's ``__init__``/``__post_init__``, so
+    field validation is re-applied.
+
+    Args:
+        options: The base options dataclass instance.
+        **overrides: Field overrides; entries that are None are ignored.
+
+    Returns:
+        A new instance of the same dataclass type with overrides applied, or
+        ``options`` itself when every override is None.
+    """
+    field_updates = {name: value for name, value in overrides.items() if value is not None}
+    if not field_updates:
+        return options
+    return cast(DataclassT, dataclasses.replace(cast(Any, options), **field_updates))

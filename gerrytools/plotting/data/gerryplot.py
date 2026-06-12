@@ -1,3 +1,4 @@
+import dataclasses
 import math
 import weakref
 from abc import ABC, abstractmethod
@@ -57,7 +58,7 @@ from gerrytools.plotting.data.options import BandOptions, LineOptions
 from gerrytools.plotting.mpl.axis_title_style import AxisLabelStyle, TitleStyle
 from gerrytools.plotting.mpl.label_text_options import LabelBoxOptions, LabelFontOptions
 from gerrytools.plotting.mpl.tick_style import TickStyle
-from gerrytools.plotting.utils import _coerce_real_iter
+from gerrytools.plotting.utils import _coerce_real_iter, _replace_non_none
 from gerrytools.typing import Color, LegendHandle, TickType
 
 logger = get_logger(__name__)
@@ -683,30 +684,16 @@ class GerryPlotBase(ABC):
         if textrotation is None:
             arrow_text_style = base_text_style
         else:
-            arrow_text_style = ArrowTextStyle(
-                fontsize=base_text_style.fontsize,
-                fontcolor=base_text_style.fontcolor,
-                fontalpha=base_text_style.fontalpha,
-                fontoutlinecolor=base_text_style.fontoutlinecolor,
-                fontoutlinealpha=base_text_style.fontoutlinealpha,
-                fontoutlinewidth=base_text_style.fontoutlinewidth,
-                fontweight=base_text_style.fontweight,
-                fontstyle=base_text_style.fontstyle,
-                fontfamily=base_text_style.fontfamily,
-                rotation=float(textrotation),
-                horizontalalignment=base_text_style.horizontalalignment,
-                verticalalignment=base_text_style.verticalalignment,
-            )
+            arrow_text_style = dataclasses.replace(base_text_style, rotation=float(textrotation))
         arrow_placement = arrowplacement if arrowplacement is not None else ArrowPlacement()
         style = arrowstyle if arrowstyle is not None else TextArrowStyle()
-        merged_textarrowstyle = TextArrowStyle(
-            arrowfacecolor=arrowfacecolor if arrowfacecolor is not None else style.arrowfacecolor,
-            arrowfacealpha=arrowfacealpha if arrowfacealpha is not None else style.arrowfacealpha,
-            arrowedgecolor=(arrowedgecolor if arrowedgecolor is not None else style.arrowedgecolor),
-            arrowedgealpha=(arrowedgealpha if arrowedgealpha is not None else style.arrowedgealpha),
-            arrowedgewidth=(arrowedgewidth if arrowedgewidth is not None else style.arrowedgewidth),
-            boxpad=style.boxpad,
-            boxstyle=style.boxstyle,
+        merged_textarrowstyle = _replace_non_none(
+            style,
+            arrowfacecolor=arrowfacecolor,
+            arrowfacealpha=arrowfacealpha,
+            arrowedgecolor=arrowedgecolor,
+            arrowedgealpha=arrowedgealpha,
+            arrowedgewidth=arrowedgewidth,
         )
 
         text_value = text if text != "" else "   "
@@ -805,18 +792,13 @@ class GerryPlotBase(ABC):
                 raise ValueError("arrow_length cannot be set when placement.arrowtail is set.")
             arrow_length_percentage = arrow_length_value
         style = arrowstyle if arrowstyle is not None else LabelArrowStyle()
-        merged_labelarrowstyle = LabelArrowStyle(
-            arrowstyle=style.arrowstyle,
-            connectionstyle=style.connectionstyle,
-            arrowhead_scale=style.arrowhead_scale,
-            shrink_a=style.shrink_a,
-            shrink_b=style.shrink_b,
-            arrowfacecolor=arrowfacecolor if arrowfacecolor is not None else style.arrowfacecolor,
-            arrowfacealpha=arrowfacealpha if arrowfacealpha is not None else style.arrowfacealpha,
-            arrowedgecolor=(arrowedgecolor if arrowedgecolor is not None else style.arrowedgecolor),
-            arrowedgealpha=(arrowedgealpha if arrowedgealpha is not None else style.arrowedgealpha),
-            arrowedgewidth=(arrowedgewidth if arrowedgewidth is not None else style.arrowedgewidth),
-            linestyle=style.linestyle,
+        merged_labelarrowstyle = _replace_non_none(
+            style,
+            arrowfacecolor=arrowfacecolor,
+            arrowfacealpha=arrowfacealpha,
+            arrowedgecolor=arrowedgecolor,
+            arrowedgealpha=arrowedgealpha,
+            arrowedgewidth=arrowedgewidth,
         )
 
         self._annotations.annotation_arrows.append(

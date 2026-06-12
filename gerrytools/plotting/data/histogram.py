@@ -19,6 +19,7 @@ from gerrytools.logging import get_logger
 from gerrytools.plotting.data.gerryplot import GerryPlotBase
 from gerrytools.plotting.data.options import DEFAULT_EDGE_WIDTH, HistogramOptions
 from gerrytools.plotting.mpl.marker_options import PointMarkerOptions
+from gerrytools.plotting.utils import _replace_non_none
 from gerrytools.typing import BinsType, Color, HistType, LegendHandle, NumericArrayLike
 
 logger = get_logger(__name__)
@@ -592,21 +593,16 @@ class Histogram(GerryPlotBase):
                 zorder=3,
             )
         )
-        resolved_marker_options = PointMarkerOptions(
-            markerfacecolor=facecolor if facecolor is not None else base.markerfacecolor,
-            markerfacealpha=facealpha if facealpha is not None else base.markerfacealpha,
-            marker=marker if marker is not None else base.marker,
-            markersize=markersize if markersize is not None else base.markersize,
-            markeredgecolor=(
-                markeredgecolor if markeredgecolor is not None else base.markeredgecolor
-            ),
-            markeredgealpha=(
-                markeredgealpha if markeredgealpha is not None else base.markeredgealpha
-            ),
-            markeredgewidth=(
-                markeredgewidth if markeredgewidth is not None else base.markeredgewidth
-            ),
-            zorder=zorder if zorder is not None else base.zorder,
+        resolved_marker_options = _replace_non_none(
+            base,
+            markerfacecolor=facecolor,
+            markerfacealpha=facealpha,
+            marker=marker,
+            markersize=markersize,
+            markeredgecolor=markeredgecolor,
+            markeredgealpha=markeredgealpha,
+            markeredgewidth=markeredgewidth,
+            zorder=zorder,
         )
 
         marker_name = name or f"Point Marker {len(self._histpointlist_list) + 1}"
