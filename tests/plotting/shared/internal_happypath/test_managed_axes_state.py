@@ -30,11 +30,17 @@ import matplotlib
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt  # noqa: E402
+import pytest  # noqa: E402
 
 from gerrytools.plotting._axes_state import _NO_LAST_APPLIED  # noqa: E402
 from gerrytools.plotting.data.boxplot import BoxPlot  # noqa: E402
 from gerrytools.plotting.data.gerryplot import _UNSET_TEXT  # noqa: E402
 from gerrytools.plotting.data.histogram import Histogram  # noqa: E402
+from gerrytools.plotting.data.paintball import PaintBall  # noqa: E402
+from gerrytools.plotting.data.scatterplot import ScatterPlot  # noqa: E402
+from gerrytools.plotting.data.sealevel import SeaLevel  # noqa: E402
+from gerrytools.plotting.data.seatsvotes import SeatsVotes  # noqa: E402
+from gerrytools.plotting.data.violin import ViolinPlot  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -584,6 +590,147 @@ class TestNamedAddReclaimsLegend:
         assert not box._axes_state.is_reclaimed("legend")
         box.add_boxplot_datasets({"A": [1, 2, 3]})
         assert not box._axes_state.is_reclaimed("legend")
+
+
+_NAMED_ADD_CASES = [
+    pytest.param(
+        Histogram,
+        lambda plot: plot.add_points_above([1.0, 2.0], name="points"),
+        id="Histogram.add_points_above",
+    ),
+    pytest.param(
+        BoxPlot,
+        lambda plot: plot.add_pointset({"A": 1.0}, name="points"),
+        id="BoxPlot.add_pointset",
+    ),
+    pytest.param(
+        ViolinPlot,
+        lambda plot: plot.add_violinplot_datasets({"A": [1.0, 2.0]}, name="violins"),
+        id="ViolinPlot.add_violinplot_datasets",
+    ),
+    pytest.param(
+        SeaLevel,
+        lambda plot: plot.add_sealevel_set({"A": 0.5, "B": 0.7}, name="levels"),
+        id="SeaLevel.add_sealevel_set",
+    ),
+    pytest.param(
+        SeatsVotes,
+        lambda plot: plot.add_seat_votes_data([0.4, 0.6], name="curve"),
+        id="SeatsVotes.add_seat_votes_data",
+    ),
+    pytest.param(
+        SeatsVotes,
+        lambda plot: plot.add_proportionality_line(name="proportionality"),
+        id="SeatsVotes.add_proportionality_line",
+    ),
+    pytest.param(
+        SeatsVotes,
+        lambda plot: plot.add_efficiency_gap_line(name="efficiency-gap"),
+        id="SeatsVotes.add_efficiency_gap_line",
+    ),
+    pytest.param(
+        SeatsVotes,
+        lambda plot: plot.add_custom_line(
+            2.0, linecolor="black", linestyle="-", linewidth=1.0, name="custom"
+        ),
+        id="SeatsVotes.add_custom_line",
+    ),
+    pytest.param(
+        # PaintBall's include_legend=False default is an explicit opinion that claims the legend
+        # unit at construction; pass True for a clean baseline.
+        lambda: PaintBall(include_legend=True),
+        lambda plot: plot.add_lines_with_slope([1.0], name="guide"),
+        id="PaintBall.add_lines_with_slope",
+    ),
+    pytest.param(
+        ScatterPlot,
+        lambda plot: plot.add_scatter(x=[0.1], y=[0.2], label="points"),
+        id="ScatterPlot.add_scatter",
+    ),
+    pytest.param(
+        ScatterPlot,
+        lambda plot: plot.add_point(0.1, 0.2, "point"),
+        id="ScatterPlot.add_point",
+    ),
+]
+
+# Same calls without a name/label. ``ScatterPlot.add_point`` is excluded (its label parameter is
+# required) and the SeatsVotes/PaintBall guide-line wrappers with non-None default names are
+# represented by their underlying named-line methods.
+_UNNAMED_ADD_CASES = [
+    pytest.param(
+        Histogram,
+        lambda plot: plot.add_points_above([1.0, 2.0]),
+        id="Histogram.add_points_above",
+    ),
+    pytest.param(
+        BoxPlot,
+        lambda plot: plot.add_pointset({"A": 1.0}),
+        id="BoxPlot.add_pointset",
+    ),
+    pytest.param(
+        ViolinPlot,
+        lambda plot: plot.add_violinplot_datasets({"A": [1.0, 2.0]}),
+        id="ViolinPlot.add_violinplot_datasets",
+    ),
+    pytest.param(
+        SeaLevel,
+        lambda plot: plot.add_sealevel_set({"A": 0.5, "B": 0.7}),
+        id="SeaLevel.add_sealevel_set",
+    ),
+    pytest.param(
+        SeatsVotes,
+        lambda plot: plot.add_seat_votes_data([0.4, 0.6]),
+        id="SeatsVotes.add_seat_votes_data",
+    ),
+    pytest.param(
+        SeatsVotes,
+        lambda plot: plot.add_proportionality_line(),
+        id="SeatsVotes.add_proportionality_line",
+    ),
+    pytest.param(
+        SeatsVotes,
+        lambda plot: plot.add_efficiency_gap_line(),
+        id="SeatsVotes.add_efficiency_gap_line",
+    ),
+    pytest.param(
+        SeatsVotes,
+        lambda plot: plot.add_custom_line(2.0, linecolor="black", linestyle="-", linewidth=1.0),
+        id="SeatsVotes.add_custom_line",
+    ),
+    pytest.param(
+        lambda: PaintBall(include_legend=True),
+        lambda plot: plot.add_lines_with_slope([1.0]),
+        id="PaintBall.add_lines_with_slope",
+    ),
+    pytest.param(
+        ScatterPlot,
+        lambda plot: plot.add_scatter(x=[0.1], y=[0.2]),
+        id="ScatterPlot.add_scatter",
+    ),
+]
+
+
+class TestNamedAddReclaimsLegendAcrossPlotTypes:
+    """G2 + G3 across every plot type — the ``_claim_legend_if_named`` matrix.
+
+    Same contract as ``TestNamedAddReclaimsLegend``: a user-supplied name
+    (or label, for ScatterPlot) reclaims the legend unit; omitting it leaves
+    legend ownership alone.
+    """
+
+    @pytest.mark.parametrize(("plot_factory", "named_add"), _NAMED_ADD_CASES)
+    def test_named_add_reclaims_legend_unit(self, plot_factory, named_add):
+        plot = plot_factory()
+        assert not plot._axes_state.is_reclaimed("legend")
+        named_add(plot)
+        assert plot._axes_state.is_reclaimed("legend")
+
+    @pytest.mark.parametrize(("plot_factory", "unnamed_add"), _UNNAMED_ADD_CASES)
+    def test_unnamed_add_does_not_reclaim_legend(self, plot_factory, unnamed_add):
+        plot = plot_factory()
+        unnamed_add(plot)
+        assert not plot._axes_state.is_reclaimed("legend")
 
 
 class TestExternalLegendReplacedByNamedAdd:

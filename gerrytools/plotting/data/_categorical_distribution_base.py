@@ -311,6 +311,7 @@ class CategoricalDistributionPlotBase(GerryPlotBase):
                 x_offset=x_offset,
             )
         )
+        self._claim_legend_if_named(name)
 
     def remove_group_vlines(self) -> None:
         """Disable vertical guide lines at category centers."""

@@ -159,6 +159,7 @@ class ScatterPlot(GerryPlotBase):
             marker_options=resolved_marker_options,
         )
         self._scatter_data_list.append(pointset_data)
+        self._claim_legend_if_named(label)
 
     def add_point(
         self,

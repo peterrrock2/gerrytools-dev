@@ -240,6 +240,7 @@ class ViolinPlot(CategoricalDistributionPlotBase):
                 zorder=resolved_zorder,
             )
         )
+        self._claim_legend_if_named(name)
 
     @property
     def _violinplot_centers(self) -> np.ndarray:

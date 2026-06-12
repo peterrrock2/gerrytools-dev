@@ -324,6 +324,7 @@ class PaintBall(GerryPlotBase):
                 self._named_lines[name] = line
             else:
                 self._lines.setdefault(line.slope, []).append(line)
+        self._claim_legend_if_named(name)
 
     def clear_lines(self) -> None:
         """Remove all custom and named lines from the paintball plot."""

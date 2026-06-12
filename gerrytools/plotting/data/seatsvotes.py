@@ -455,6 +455,7 @@ class SeatsVotes(GerryPlotBase):
                 markerlabel=markerlabel if markerlabel is not None else "Election Result",
             )
         )
+        self._claim_legend_if_named(name)
 
     # ========================
     # ==  Cosmetic helpers  ==
@@ -547,6 +548,7 @@ class SeatsVotes(GerryPlotBase):
                 label=name if name is not None else "Proportionality",
             )
         )
+        self._claim_legend_if_named(name)
 
     def add_efficiency_gap_line(
         self,
@@ -581,6 +583,7 @@ class SeatsVotes(GerryPlotBase):
                 label=name if name is not None else "Efficiency Gap",
             )
         )
+        self._claim_legend_if_named(name)
 
     def add_custom_line(
         self,
@@ -626,6 +629,7 @@ class SeatsVotes(GerryPlotBase):
                 label=legend_label,
             )
         )
+        self._claim_legend_if_named(legend_label)
 
     def _set_axis_tick_fontsize(
         self,

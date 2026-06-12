@@ -613,6 +613,7 @@ class Histogram(GerryPlotBase):
                 centered=centered_on_bin,
             )
         )
+        self._claim_legend_if_named(name)
 
     def _compute_bins(self) -> NDArray[np.float64]:
         """Compute histogram bins based on current settings and data."""
