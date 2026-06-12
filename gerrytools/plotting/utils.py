@@ -23,8 +23,10 @@ def _coerce_real_iter(values: Numeric | NumericIterable, *, field: str) -> list[
     """
     if isinstance(values, (str, bytes)):
         raise TypeError(f"{field} must be a number or an iterable of numbers, not a string.")
-    # exclude bool (since bool is a Real)
-    if isinstance(values, Real) and not isinstance(values, bool):
+    # bool is a Real, but treating True/False as 1.0/0.0 is never what callers mean.
+    if isinstance(values, bool):
+        raise TypeError(f"{field} must be a number or an iterable of numbers, not a bool.")
+    if isinstance(values, Real):
         return [float(values)]
     if isinstance(values, Iterable):
         out: list[float] = []

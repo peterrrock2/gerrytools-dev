@@ -3,7 +3,6 @@ import math
 import weakref
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
-from numbers import Real
 from typing import Literal, Sequence, cast
 from warnings import warn
 
@@ -419,13 +418,7 @@ class GerryPlotBase(ABC):
         Returns:
             None
         """
-        if isinstance(x_values, (str, bytes)):
-            raise TypeError("x_values must be a number or an iterable of numbers, not a string.")
-        if isinstance(x_values, bool):
-            raise TypeError("x_values must be a number or an iterable of numbers, not a bool.")
-        # Safe to shadow here because we pass ints and floats by value not object reference
-        if isinstance(x_values, Real):
-            x_values = [float(x_values)]
+        xs = _coerce_real_iter(x_values, field="x_values")
 
         base = line_options if line_options is not None else LineOptions()
         resolved_linecolor = linecolor if linecolor is not None else base.linecolor
@@ -434,7 +427,6 @@ class GerryPlotBase(ABC):
         resolved_linewidth = linewidth if linewidth is not None else base.linewidth
         resolved_zorder = zorder if zorder is not None else base.zorder
 
-        xs = _coerce_real_iter(x_values, field="x_values")
         self._annotations.vertical_lines.append(
             LineData(
                 values=xs,
@@ -537,14 +529,6 @@ class GerryPlotBase(ABC):
         Returns:
             None
         """
-        if isinstance(y_values, (str, bytes)):
-            raise TypeError("y_values must be a number or an iterable of numbers, not a string.")
-        if isinstance(y_values, bool):
-            raise TypeError("y_values must be a number or an iterable of numbers, not a bool.")
-        # Safe to shadow here because we pass ints and floats by value not object reference
-        if isinstance(y_values, Real):
-            y_values = [float(y_values)]
-
         ys = _coerce_real_iter(y_values, field="y_values")
 
         base = line_options if line_options is not None else LineOptions(zorder=4)
@@ -565,7 +549,6 @@ class GerryPlotBase(ABC):
                 name=name,
             )
         )
-        return
 
     def add_horizontal_band(
         self,
