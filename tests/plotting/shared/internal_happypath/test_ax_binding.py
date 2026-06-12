@@ -95,6 +95,28 @@ class TestBindToAx:
         assert len(plot._hist_data_dict["overlay"]) == 1
         assert plot._hist_data_dict["overlay"][0].name == "series_a"
 
+    def test_bind_to_ax_none_preserves_construction_figure_size_and_dpi(self):
+        plot = Histogram(figure_size=(4.0, 3.0), dpi=150)
+        plot.bind_to_ax(None)
+        assert tuple(plot.fig.get_size_inches()) == (4.0, 3.0)
+        assert plot.fig.dpi == 150
+
+    def test_bind_to_ax_none_matches_default_construction_geometry(self):
+        plot = Histogram()
+        plot.bind_to_ax(None)
+        assert tuple(plot.fig.get_size_inches()) == (10.0, 6.0)
+        assert plot.fig.dpi == 300
+
+    def test_bind_to_ax_none_uses_defaults_when_constructed_with_user_ax(self):
+        # A plot constructed onto a user axes has no construction geometry of
+        # its own; unbinding falls back to the standard defaults rather than
+        # inheriting the user figure's geometry.
+        _, user_ax = plt.subplots(figsize=(2.0, 2.0), dpi=72)
+        plot = Histogram(ax=user_ax)
+        plot.bind_to_ax(None)
+        assert tuple(plot.fig.get_size_inches()) == (10.0, 6.0)
+        assert plot.fig.dpi == 300
+
 
 # ----------------------------------------------------------------------
 # ax= on GeoPlot too
@@ -140,6 +162,18 @@ class TestGeoPlotAxParameter:
         _, new_ax = plt.subplots()
         plot.bind_to_ax(new_ax)
         assert plot._ax is new_ax
+
+    def test_geoplot_bind_to_ax_none_preserves_construction_dpi(self):
+        import geopandas as gpd
+        from shapely.geometry import Polygon
+
+        gdf = gpd.GeoDataFrame(
+            {"name": ["A"], "geometry": [Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])]},
+            crs="EPSG:4326",
+        )
+        plot = ColoredGeoPlot(gdf, dpi=150)
+        plot.bind_to_ax(None)
+        assert plot.fig.dpi == 150
 
 
 # ----------------------------------------------------------------------

@@ -103,6 +103,9 @@ class GeoPlot(ABC):
         self.gdf = gdf
 
         # --- Pass 1: resolve self._ax + self.fig + _figure_is_shared ---
+        # Remembered so ``bind_to_ax(None)`` can recreate a fresh figure with the same dpi as
+        # construction.
+        self._figure_dpi: int = dpi if dpi is not None else 300
         if ax is not None:
             if dpi is not None:
                 warn(
@@ -117,7 +120,7 @@ class GeoPlot(ABC):
             # figure-level layout (e.g. ``subplots_adjust``) on it.
             self._figure_is_shared: bool = True
         else:
-            self.fig, self._ax = plt.subplots(dpi=dpi if dpi is not None else 300)
+            self.fig, self._ax = plt.subplots(dpi=self._figure_dpi)
             self._figure_is_shared = False
 
             # IMPORTANT: prevent implicit display in notebooks
@@ -951,7 +954,7 @@ class GeoPlot(ABC):
         self._axes_state_initialized = False
 
         if ax is None:
-            self.fig, self._ax = plt.subplots()
+            self.fig, self._ax = plt.subplots(dpi=self._figure_dpi)
             self._figure_is_shared = False
             try:
                 from IPython import get_ipython

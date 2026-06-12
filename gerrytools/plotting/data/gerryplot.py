@@ -105,6 +105,10 @@ class GerryPlotBase(ABC):
             title (str | None, optional): The title of the plot. Defaults to None.
         """
         # --- Pass 1: resolve self._ax and self.fig ---
+        # Remembered so ``bind_to_ax(None)`` can recreate a fresh figure with the same geometry as
+        # construction.
+        self._figure_size: tuple[float, float] = figure_size if figure_size is not None else (10, 6)
+        self._figure_dpi: int = dpi if dpi is not None else 300
         if ax is not None:
             if figure_size is not None or dpi is not None:
                 warn(
@@ -119,8 +123,8 @@ class GerryPlotBase(ABC):
             self._finalizer: weakref.finalize | None = None
         else:
             self.fig, self._ax = plt.subplots(
-                figsize=figure_size if figure_size is not None else (10, 6),
-                dpi=dpi if dpi is not None else 300,
+                figsize=self._figure_size,
+                dpi=self._figure_dpi,
             )
 
             # IMPORTANT: prevent implicit display in notebooks
@@ -304,7 +308,10 @@ class GerryPlotBase(ABC):
         self._axes_state_initialized = False
 
         if ax is None:
-            self.fig, self._ax = plt.subplots()
+            self.fig, self._ax = plt.subplots(
+                figsize=self._figure_size,
+                dpi=self._figure_dpi,
+            )
             try:
                 from IPython import get_ipython
 
