@@ -16,7 +16,6 @@ user) touched a given unit last owns it on the next rebuild.
 from __future__ import annotations
 
 import math
-from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Literal, cast
 
@@ -45,8 +44,6 @@ UNIT_FRAME = "frame"
 UNIT_LEGEND = "legend"
 UNIT_AXIS_VISIBILITY = "axis_visibility"
 UNIT_ASPECT = "aspect"
-
-_AUTOSCALE_PROTECTED: frozenset[str] = frozenset({UNIT_X_LIMITS, UNIT_Y_LIMITS})
 
 _ALL_UNITS: tuple[str, ...] = (
     UNIT_X_LIMITS,
@@ -693,12 +690,13 @@ class _ManagedAxesState:
     ) -> None:
         """Restore externally-set xlim/ylim that artist drawing may have clobbered.
 
-        Apply-or-skip units never need this; matplotlib's autoscale only
-        affects limits during artist drawing.
+        The limit units are the only autoscale-protected ones; apply-or-skip
+        units never need this because matplotlib's autoscale only affects
+        limits during artist drawing.
         """
-        if UNIT_X_LIMITS in external_units and UNIT_X_LIMITS in _AUTOSCALE_PROTECTED:
+        if UNIT_X_LIMITS in external_units:
             ax.set_xlim(*pre_redraw.x_limits)
-        if UNIT_Y_LIMITS in external_units and UNIT_Y_LIMITS in _AUTOSCALE_PROTECTED:
+        if UNIT_Y_LIMITS in external_units:
             ax.set_ylim(*pre_redraw.y_limits)
 
     # -- internal ---------------------------------------------------------------
@@ -707,12 +705,3 @@ class _ManagedAxesState:
         state = self._units[unit]
         state.ownership = "external"
         state.last_applied = value
-
-
-# Re-export for the autoscale-protected guard callers may want to consult.
-def is_autoscale_protected(unit: str) -> bool:
-    return unit in _AUTOSCALE_PROTECTED
-
-
-def all_units() -> Iterable[str]:
-    return iter(_ALL_UNITS)

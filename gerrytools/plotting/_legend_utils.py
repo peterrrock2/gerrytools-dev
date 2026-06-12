@@ -75,7 +75,7 @@ def save_legend_handles(
     outer_padding: float = 0.07,
     dpi: int | float = 300,
     **legend_kwargs: object,
-) -> bool:
+) -> None:
     """Save legend handles to a standalone image.
 
     Args:
@@ -87,38 +87,39 @@ def save_legend_handles(
         dpi (int | float, optional): Save resolution. Defaults to ``300``.
         **legend_kwargs (object): Additional keyword arguments merged into the legend options.
 
-    Returns:
-        bool: True if a legend was written.
+    Raises:
+        ValueError: If ``handles`` is empty.
     """
     if len(handles) == 0:
         raise ValueError("No legend handles to save.")
 
     legend_fig = plt.figure(dpi=dpi)
-    legend_ax = legend_fig.add_subplot(111)
-    legend_ax.axis("off")
+    try:
+        legend_ax = legend_fig.add_subplot(111)
+        legend_ax.axis("off")
 
-    opts: MplKwargs = legend_options.to_dict() | dict(legend_kwargs)
-    leg = legend_ax.legend(handles=handles, **opts)
+        opts: MplKwargs = legend_options.to_dict() | dict(legend_kwargs)
+        leg = legend_ax.legend(handles=handles, **opts)
 
-    legend_fig.subplots_adjust(0, 0, 1, 1)
+        legend_fig.subplots_adjust(0, 0, 1, 1)
 
-    canvas = legend_fig.canvas
-    canvas.draw()
-    get_renderer_fn = getattr(canvas, "get_renderer", None)
-    if not callable(
-        get_renderer_fn
-    ):  # pragma: no cover - defensive guard for non-standard Matplotlib backends that omit get_renderer()
-        raise RuntimeError("Matplotlib canvas does not expose get_renderer().")
-    renderer = get_renderer_fn()
+        canvas = legend_fig.canvas
+        canvas.draw()
+        get_renderer_fn = getattr(canvas, "get_renderer", None)
+        if not callable(
+            get_renderer_fn
+        ):  # pragma: no cover - defensive guard for non-standard Matplotlib backends that omit get_renderer()
+            raise RuntimeError("Matplotlib canvas does not expose get_renderer().")
+        renderer = get_renderer_fn()
 
-    bbox = leg.get_window_extent(renderer=renderer)
-    bbox_inches = bbox.transformed(legend_fig.dpi_scale_trans.inverted())
-    bbox_inches = bbox_inches.expanded(1.0 + outer_padding, 1.0 + outer_padding)
+        bbox = leg.get_window_extent(renderer=renderer)
+        bbox_inches = bbox.transformed(legend_fig.dpi_scale_trans.inverted())
+        bbox_inches = bbox_inches.expanded(1.0 + outer_padding, 1.0 + outer_padding)
 
-    legend_fig.savefig(
-        filepath,
-        bbox_inches=bbox_inches,
-        pad_inches=0.0,
-    )
-    plt.close(legend_fig)
-    return True
+        legend_fig.savefig(
+            filepath,
+            bbox_inches=bbox_inches,
+            pad_inches=0.0,
+        )
+    finally:
+        plt.close(legend_fig)

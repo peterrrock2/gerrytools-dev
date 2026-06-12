@@ -305,12 +305,11 @@ class TestSaveLegendHandles:
 
         handle = Patch(facecolor="red", label="Test")
         filepath = str(tmp_path / "legend.png")
-        result = save_legend_handles(
+        save_legend_handles(
             handles=[handle],
             legend_options=build_legend_options(),
             filepath=filepath,
         )
-        assert result is True
         assert (tmp_path / "legend.png").exists()
 
 
