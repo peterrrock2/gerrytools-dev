@@ -12,6 +12,14 @@ import gerrytools.latex.document as document_module
 from gerrytools.latex.document import TexDocument
 
 
+def _fake_compile_pdf(
+    self: TexDocument,
+    preferred_engine: str | None = None,
+) -> None:
+    del preferred_engine
+    self._pdf_path.write_bytes(b"%PDF-1.4\n% fake pdf\n")
+
+
 def _fake_render_to_temp_png(
     self: TexDocument,
     preferred_engine: str | None = None,
@@ -70,12 +78,29 @@ class TestTexDocumentConstruction:
         )
 
         assert doc.package_list.count("tikz") == 1
-        assert doc.package_list.count("hyperref") == 1
+        assert doc.package_list.count("hyperref") == 0
         assert doc.extra_package_commands.count(r"\usepackage[margin=1in]{geometry}") == 1
         assert (
             doc.extra_package_commands.count(r"\usepackage[colorlinks,linkcolor=blue]{hyperref}")
             == 1
         )
+
+    def test_document_add_packages_skips_packages_already_loaded_with_options(self):
+        doc = TexDocument()
+
+        doc.add_package_with_options("geometry", options="margin=1in")
+        doc.add_packages("geometry")
+
+        assert "geometry" not in doc.package_list
+        assert doc.extra_package_commands.count(r"\usepackage[margin=1in]{geometry}") == 1
+
+    def test_document_reregistering_optioned_package_replaces_options(self):
+        doc = TexDocument()
+
+        doc.add_package_with_options("geometry", options="margin=1in")
+        doc.add_package_with_options("geometry", options="margin=2cm")
+
+        assert doc.extra_package_commands == [r"\usepackage[margin=2cm]{geometry}"]
 
     def test_document_add_command_appends_custom_latex(self):
         doc = TexDocument()
@@ -177,7 +202,7 @@ class TestTexDocumentSaveOperations:
     def test_save_pdf_validates_path_type_extension_and_parent(self, tmp_path: Path):
         doc = TexDocument()
 
-        with pytest.raises(ValueError, match="Path must be a string or Path object"):
+        with pytest.raises(TypeError, match="Path must be a string or Path object"):
             doc.save_pdf(123)  # type: ignore[arg-type]
 
         with pytest.raises(ValueError, match=r"File extension must be '\.pdf'"):
@@ -189,7 +214,7 @@ class TestTexDocumentSaveOperations:
     def test_save_png_validates_path_type_extension_and_parent(self, tmp_path: Path):
         doc = TexDocument()
 
-        with pytest.raises(ValueError, match="Path must be a string or Path object"):
+        with pytest.raises(TypeError, match="Path must be a string or Path object"):
             doc.save_png(123)  # type: ignore[arg-type]
 
         with pytest.raises(ValueError, match=r"File extension must be '\.png'"):
@@ -205,8 +230,8 @@ class TestTexDocumentSaveOperations:
     ):
         monkeypatch.setattr(
             TexDocument,
-            "_render_to_temp_png",
-            _fake_render_to_temp_png,
+            "_compile_pdf",
+            _fake_compile_pdf,
         )
         doc = TexDocument()
 

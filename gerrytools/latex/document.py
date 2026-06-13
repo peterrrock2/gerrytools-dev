@@ -1,4 +1,5 @@
 import logging
+import re
 import shutil
 import subprocess
 import tempfile
@@ -13,6 +14,9 @@ from gerrytools.logging import get_logger
 from gerrytools.typing import Color
 
 logger = get_logger(__name__)
+
+_USEPACKAGE_WITH_OPTIONS_RE = re.compile(r"\\usepackage\[[^\]]*\]\{(?P<name>[^}]+)\}")
+"""Matches the ``\\usepackage[options]{name}`` entries built by ``add_package_with_options``."""
 
 
 def _render_pdf_to_png(pdf_path: Path, png_path: Path, dpi: int = 250) -> None:
@@ -196,8 +200,25 @@ class TexDocument:
     def __str__(self) -> str:  # pragma: no cover
         return self._tex_doc_string()
 
+    def _optioned_package_names(self) -> set[str]:
+        """Get the names of packages already loaded with options.
+
+        Returns:
+            set[str]: Package names appearing in ``extra_package_commands`` as
+                ``\\usepackage[...]{name}`` entries.
+        """
+        names: set[str] = set()
+        for command in self.extra_package_commands:
+            match = _USEPACKAGE_WITH_OPTIONS_RE.fullmatch(command)
+            if match is not None:
+                names.add(match.group("name"))
+        return names
+
     def add_packages(self, packages: str | list[str]) -> None:
         """Adds one or more LaTeX packages to the package list.
+
+        A package already registered with options via :meth:`add_package_with_options` is skipped
+        since loading the same package twice with different options is a LaTeX "option clash" error.
 
         Examples:
             tex_preview.add_packages("geometry")
@@ -213,12 +234,18 @@ class TexDocument:
             package_list = [packages]
         else:
             package_list = packages
+        optioned_names = self._optioned_package_names()
         for package_name in package_list:
+            if package_name in optioned_names:
+                continue
             if package_name not in self.package_list:
                 self.package_list.append(package_name)
 
     def add_package_with_options(self, package_name: str, options: str | list[str]) -> None:
         """Adds a LaTeX package with options to the extra package commands.
+
+        The optioned form supersedes any plain ``\\usepackage{name}`` entry, and re-registering the
+        same package replaces its previous options.
 
         Examples:
             tex_preview.add_package_with_options("geometry", "margin=1in")
@@ -234,8 +261,14 @@ class TexDocument:
         options_list = [options] if isinstance(options, str) else options
         options_str = ",".join(options_list)
         pkg_cmd = rf"\usepackage[{options_str}]{{{package_name}}}"
-        if pkg_cmd not in self.extra_package_commands:
-            self.extra_package_commands.append(pkg_cmd)
+        if package_name in self.package_list:
+            self.package_list.remove(package_name)
+        for index, command in enumerate(self.extra_package_commands):
+            match = _USEPACKAGE_WITH_OPTIONS_RE.fullmatch(command)
+            if match is not None and match.group("name") == package_name:
+                self.extra_package_commands[index] = pkg_cmd
+                return
+        self.extra_package_commands.append(pkg_cmd)
 
     def add_command(self, command: str) -> None:
         r"""Adds a custom LaTeX command to the document.
@@ -381,8 +414,6 @@ class TexDocument:
                     )
                 case "HTML":
                     lines.append(rf"\definecolor{{{color_name}}}{{HTML}}{{{color_val}}}")
-                case "NONE":  # pragma: no coverj
-                    pass
                 case _:  # pragma: no cover
                     raise ValueError(
                         f"Unsupported color type: {color_type} found in color dictionary. "
@@ -399,14 +430,12 @@ class TexDocument:
         logger.log(logging.DEBUG, "Generated LaTeX document:\n%s", output_string, stacklevel=2)
         return output_string
 
-    def _render_to_temp_png(self, preferred_engine: Optional[str] = None, dpi: int = 250) -> None:
-        """Render the current document body to a temporary PNG file.
+    def _compile_pdf(self, preferred_engine: Optional[str] = None) -> None:
+        """Compile the current document body to a PDF in the working directory.
 
         Args:
-            preferred_engine (Optional[str], optional): Preferred TeX engine name. If None,
-                uses the first available engine from ``engine_preference_order``. Defaults to
-                ``None``.
-            dpi (int, optional): PNG render resolution in dots-per-inch. Defaults to ``250``.
+            preferred_engine (Optional[str], optional): Preferred TeX engine name. If None, uses
+                the first available engine from ``engine_preference_order``. Defaults to ``None``.
 
         Returns:
             None
@@ -446,6 +475,23 @@ class TexDocument:
         if proc.returncode != 0 or not self._pdf_path.exists():  # pragma: no cover
             raise RuntimeError(f"LaTeX compile failed with {engine}.\n\nLOG:\n{log}")
 
+    def _render_to_temp_png(self, preferred_engine: Optional[str] = None, dpi: int = 250) -> None:
+        """Render the current document body to a temporary PNG file.
+
+        Args:
+            preferred_engine (Optional[str], optional): Preferred TeX engine name. If None,
+                uses the first available engine from ``engine_preference_order``. Defaults to
+                ``None``.
+            dpi (int, optional): PNG render resolution in dots-per-inch. Defaults to ``250``.
+
+        Returns:
+            None
+
+        Raises:
+            RuntimeError: If no TeX engine is found, LaTeX compilation fails, or
+                no PDF renderer is available.
+        """
+        self._compile_pdf(preferred_engine)
         _render_pdf_to_png(self._pdf_path, self._png_path, dpi=dpi)
 
     def _show_png_jupyter(self) -> None:  # pragma: no cover
@@ -531,7 +577,7 @@ class TexDocument:
             None
         """
         if not isinstance(path, (str, Path)):
-            raise ValueError("Path must be a string or Path object.")
+            raise TypeError("Path must be a string or Path object.")
 
         if not str(path).endswith(".pdf"):
             raise ValueError("File extension must be '.pdf'")
@@ -541,8 +587,9 @@ class TexDocument:
         if not full_path.parent.exists():
             raise FileNotFoundError(f"The directory {full_path.parent} does not exist.")
 
-        self._render_to_temp_png()
-        shutil.copy2(self._pdf_path, full_path) if path else None
+        # Compile only: a PDF save does not need the PNG render step.
+        self._compile_pdf()
+        shutil.copy2(self._pdf_path, full_path)
 
     def save_png(self, path: str | Path) -> None:  # pragma: no cover
         """Saves the rendered LaTeX document as a PNG file.
@@ -553,7 +600,7 @@ class TexDocument:
             None
         """
         if not isinstance(path, (str, Path)):
-            raise ValueError("Path must be a string or Path object.")
+            raise TypeError("Path must be a string or Path object.")
 
         if not str(path).endswith(".png"):
             raise ValueError("File extension must be '.png'")
@@ -564,4 +611,4 @@ class TexDocument:
             raise FileNotFoundError(f"The directory {full_path.parent} does not exist.")
 
         self._render_to_temp_png()
-        shutil.copy2(self._png_path, full_path) if path else None
+        shutil.copy2(self._png_path, full_path)
