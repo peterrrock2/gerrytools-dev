@@ -2,7 +2,7 @@
 
 import math
 
-from gerrytools.latex._geometry import line_segment_through_unit_square
+from gerrytools._geometry import line_segment_through_unit_square
 
 
 # ===================

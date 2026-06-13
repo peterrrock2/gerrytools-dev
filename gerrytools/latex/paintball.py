@@ -1,9 +1,8 @@
 from dataclasses import dataclass
 from typing import Iterable, get_args
 
-from gerrytools.colors import convert_color_to_hexa_or_none
-from gerrytools.latex._colors import is_latex_color_expression
-from gerrytools.latex._geometry import line_segment_through_unit_square
+from gerrytools._geometry import line_segment_through_unit_square
+from gerrytools.latex._colors import classify_tikz_color
 from gerrytools.latex.document import TexDocument
 from gerrytools.logging import get_logger
 from gerrytools.typing import Color, TikzLineStyle
@@ -14,6 +13,11 @@ logger = get_logger(__name__)
 @dataclass(frozen=True)
 class PaintBallLine:
     """Dataclass for storing paintball line properties.
+
+    Deliberately parallel to :class:`gerrytools.plotting.data.paintball.PaintBallLine` (the
+    Matplotlib backend); the two stay separate because their style vocabularies differ (TikZ tokens
+    here, Matplotlib linestyle strings there). Keep field changes in sync where the concepts
+    overlap.
 
     Attributes:
         slope (float): The slope of the line.
@@ -573,36 +577,10 @@ class PaintBall:
         Returns:
             str: LaTeX color token safe to reference in TikZ commands.
         """
-        if isinstance(color, str):
-            color_expr = color.strip()
-            if color_expr.lower() == "none":
-                return "none"
-            if is_latex_color_expression(color_expr):
-                return color_expr
-
-        hex8_or_none = convert_color_to_hexa_or_none(color)
-        if hex8_or_none.lower() == "none":
-            return "none"
-
-        hex6 = hex8_or_none.lstrip("#")[:6].upper()
-        return self._document.resolve_color(f"#{hex6}", prefix=prefix)
-
-    def _compute_starting_ending_points_for_line_with_slope(
-        self, slope: float
-    ) -> tuple[float, float, float, float]:
-        """Compute the starting and ending points for a line with the given slope.
-
-        The line is drawn within the unit square from (0,0) to (1,1) and must pass through
-        the center point (0.5, 0.5).
-
-        Args:
-            slope (float): The slope of the line.
-
-        Returns:
-            tuple[float, float, float, float]: The starting and ending points of the line
-                in the format (starting_x, starting_y, ending_x, ending_y).
-        """
-        return line_segment_through_unit_square(slope, round_to=4)
+        color_kind, color_value = classify_tikz_color(color)
+        if color_kind in ("none", "xcolor"):
+            return color_value
+        return self._document.resolve_color(f"#{color_value}", prefix=prefix)
 
     def _paintball_points_str(self) -> str:
         """Generate TikZ code for point markers.
@@ -732,8 +710,8 @@ class PaintBall:
 
         # Draw lines
         for line in self._nammed_lines.values():
-            starting_x, starting_y, ending_x, ending_y = (
-                self._compute_starting_ending_points_for_line_with_slope(line.slope)
+            starting_x, starting_y, ending_x, ending_y = line_segment_through_unit_square(
+                line.slope, round_to=4
             )
             line_color = self._to_latex_color(line.linecolor, prefix="pbline")
             tex_string += (
@@ -743,8 +721,8 @@ class PaintBall:
             )
         for _slope, lines in self._lines.items():
             for line in lines:
-                starting_x, starting_y, ending_x, ending_y = (
-                    self._compute_starting_ending_points_for_line_with_slope(line.slope)
+                starting_x, starting_y, ending_x, ending_y = line_segment_through_unit_square(
+                    line.slope, round_to=4
                 )
                 line_color = self._to_latex_color(line.linecolor, prefix="pbline")
                 tex_string += (

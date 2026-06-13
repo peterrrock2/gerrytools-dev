@@ -151,6 +151,42 @@ def to_latex_xcolor_or_html_spec(color: Color) -> LatexColorSpec:
     return to_latex_color_spec(color)
 
 
+TikzColorKind: TypeAlias = Literal["none", "xcolor", "html"]
+
+
+def classify_tikz_color(color: Color) -> tuple[TikzColorKind, str]:
+    """Classify a color value for inline TikZ emission.
+
+    Shared front half of the TikZ color handling in the latex plot classes: decides whether a color
+    is transparent, a preservable xcolor expression, or needs hex conversion. What each plot class
+    *does* with the result differs (PaintBall registers a named document color; SeatsVotes emits
+    ``\\color[HTML]{...}`` inline).
+
+    Args:
+        color (Color): Color value represented as an xcolor expression, hex string, parseable named
+            color, or RGB tuple.
+
+    Returns:
+        tuple[TikzColorKind, str]: ``("none", "none")`` for transparent tokens,
+            ``("xcolor", expression)`` for valid xcolor expressions, or ``("html", "RRGGBB")`` with
+            an uppercase 6-digit hex payload.
+
+    Raises:
+        ValueError: If ``color`` cannot be parsed as a supported color value.
+    """
+    if isinstance(color, str):
+        color_expr = color.strip()
+        if color_expr.lower() == "none":
+            return ("none", "none")
+        if is_latex_color_expression(color_expr):
+            return ("xcolor", color_expr)
+
+    hex8_or_none = convert_color_to_hexa_or_none(color)
+    if hex8_or_none.lower() == "none":
+        return ("none", "none")
+    return ("html", hex8_or_none.lstrip("#")[:6].upper())
+
+
 def cellcolor_prefix(color: Color) -> str:
     """Build a ``\\cellcolor`` prefix string.
 

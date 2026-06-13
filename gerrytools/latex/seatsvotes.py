@@ -6,9 +6,8 @@ from typing import Literal, Sequence, TypedDict, get_args
 
 import numpy as np
 
-from gerrytools.colors import convert_color_to_hexa_or_none
-from gerrytools.latex._colors import is_latex_color_expression
-from gerrytools.latex._geometry import line_segment_through_unit_square
+from gerrytools._geometry import line_segment_through_unit_square
+from gerrytools.latex._colors import TikzColorKind, classify_tikz_color
 from gerrytools.latex._text import latex_escape
 from gerrytools.latex.document import TexDocument
 from gerrytools.logging import get_logger
@@ -51,6 +50,9 @@ def _to_tikz_linestyle(linestyle: str) -> str:
 @dataclass(slots=True, frozen=True)
 class SeatsVotesData:
     """Container for one seats-votes series and its marker metadata.
+
+    Deliberately parallel to :class:`gerrytools.plotting.data.seatsvotes.SeatsVotesData` (the
+    Matplotlib backend); keep field changes in sync where the concepts overlap.
 
     Attributes:
         pov_party_vote_counts (np.ndarray): Per-district party-of-interest vote totals.
@@ -101,6 +103,9 @@ class SeatsVotesData:
 class SVPlotLine:
     """Dataclass for seats-votes guide-line styling.
 
+    Deliberately parallel to :class:`gerrytools.plotting.data.seatsvotes.SVPlotLine` (the Matplotlib
+    backend); keep field changes in sync where the concepts overlap.
+
     Attributes:
         slope (float): Line slope through ``(0.5, 0.5)``.
         linecolor (Color): Line color.
@@ -129,6 +134,9 @@ class SVPlotLine:
         object.__setattr__(self, "linewidth", line_width)
 
 
+# The _Crosshair*Settings TypedDicts are deliberately parallel to the ones in
+# gerrytools.plotting.data.seatsvotes (the Matplotlib backend); keep changes in sync where the
+# concepts overlap.
 class _CrosshairXSettings(TypedDict):
     xmin: float
     xmax: float
@@ -153,13 +161,14 @@ class _TikzColorToken:
     """Internal representation of a color token for TikZ emission.
 
     Attributes:
-        kind (Literal["xcolor", "html", "none"]): Output encoding category.
+        kind (TikzColorKind): Output encoding category, as classified by
+            :func:`gerrytools.latex._colors.classify_tikz_color`.
         value (str): Color payload. For ``kind="xcolor"``, this is an xcolor expression
             such as ``"denim!20!amber"``. For ``kind="html"``, this is an uppercase
             6-digit hex token such as ``"1560BD"``. For ``kind="none"``, this is ``"none"``.
     """
 
-    kind: Literal["xcolor", "html", "none"]
+    kind: TikzColorKind
     value: str
 
 
@@ -637,21 +646,6 @@ class SeatsVotes:
         return rf"\fontsize{{{fontsize:0.2f}}}{{{baseline_skip:0.2f}}}\selectfont "
 
     @staticmethod
-    def _compute_starting_ending_points_for_line_with_slope(
-        slope: float,
-    ) -> tuple[float, float, float, float]:
-        """Compute line endpoints inside the unit square for a slope through ``(0.5, 0.5)``.
-
-        Args:
-            slope (float): Line slope.
-
-        Returns:
-            tuple[float, float, float, float]: ``(x_start, y_start, x_end, y_end)`` inside
-                the unit square.
-        """
-        return line_segment_through_unit_square(slope, round_to=4)
-
-    @staticmethod
     def _step_path(vote_shares: list[float], seat_shares: list[float]) -> str:
         """Convert step-curve vectors into a TikZ path string.
 
@@ -727,19 +721,8 @@ class SeatsVotes:
                 ``kind="html"`` for HTML hex colors used with ``\\color[HTML]{...}``,
                 ``kind="none"`` for transparent/no-color tokens.
         """
-        if isinstance(color, str):
-            color_expr = color.strip()
-            if color_expr.lower() == "none":
-                return _TikzColorToken(kind="none", value="none")
-            if is_latex_color_expression(color_expr):
-                return _TikzColorToken(kind="xcolor", value=color_expr)
-
-        hex8_or_none = convert_color_to_hexa_or_none(color)
-        if hex8_or_none.lower() == "none":
-            return _TikzColorToken(kind="none", value="none")
-
-        hex6 = hex8_or_none.lstrip("#")[:6]
-        return _TikzColorToken(kind="html", value=hex6.upper())
+        color_kind, color_value = classify_tikz_color(color)
+        return _TikzColorToken(kind=color_kind, value=color_value)
 
     @staticmethod
     def _color_prefix(color: _TikzColorToken) -> str:
@@ -1021,8 +1004,8 @@ class SeatsVotes:
             lines.append("")
 
         for line in self._line_data_list:
-            x_start, y_start, x_end, y_end = (
-                self._compute_starting_ending_points_for_line_with_slope(line.slope)
+            x_start, y_start, x_end, y_end = line_segment_through_unit_square(
+                line.slope, round_to=4
             )
             line_color = self._to_latex_color(line.linecolor)
             tikz_style = _to_tikz_linestyle(line.linestyle)

@@ -13,9 +13,9 @@ import pandas as pd
 import pytest
 from numpy.random import Generator
 
+from gerrytools._geometry import line_segment_through_unit_square
 from gerrytools.plotting._legend_utils import build_legend_options, save_legend_handles
 from gerrytools.plotting._rng import resolve_numpy_rng, spawn_child_seeds
-from gerrytools.plotting.data._geometry import line_segment_through_unit_square
 from gerrytools.plotting.data.histogram import (
     _coerce_to_1d_finite_float_array,
     _coerce_to_1d_float_array,

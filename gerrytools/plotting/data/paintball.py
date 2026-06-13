@@ -8,9 +8,9 @@ from matplotlib.axes import Axes
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 
+from gerrytools._geometry import line_segment_through_unit_square
 from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
-from gerrytools.plotting.data._geometry import line_segment_through_unit_square
 from gerrytools.plotting.data.gerryplot import GerryPlotBase
 from gerrytools.typing import Color, LegendHandle
 
@@ -20,6 +20,11 @@ logger = get_logger(__name__)
 @dataclass(frozen=True)
 class PaintBallLine:
     """Dataclass for storing paintball line properties.
+
+    Deliberately parallel to :class:`gerrytools.latex.paintball.PaintBallLine`
+    (the TikZ backend); the two stay separate because their style vocabularies
+    differ (Matplotlib linestyle strings here, TikZ tokens there). Keep field
+    changes in sync where the concepts overlap.
 
     Attributes:
         slope (float): Slope of the guide line.
@@ -529,20 +534,6 @@ class PaintBall(GerryPlotBase):
     # =================
     #   DRAW HELPERS
     # =================
-    def _compute_starting_ending_points_for_line_with_slope(
-        self, slope: float
-    ) -> tuple[float, float, float, float]:
-        """Compute the start and end points for a slope-constrained guide line.
-
-        Args:
-            slope (float): Guide-line slope through the center point ``(0.5, 0.5)``.
-
-        Returns:
-            tuple[float, float, float, float]: ``(x_start, y_start, x_end, y_end)`` clipped to
-                the unit square.
-        """
-        return line_segment_through_unit_square(slope)
-
     def _draw_crosshairs(self) -> None:
         """Draw crosshair guide lines centered at (0.5, 0.5)."""
         crosshair_color = self._resolved_rgba(
@@ -569,9 +560,7 @@ class PaintBall(GerryPlotBase):
     def _draw_lines(self) -> None:
         """Draw all named and anonymous guide lines."""
         for line in self._named_lines.values():
-            x_start, y_start, x_end, y_end = (
-                self._compute_starting_ending_points_for_line_with_slope(line.slope)
-            )
+            x_start, y_start, x_end, y_end = line_segment_through_unit_square(line.slope)
             named_line_artists = self._ax.plot(
                 [x_start, x_end],
                 [y_start, y_end],
@@ -588,9 +577,7 @@ class PaintBall(GerryPlotBase):
 
         for lines in self._lines.values():
             for line in lines:
-                x_start, y_start, x_end, y_end = (
-                    self._compute_starting_ending_points_for_line_with_slope(line.slope)
-                )
+                x_start, y_start, x_end, y_end = line_segment_through_unit_square(line.slope)
                 line_artists = self._ax.plot(
                     [x_start, x_end],
                     [y_start, y_end],

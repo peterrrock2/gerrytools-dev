@@ -7,8 +7,8 @@ from matplotlib.axes import Axes
 from matplotlib.lines import Line2D
 from numpy.typing import NDArray
 
+from gerrytools._geometry import line_segment_through_unit_square
 from gerrytools.logging import get_logger
-from gerrytools.plotting.data._geometry import line_segment_through_unit_square
 from gerrytools.plotting.data.gerryplot import GerryPlotBase
 from gerrytools.plotting.data.options import (
     DEFAULT_EDGE_WIDTH,
@@ -20,6 +20,8 @@ from gerrytools.typing import Color, LegendHandle
 logger = get_logger(__name__)
 
 
+# The _Crosshair*Settings TypedDicts are deliberately parallel to the ones in
+# gerrytools.latex.seatsvotes (the TikZ backend); keep changes in sync where the concepts overlap.
 class _CrosshairXSettings(TypedDict):
     xmin: float
     xmax: float
@@ -42,6 +44,9 @@ class _CrosshairSettings(TypedDict):
 @dataclass(slots=True, frozen=True)
 class SeatsVotesData:
     """One seats-votes curve + optional overall marker.
+
+    Deliberately parallel to :class:`gerrytools.latex.seatsvotes.SeatsVotesData` (the TikZ backend);
+    keep field changes in sync where the concepts overlap.
 
     Attributes:
         pov_party_vote_counts (np.ndarray): An array of vote counts for the party of interest in
@@ -192,6 +197,9 @@ class SeatsVotesData:
 @dataclass(frozen=True)
 class SVPlotLine:
     """Dataclass for storing plot line properties.
+
+    Deliberately parallel to :class:`gerrytools.latex.seatsvotes.SVPlotLine` (the TikZ backend);
+    keep field changes in sync where the concepts overlap.
 
     Attributes:
         slope (float): The slope of the line.
@@ -670,29 +678,10 @@ class SeatsVotes(GerryPlotBase):
             ticktype=style.ticktype,
         )
 
-    def _compute_starting_ending_points_for_line_with_slope(
-        self, slope: float
-    ) -> tuple[float, float, float, float]:
-        """Compute the starting and ending points for a line with the given slope.
-
-        The line is drawn within the unit square from (0,0) to (1,1) and must pass through
-        the center point (0.5, 0.5).
-
-        Args:
-            slope (float): The slope of the line.
-
-        Returns:
-            tuple[float, float, float, float]: The starting and ending points of the line
-                in the format (starting_x, starting_y, ending_x, ending_y).
-        """
-        return line_segment_through_unit_square(slope)
-
     def _draw_lines(self) -> None:
         """Draw all custom lines on the plot."""
         for line in self._line_data_list:
-            x_start, y_start, x_end, y_end = (
-                self._compute_starting_ending_points_for_line_with_slope(line.slope)
-            )
+            x_start, y_start, x_end, y_end = line_segment_through_unit_square(line.slope)
             x_vals = [x_start, x_end]
             y_vals = [y_start, y_end]
             line_artists = self._ax.plot(
