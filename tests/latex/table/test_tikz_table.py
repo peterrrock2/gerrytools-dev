@@ -27,22 +27,25 @@ class TestTikzTableNiceTabularGeneration:
 
     def test_header_double_rule_pushed_into_header(self, df):
         # The header double rule (count == 2) is split: a single \hline at the
-        # header/data boundary plus an upper rule drawn in \CodeAfter, with a
+        # header/data boundary plus the extra rule drawn in \CodeAfter, with a
         # depth strut on the header row supplying the \doublerulesep gap. This
         # keeps the first data row's colour band the same height as the others
-        # (a plain \hline\hline absorbs the gap into the first shaded band).
+        # (a plain \hline\hline absorbs the gap into the first shaded band). The
+        # rule width/step are emitted as length registers so they track the
+        # document's \arrayrulewidth / \doublerulesep.
         table = TikzTable(df)  # use_defaults=True -> header double rule
 
         latex = str(table)
 
         # No verbatim double rule; the pair is reconstructed instead.
         assert "\\hline\n\\hline" not in latex
-        assert r"\rule[-2.4pt]{0pt}{0pt} \\" in latex  # header depth strut
+        # Header depth strut sized for one extra \hline-width rule.
+        assert r"\rule[-\dimexpr1\doublerulesep+\arrayrulewidth\relax]{0pt}{0pt} \\" in latex
         # Upper rule of the pair, drawn above the boundary across the full width
         # (df has 6 columns -> col-7 is the right boundary; data starts at row 2).
         assert (
-            r"\draw[line width=0.4pt] "
-            r"([yshift=2pt]row-2-|col-1) -- ([yshift=2pt]row-2-|col-7);" in latex
+            r"\draw[line width=\arrayrulewidth] ([yshift=1\doublerulesep]row-2-|col-1) -- "
+            r"([yshift=1\doublerulesep]row-2-|col-7);" in latex
         )
         assert r"\fill[white]" not in latex
 
@@ -54,12 +57,32 @@ class TestTikzTableNiceTabularGeneration:
 
         latex = str(table)
 
-        assert r"\rule[-2.4pt]{0pt}{0pt} \\" in latex
+        assert r"\rule[-\dimexpr1\doublerulesep+\arrayrulewidth\relax]{0pt}{0pt} \\" in latex
         assert (
-            r"\draw[line width=0.4pt] "
-            r"([yshift=2pt]row-2-|col-1) -- ([yshift=2pt]row-2-|col-7);" in latex
+            r"\draw[line width=\arrayrulewidth] ([yshift=1\doublerulesep]row-2-|col-1) -- "
+            r"([yshift=1\doublerulesep]row-2-|col-7);" in latex
         )
         assert r"\fill[white]" not in latex
+
+    def test_header_rule_stack_pushed_for_any_command_and_count(self, df):
+        # The push generalises beyond \hline/count-2: stacking the default header
+        # rule and an explicit add_hrule_above with a \midrule command yields a
+        # triple rule (count 3). It must still emit ONE rule at the boundary and
+        # draw the remaining two inside the header, using the booktabs
+        # \lightrulewidth so the stack reads like real \midrule rows. Otherwise
+        # nicematrix absorbs the gaps into the first shaded data row.
+        table = TikzTable(df)  # use_defaults -> header rule count 2
+        table.set_hrule_command(r"\midrule")
+        table.add_hrule_above(0)  # -> count 3
+
+        latex = str(table)
+
+        assert "\\midrule\n\\midrule" not in latex  # not emitted verbatim
+        # Strut sized for two extra \lightrulewidth rules.
+        assert r"\rule[-\dimexpr2\doublerulesep+\lightrulewidth\relax]{0pt}{0pt} \\" in latex
+        # Two extra rules drawn at 1x and 2x the step above the boundary (row 2).
+        assert r"\draw[line width=\lightrulewidth] ([yshift=1\doublerulesep]row-2-|col-1)" in latex
+        assert r"\draw[line width=\lightrulewidth] ([yshift=2\doublerulesep]row-2-|col-1)" in latex
 
     def test_single_and_custom_rules_emitted_verbatim(self, df):
         table = TikzTable(df, use_defaults=False)

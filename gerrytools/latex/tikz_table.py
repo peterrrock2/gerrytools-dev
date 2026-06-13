@@ -804,12 +804,33 @@ class TikzTable:
             text = rf"\textit{{{text}}}"
         return text
 
-    # Geometry for the "pushed-up" header double rule (see push_header_double).
-    # The strut adds depth to the last header row so the upper rule has white
-    # room; the offset places that upper rule above the single \hline by about
-    # \doublerulesep, reproducing a tabular double rule.
-    _HEADER_RULE_STRUT = r"\rule[-2.4pt]{0pt}{0pt}"
-    _HEADER_RULE_OFFSET = "2pt"
+    def _header_rule_metrics(self) -> tuple[str, str]:
+        """Line width and inter-rule step for the pushed-up header rule stack.
+
+        The values are LaTeX length expressions matching the active ``hrule_cmd``
+        so the drawn rules look like real stacked rules: booktabs ``\\midrule``
+        uses ``\\lightrulewidth``, ``\\toprule``/``\\bottomrule`` use
+        ``\\heavyrulewidth``, and ``\\hline`` (or anything else) uses
+        ``\\arrayrulewidth``. The step is ``\\doublerulesep`` throughout, which
+        reproduces a tabular double rule and reads as a clean multi-rule.
+        """
+        cmd = self._options.hrule_cmd
+        if cmd == r"\midrule":
+            return r"\lightrulewidth", r"\doublerulesep"
+        if cmd in (r"\toprule", r"\bottomrule"):
+            return r"\heavyrulewidth", r"\doublerulesep"
+        return r"\arrayrulewidth", r"\doublerulesep"
+
+    def _header_rule_strut(self) -> str:
+        """Zero-width depth strut giving the last header row room for the stack.
+
+        Depth ``(count - 1) * step + width`` reaches just past the topmost drawn
+        rule so it sits in page-coloured space inside the header rather than
+        bleeding into the first data row's colour band.
+        """
+        width, step = self._header_rule_metrics()
+        extra = self._options.hrule_counts[0] - 1
+        return rf"\rule[-\dimexpr{extra}{step}+{width}\relax]{{0pt}}{{0pt}}"
 
     def _generate_latex(self) -> str:
         """Build the complete ``NiceTabular`` string."""
@@ -820,18 +841,19 @@ class TikzTable:
         data_start = 1 + int(group_header_present) + int(column_headers_present)
         ndata = len(self.df)
 
-        # A double \hline (count == 2) directly under the header would absorb its
-        # \doublerulesep gap into the first data row's colour band under
-        # nicematrix, making that one shaded row visibly taller than the rest.
-        # Instead, emit a single \hline at the boundary (so all data rows stay
-        # the same height) and draw the *upper* rule of the pair up inside the
-        # header via \CodeAfter, with a depth strut on the last header row to
-        # give it white room. This keeps a tabular-style double rule whose gap
-        # is the page colour, and leaves every shaded row identical.
+        # A stack of two or more rules directly under the header (e.g. a double
+        # \hline, or \midrule×3 once use_defaults' header rule and an explicit
+        # add_hrule_above pile up) absorbs the rules' vertical gaps into the
+        # first data row's colour band under nicematrix, so that one shaded row
+        # is visibly taller than the rest. Instead, emit a single rule at the
+        # boundary (so all data rows stay the same height) and draw the extra
+        # rules up inside the header via \CodeAfter, with a depth strut on the
+        # last header row to give it room. The gap between rules is the page
+        # colour, every shaded row is identical, and the multi-rule still reads
+        # the way the same calls render under colortbl (TexTable).
         push_header_double = (
-            self._options.hrule_cmd == r"\hline"
-            and bool(self._options.hrule_counts)
-            and self._options.hrule_counts[0] == 2
+            bool(self._options.hrule_counts)
+            and self._options.hrule_counts[0] >= 2
             and (column_headers_present or group_header_present)
         )
 
@@ -907,9 +929,9 @@ class TikzTable:
                 cells.append(rf"\Block[c]{{1-{span}}}{{{text}}}")
                 cells.extend([""] * (span - 1))
             # When the group row is the last header row, it carries the depth
-            # strut that makes white room for the pushed-up double-rule line.
+            # strut that makes white room for the pushed-up rule stack.
             strut = (
-                self._HEADER_RULE_STRUT
+                self._header_rule_strut()
                 if (push_header_double and not column_headers_present)
                 else ""
             )
@@ -939,14 +961,14 @@ class TikzTable:
                         italic=self._options.italic_column_headers,
                     )
                 )
-            strut = self._HEADER_RULE_STRUT if push_header_double else ""
+            strut = self._header_rule_strut() if push_header_double else ""
             lines.append(" & ".join(header_cells) + strut + r" \\")
 
         # ---- data rows with interior horizontal rules ----
         # Rules are emitted verbatim so row geometry and the (row-i) boundary
-        # lattice match a real tabular — except the header double rule, which is
-        # emitted as a single \hline here and completed by an upper rule drawn
-        # in \CodeAfter (see push_header_double) to keep shaded rows uniform.
+        # lattice match a real tabular — except a header rule stack, which keeps
+        # a single rule here and draws the rest in \CodeAfter (see
+        # push_header_double) to keep shaded rows uniform.
         hrule_counts = self._options.hrule_counts
         for row_idx, row_text in enumerate(body_rows):
             count = hrule_counts[row_idx] if row_idx < len(hrule_counts) else 0
@@ -963,17 +985,22 @@ class TikzTable:
         # ---- CodeAfter: group-header vrules + per-cell borders + user draws ----
         code_after: list[str] = []
 
-        # Upper rule of the pushed-up header double rule, drawn inside the
-        # header (above the single \hline at the header/data boundary) so the
-        # gap between the two rules is the page colour and the first data row's
-        # colour band matches the others. See push_header_double.
+        # Extra rules of the pushed-up header stack, drawn inside the header
+        # (above the single rule at the header/data boundary) so the gaps
+        # between rules are the page colour and the first data row's colour band
+        # matches the others. One rule sits at the boundary in the body; the
+        # remaining (count - 1) are drawn here at multiples of the step above it.
+        # See push_header_double.
         if push_header_double:
             ncols = self._get_ncols()
-            code_after.append(
-                r"\draw[line width=0.4pt] "
-                f"([yshift={self._HEADER_RULE_OFFSET}]row-{data_start}-|col-1) -- "
-                f"([yshift={self._HEADER_RULE_OFFSET}]row-{data_start}-|col-{ncols + 1});"
-            )
+            width, step = self._header_rule_metrics()
+            extra = self._options.hrule_counts[0] - 1
+            for k in range(1, extra + 1):
+                code_after.append(
+                    rf"\draw[line width={width}] "
+                    f"([yshift={k}{step}]row-{data_start}-|col-1) -- "
+                    f"([yshift={k}{step}]row-{data_start}-|col-{ncols + 1});"
+                )
 
         # Group-header vertical rules (from set_group_tabular_format) span only
         # the group-header row, matching \multicolumn{n}{|c|}{} in TexTable.
