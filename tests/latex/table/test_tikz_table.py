@@ -1,4 +1,4 @@
-"""Tests for TikzTable geometry and LaTeX generation."""
+"""Tests for the nicematrix-based TikzTable LaTeX generation."""
 
 from gerrytools.latex import TikzTable
 from gerrytools.latex.formatters import (
@@ -8,58 +8,71 @@ from gerrytools.latex.formatters import (
 )
 
 
-class TestTikzTableGeometry:
-    def test_cell_size_normalizes_text_metrics_for_visual_centering(self, df):
-        table = TikzTable(df, use_defaults=False)
-
-        table.remove_all_headers()
-        table.set_cell_size("1cm", "1cm")
-        table.set_decimal_count(2)
-
-        latex = str(table)
-
-        assert r"minimum width=1cm" in latex
-        assert r"minimum height=1cm" in latex
-        # Dimension constants are defined once at the top of the picture...
-        assert r"\def\gtboxwidth{\dimexpr 1cm-3pt*2\relax}" in latex
-        assert r"\def\gtraiseheight{\dimexpr 1cm/2-3pt\relax}" in latex
-        assert r"\def\gtraiseshift{\dimexpr (\dp\strutbox-\ht\strutbox)/2\relax}" in latex
-        # ...and the \gtcell macro wraps each cell in raisebox+smash+makebox.
-        assert (
-            r"\def\gtcell#1#2{\raisebox{\gtraiseshift}"
-            r"[\gtraiseheight][\gtraiseheight]"
-            r"{\smash{\strut \makebox[\gtboxwidth][#1]{#2}}}}" in latex
-        )
-        assert r"\gtcell{c}{" in latex
-
-    def test_exact_cell_size_wraps_cells_in_fixed_size_boxes(self, df):
-        table = TikzTable(df, use_defaults=False)
-
-        table.remove_all_headers()
-        table.set_exact_cell_size("1cm", "1cm")
-        table.set_decimal_count(2)
-
-        latex = str(table)
-
-        assert r"column sep=0pt" in latex
-        assert r"minimum width=1cm" in latex
-        assert r"minimum height=1cm" in latex
-        assert r"\def\gtboxwidth{\dimexpr 1cm-3pt*2\relax}" in latex
-        assert r"\def\gtraiseheight{\dimexpr 1cm/2-3pt\relax}" in latex
-        assert r"\def\gtraiseshift{\dimexpr (\dp\strutbox-\ht\strutbox)/2\relax}" in latex
-        assert r"\gtcell{c}{" in latex
-
-    def test_uses_canonical_row_and_column_fit_nodes_for_fills_and_rules(self, df):
-        table = TikzTable(df, use_defaults=False)
-
-        table.include_index(name="", alignment="r")
-        table.set_header_groups(
-            {
-                "Scores": ["Column 1", "Column 2", "Column 3", "Column 4", "Column 5"],
-            }
-        )
-        table.set_tabular_format("r c c c c c l")
+class TestTikzTableNiceTabularGeneration:
+    def test_emits_nicetabular_with_tabular_dialect_rules(self, df):
+        table = TikzTable(df)
+        table.add_vrule_all()
         table.add_hrule_above_all()
+        table.add_toprule()
+        table.add_bottomrule()
+
+        latex = str(table)
+
+        # Real tabular column spec: rules live in the preamble, so they meet
+        # horizontal rules by construction (the old matrix-of-nodes emitter
+        # drew rules between node anchors and left visible gaps).
+        assert r"\begin{NiceTabular}{|c|c|c|c|c|c|}[name=table" in latex
+        assert latex.count(r"\hline") >= len(df)  # one interior rule per data row
+        assert latex.strip().endswith(r"\end{NiceTabular}")
+
+    def test_header_double_rule_pushed_into_header(self, df):
+        # The header double rule (count == 2) is split: a single \hline at the
+        # header/data boundary plus an upper rule drawn in \CodeAfter, with a
+        # depth strut on the header row supplying the \doublerulesep gap. This
+        # keeps the first data row's colour band the same height as the others
+        # (a plain \hline\hline absorbs the gap into the first shaded band).
+        table = TikzTable(df)  # use_defaults=True -> header double rule
+
+        latex = str(table)
+
+        # No verbatim double rule; the pair is reconstructed instead.
+        assert "\\hline\n\\hline" not in latex
+        assert r"\rule[-2.4pt]{0pt}{0pt} \\" in latex  # header depth strut
+        # Upper rule of the pair, drawn above the boundary across the full width
+        # (df has 6 columns -> col-7 is the right boundary; data starts at row 2).
+        assert (
+            r"\draw[line width=0.4pt] "
+            r"([yshift=2pt]row-2-|col-1) -- ([yshift=2pt]row-2-|col-7);" in latex
+        )
+        assert r"\fill[white]" not in latex
+
+    def test_rules_never_perturbed_by_fills(self, df):
+        # The header rule geometry is identical whether or not rows are coloured,
+        # so the (row-i) lattice stays stable for custom \draw commands.
+        table = TikzTable(df)
+        table.highlight_rows(0, color="lightblue")
+
+        latex = str(table)
+
+        assert r"\rule[-2.4pt]{0pt}{0pt} \\" in latex
+        assert (
+            r"\draw[line width=0.4pt] "
+            r"([yshift=2pt]row-2-|col-1) -- ([yshift=2pt]row-2-|col-7);" in latex
+        )
+        assert r"\fill[white]" not in latex
+
+    def test_single_and_custom_rules_emitted_verbatim(self, df):
+        table = TikzTable(df, use_defaults=False)
+        table.add_hrule_above_all()  # count 1 everywhere
+        table.set_hrule_command(r"\midrule")
+
+        latex = str(table)
+
+        assert r"\midrule" in latex
+        assert r"\Hline[tikz=" not in latex
+
+    def test_row_and_cell_fills_emitted_in_code_before(self, df):
+        table = TikzTable(df, use_defaults=False)
         table.highlight_rows([0], color="gray!50")
         table.set_number_formatter(
             compose_formatters(
@@ -75,45 +88,106 @@ class TestTikzTableGeometry:
 
         latex = str(table)
 
-        # colfit / rowfit foreach blocks are unchanged
-        assert r"\foreach \c in {1,...,7} {" in latex
-        assert (
-            r"\node[fit=(table-1-\c)(table-2-\c)(table-3-\c)(table-4-\c)(table-5-\c)"
-            r"(table-6-\c)(table-7-\c)(table-8-\c)(table-9-\c)(table-10-\c)"
-            r"(table-11-\c)(table-12-\c), inner sep=0pt] (colfitV\c) {};" in latex
-        )
-        # Row highlights go through the \gtrowfill macro inside a foreach.
-        # Color is wrapped in {fill={...}} so inline rgb specs (which
-        # contain commas/semicolons) survive pgfkeys parsing.
-        assert r"\foreach \r in {3} {" in latex
-        assert r"\gtrowfill{gray!50}{\r}" in latex
-        assert (
-            r"\def\gtrowfill#1#2{\fill[fill={#1}] "
-            r"(colfitV1.west |- rowfitH#2.north)"
-            r" rectangle (colfitV7.east |- rowfitH#2.south);}" in latex
-        )
-        # Per-cell hex highlights are grouped per row into one
-        # \gtcellrowfills{row}{col1/name1, col2/name2, ...} call.  Each
-        # name is derived from the source value (e.g. value 0.55 -> gradc_55)
-        # and resolves to a \definecolor entry in the colour-definitions
-        # block above.
-        assert r"\gtcellrowfills{3}{" in latex
-        assert "\\definecolor{tikzcc" not in latex
-        # Value-derived gradient names appear both in the call and as
-        # \definecolor entries.
-        import re
+        assert r"\CodeBefore" in latex
+        assert r"\Body" in latex
+        # Row highlight targets the first data row (row 2: one header row).
+        assert r"\rowcolor{gray!50}{2}" in latex
+        # Gradient cell colours are emitted inline as \cellcolor[HTML]{...}.
+        assert r"\cellcolor[HTML]{" in latex
+        # Regression: NO body-level \definecolor. nicematrix reserves spurious
+        # horizontal space for every \definecolor in the document body, which
+        # shifted gradient tables far to the right.
+        assert r"\definecolor" not in latex
 
-        assert re.search(r"\\definecolor\{gradc_\d+", latex)
-        assert re.search(r"\\gtcellrowfills\{3\}\{[^}]*gradc_\d+", latex)
-        assert (
-            r"\def\gtcellrowfills#1#2{\foreach \gtc/\gtn in {#2} {"
-            r"\fill[fill={\gtn}]"
-            r" (colfitV\gtc.west |- rowfitH#1.north) rectangle"
-            r" (colfitV\gtc.east |- rowfitH#1.south);}}" in latex
+    def test_no_body_definecolor_for_hex_row_highlight(self, df):
+        # Same regression guard for hex-coloured row highlights.
+        table = TikzTable(df, use_defaults=False)
+        table.highlight_rows([1, 3], color="#F6E8C3")
+
+        latex = str(table)
+
+        assert r"\rowcolor[HTML]{F6E8C3}{3}" in latex
+        assert r"\definecolor" not in latex
+
+    def test_group_tabular_format_draws_group_row_vrules(self, df):
+        # set_group_tabular_format adds vertical rules that span only the
+        # group-header row (matching \multicolumn{n}{|c|}{} in TexTable),
+        # drawn on nicematrix's boundary lattice in \CodeAfter.
+        table = TikzTable(df, use_defaults=False)
+        table.set_header_groups(
+            {"Group A": ["Column 1", "Column 2", "Column 3"], "Group B": ["Column 4", "Column 5"]}
         )
-        # Hrules use \gthline / \gthlinestyled macros instead of inline \draw
-        assert r"\gthline{3}" in latex
-        assert (
-            r"\def\gthline#1{\draw (colfitV1.west |- rowfitH#1.north)"
-            r" -- (colfitV7.east |- rowfitH#1.north);}" in latex
+        table.set_group_tabular_format("|c|c|c|")
+
+        latex = str(table)
+
+        assert r"\CodeAfter" in latex
+        # Boundaries at columns 0, 3, 5, 6 -> lattice col-1, col-4, col-6, col-7,
+        # each spanning the group-header row (row-1 to row-2).
+        assert r"\draw (row-1-|col-1) -- (row-2-|col-1);" in latex
+        assert r"\draw (row-1-|col-4) -- (row-2-|col-4);" in latex
+        assert r"\draw (row-1-|col-6) -- (row-2-|col-6);" in latex
+        assert r"\draw (row-1-|col-7) -- (row-2-|col-7);" in latex
+
+    def test_group_headers_use_block_spans(self, df):
+        table = TikzTable(df, use_defaults=False)
+        table.set_header_groups(
+            {"Scores": ["Column 1", "Column 2", "Column 3", "Column 4", "Column 5"]}
         )
+
+        latex = str(table)
+
+        assert r"\Block[c]{1-5}{\textbf{Scores}}" in latex
+        # "Names" column is outside any group: empty cell, no Block.
+        assert latex.count(r"\Block") == 1
+
+    def test_cell_borders_draw_on_boundary_lattice(self, df):
+        table = TikzTable(df, use_defaults=False)
+        table.set_cell_border(3, 2, "all")
+
+        latex = str(table)
+
+        assert r"\CodeAfter" in latex
+        # Four sides of cell (3,2) on nicematrix's (row-i)/(col-j) lattice.
+        assert r"\draw (row-3-|col-2) -- (row-3-|col-3);" in latex  # top
+        assert r"\draw (row-4-|col-2) -- (row-4-|col-3);" in latex  # bottom
+        assert r"\draw (row-3-|col-2) -- (row-4-|col-2);" in latex  # left
+        assert r"\draw (row-3-|col-3) -- (row-4-|col-3);" in latex  # right
+
+    def test_adjacent_cell_borders_share_edges(self, df):
+        table = TikzTable(df, use_defaults=False)
+        table.set_cell_border(3, 2, "right")
+        table.set_cell_border(3, 3, "left")  # same physical edge
+
+        latex = str(table)
+
+        assert latex.count(r"\draw (row-3-|col-3) -- (row-4-|col-3);") == 1
+
+    def test_extra_draws_render_inside_code_after(self, df):
+        table = TikzTable(df, use_defaults=False)
+        draw = r"\draw[red] (table-2-1.north west) rectangle (table-2-1.south east);"
+        table.add_draw(draw)
+
+        latex = str(table)
+
+        assert r"\CodeAfter" in latex
+        assert r"\begin{tikzpicture}" in latex
+        assert draw in latex
+
+    def test_boundary_extras_reconstruct_valid_preamble_ordering(self, df):
+        table = TikzTable(df, use_defaults=False)
+        table.set_tabular_format(r">{\bfseries}c|c c c c l")
+        table.add_vrule_left_of(0)
+
+        latex = str(table)
+
+        # ``>{...}`` opens its column after any vrule at the same boundary.
+        assert r"\begin{NiceTabular}{|>{\bfseries}c|c" in latex
+
+    def test_document_requires_nicematrix_and_two_passes(self, df):
+        table = TikzTable(df, use_defaults=False)
+
+        doc = table.document
+
+        assert "nicematrix" in doc.package_list
+        assert doc.compile_passes == 2

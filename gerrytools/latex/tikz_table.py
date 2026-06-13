@@ -1,18 +1,18 @@
-"""TikZ-based table renderer from a pandas DataFrame.
+"""TikZ-augmented table renderer from a pandas DataFrame.
 
-Mirrors the :class:`TexTable` interface but generates a ``tikzpicture``
-``matrix of nodes`` instead of a ``tabular`` environment.  Because every
-cell is a TikZ node you can:
+Mirrors the :class:`TexTable` interface but generates a ``nicematrix``
+``NiceTabular`` environment instead of a plain ``tabular``.  LaTeX's own
+tabular engine does the layout — so rules, spacing, and double rules are
+pixel-identical to :class:`TexTable` by construction — while nicematrix
+exposes every cell as a PGF/TikZ node, so you can still:
 
-* Change the node shape (``rectangle``, ``rounded rectangle``, …).
-* Add arbitrary ``\\draw`` commands referencing matrix-node anchors such as
-  ``(table-2-3.north west)``.
+* Add arbitrary ``\\draw`` commands referencing cell nodes such as
+  ``(table-2-3.north west)`` or the boundary lattice ``(row-i)``/``(col-j)``.
 * Control individual cell borders (top/right/bottom/left) per cell.
-* Override per-column widths, per-row heights, and per-cell styles.
+* Fill rows and cells with background colours.
 
-The generated code follows the same visual conventions as a ``tabular``:
-no cell borders are drawn by default; horizontal and vertical rules are
-placed exactly where :class:`TexTable` would put ``\\hline`` and ``|``.
+The generated LaTeX requires two compile passes (nicematrix stores node
+positions in the aux file); :attr:`document` configures that automatically.
 """
 
 from __future__ import annotations
@@ -89,11 +89,10 @@ class TikzTableOptions:
     attributes are grouped at the bottom.
     """
 
-    # --- rules ---
-    toprule_style: str | None = None
-    bottomrule_style: str | None = None
-    hrule_style: str = ""
-    vrule_style: str = ""
+    # --- rules (same semantics as TableOptions) ---
+    toprule_cmd: str | None = None
+    bottomrule_cmd: str | None = None
+    hrule_cmd: str = r"\hline"
 
     # --- header visibility ---
     include_column_headers: bool = True
@@ -136,18 +135,8 @@ class TikzTableOptions:
     bold_column_headers: bool = False
     italic_column_headers: bool = False
 
-    # --- TikZ-specific ---
-    cell_width: str = ""
-    cell_height: str = "0.7cm"
-    exact_cell_size: bool = False
-    normalize_cell_text_metrics: bool = False
-    row_sep: str = "0pt"
-    column_sep: str = "0pt"
-    inner_sep: str = "3pt"
-    node_shape: str = "rectangle"
-    extra_node_style: str = ""
-    col_widths: dict[int, str] = field(default_factory=dict)
-    row_heights: dict[int, str] = field(default_factory=dict)
+    # --- NiceTabular-specific ---
+    cell_space_limits: str = "1pt"
     extra_draws: list[str] = field(default_factory=list)
 
     # Per-cell border control: maps (tikz_row_1based, tikz_col_1based) to a
@@ -188,8 +177,12 @@ class TikzTable:
     def __init__(self, df: pd.DataFrame, *, use_defaults: bool = True) -> None:
         self.df = df.copy()
         self._document = TexDocument()
-        self._document.add_packages("tikz")
-        self._document.add_command(r"\usetikzlibrary{matrix,fit,calc,backgrounds}")
+        self._document.add_packages(["nicematrix", "tikz"])
+        self._document.add_command(r"\usetikzlibrary{calc}")
+        # nicematrix stores cell-node positions in the aux file, so the
+        # document needs a second compile pass for CodeBefore/CodeAfter
+        # material to land in the right place.
+        self._document.compile_passes = 2
 
         if use_defaults:
             self._options = TikzTableOptions(
@@ -353,37 +346,39 @@ class TikzTable:
         """Add a rule at the very top of the table.
 
         Args:
-            cmd (Optional[str]): TikZ draw style.  Defaults to ``hrule_style``.
+            cmd (Optional[str]): LaTeX rule command (e.g. ``r"\\toprule"``).
+                Defaults to the current ``hrule_cmd`` (``r"\\hline"``).
         """
-        self._options.toprule_style = cmd if cmd is not None else self._options.hrule_style
+        self._options.toprule_cmd = cmd if cmd is not None else self._options.hrule_cmd
 
     def remove_toprule(self) -> None:
-        self._options.toprule_style = None
+        self._options.toprule_cmd = None
 
     def add_bottomrule(self, *, cmd: Optional[str] = None) -> None:
         """Add a rule at the very bottom of the table.
 
         Args:
-            cmd (Optional[str]): TikZ draw style.  Defaults to ``hrule_style``.
+            cmd (Optional[str]): LaTeX rule command (e.g. ``r"\\bottomrule"``).
+                Defaults to the current ``hrule_cmd`` (``r"\\hline"``).
         """
-        self._options.bottomrule_style = cmd if cmd is not None else self._options.hrule_style
+        self._options.bottomrule_cmd = cmd if cmd is not None else self._options.hrule_cmd
 
     def remove_bottomrule(self) -> None:
-        self._options.bottomrule_style = None
+        self._options.bottomrule_cmd = None
 
     def set_hrule_command(self, cmd: str) -> None:
-        r"""Set the TikZ draw style for interior horizontal rules.
+        r"""Set the LaTeX command used for interior horizontal rules.
 
         Args:
-            cmd (str): TikZ draw-option string (e.g. ``"line width=1pt"``).
+            cmd (str): Rule command (e.g. ``r"\hline"``).
         """
-        self._options.hrule_style = cmd
+        self._options.hrule_cmd = cmd
 
     def set_toprule_command(self, cmd: str | None = None) -> None:
-        self._options.toprule_style = cmd if cmd is not None else self._options.hrule_style
+        self._options.toprule_cmd = cmd if cmd is not None else self._options.hrule_cmd
 
     def set_bottomrule_command(self, cmd: str | None = None) -> None:
-        self._options.bottomrule_style = cmd if cmd is not None else self._options.hrule_style
+        self._options.bottomrule_cmd = cmd if cmd is not None else self._options.hrule_cmd
 
     # --- vertical rules ------------------------------------------------
 
@@ -624,73 +619,24 @@ class TikzTable:
         self._options.group_boundary_extras = None
 
     # ==================================================================
-    #   TikZ-specific setters
+    #   NiceTabular-specific setters
     # ==================================================================
 
-    def set_cell_size(self, width: str, height: str) -> None:
-        """Set the default minimum width and height for all cells.
-
-        Pass ``""`` for *width* to let columns auto-size to their widest
-        content (the default).
+    def set_cell_space_limits(self, limit: str) -> None:
+        """Set nicematrix's minimal vertical space around cell content.
 
         Args:
-            width (str): TikZ dimension (e.g. ``"3cm"``), or ``""``.
-            height (str): TikZ dimension (e.g. ``"0.8cm"``).
+            limit (str): LaTeX dimension (e.g. ``"2pt"``).
         """
-        self._options.cell_width = width
-        self._options.cell_height = height
-        self._options.exact_cell_size = False
-        self._options.normalize_cell_text_metrics = True
-
-    def set_exact_cell_size(self, width: str, height: str) -> None:
-        """Force all cells to render at exactly ``width × height`` when possible.
-
-        Unlike :meth:`set_cell_size`, this wraps content in fixed-size TeX boxes
-        so glyph ascenders/descenders do not change the rendered node size.
-        Content that is too large may still overflow visually.
-
-        Args:
-            width (str): TikZ dimension (e.g. ``"1cm"``), or ``""`` to leave width auto.
-            height (str): TikZ dimension (e.g. ``"1cm"``).
-        """
-        self._options.cell_width = width
-        self._options.cell_height = height
-        self._options.exact_cell_size = True
-        self._options.normalize_cell_text_metrics = True
-
-    def set_col_width(self, col_idx: int | list[int], width: str) -> None:
-        for i in [col_idx] if isinstance(col_idx, int) else list(col_idx):
-            self._options.col_widths[i] = width
-
-    def set_row_height(self, row_idx: int | list[int], height: str) -> None:
-        for i in [row_idx] if isinstance(row_idx, int) else list(row_idx):
-            self._options.row_heights[i] = height
-
-    def set_node_shape(self, shape: str) -> None:
-        self._options.node_shape = shape
-
-    def set_row_sep(self, sep: str) -> None:
-        """Set the TikZ matrix row separation."""
-        self._options.row_sep = sep
-
-    def set_column_sep(self, sep: str) -> None:
-        """Set the TikZ matrix column separation."""
-        self._options.column_sep = sep
-
-    def set_inner_sep(self, sep: str) -> None:
-        self._options.inner_sep = sep
-
-    def set_extra_node_style(self, style: str) -> None:
-        self._options.extra_node_style = style
-
-    def set_vrule_style(self, style: str) -> None:
-        self._options.vrule_style = style
+        self._options.cell_space_limits = limit
 
     def add_draw(self, draw_cmd: str) -> None:
-        r"""Append a raw TikZ line after the matrix.
+        r"""Append a raw TikZ command drawn over the finished table.
 
-        The matrix is named ``table``; cell *(i, j)* (1-indexed) is
-        ``(table-i-j)``.
+        The environment is named ``table``; the content node of cell
+        *(i, j)* (1-indexed, header rows count) is ``(table-i-j)``.  The
+        boundary lattice is also available: ``(row-i)`` and ``(col-j)``
+        coordinates combine as ``(row-2-|col-1)``.
         """
         self._options.extra_draws.append(draw_cmd)
 
@@ -744,17 +690,6 @@ class TikzTable:
             return [c for cols in self._options.groups_to_cols.values() for c in cols]
         return list(self.df.columns)
 
-    def _col_spec_to_tikz_align(self, spec: str) -> str:
-        if spec.startswith("l"):
-            return "left"
-        if spec.startswith("r"):
-            return "right"
-        return "center"
-
-    def _col_spec_fixed_width(self, spec: str) -> Optional[str]:
-        m = re.match(r"[pmb]\{(.+)\}$", spec)
-        return m.group(1) if m else None
-
     # Patterns for extracting >{ } and <{ } array decorators.
     _GT_RE = re.compile(r">\{((?:[^{}]|\{[^{}]*\})*)\}")
     _LT_RE = re.compile(r"<\{((?:[^{}]|\{[^{}]*\})*)\}")
@@ -766,124 +701,25 @@ class TikzTable:
         r"\{([^}]*)\}"  # {value}
     )
 
-    def _col_decorators(self, col_i: int) -> tuple[str, str]:
-        """Return ``(pre, post)`` TeX content from ``>{}`` / ``<{}`` specs."""
-        extras = self._options.boundary_extras
-        if not extras:
-            return "", ""
-        left = extras[col_i] if col_i < len(extras) else ""
-        right = extras[col_i + 1] if col_i + 1 < len(extras) else ""
-        pre = "".join(m.group(1) for m in self._GT_RE.finditer(left))
-        post = "".join(m.group(1) for m in self._LT_RE.finditer(right))
-        return pre, post
+    def _strip_cellcolor_spec(self, text: str) -> tuple[str | None, str]:
+        r"""Strip a leading ``\cellcolor`` prefix, returning ``(spec, clean_text)``.
 
-    @staticmethod
-    def _apply_decorators(text: str, pre: str, post: str) -> str:
-        if not pre and not post:
-            return text
-        sep = " " if pre and pre[-1].isalpha() else ""
-        return f"{pre}{sep}{text}{post}"
+        ``spec`` is an inline xcolor argument ready to follow ``\cellcolor`` or
+        ``\rowcolor`` in nicematrix's ``\CodeBefore`` — e.g. ``[HTML]{B481D6}``
+        or ``{teal}`` — or ``None`` when no ``\cellcolor`` prefix is present.
 
-    @staticmethod
-    def _value_to_color_basename(value: object) -> str:
-        r"""Build a descriptive xcolor base name for a cell's source value.
-
-        Names look like ``gradc_55`` (for value 0.549, percent-rounded)
-        so the user can scan the colour list and match each colour back
-        to the cell value that produced it.
-
-        * ``0 <= value <= 1``  → ``gradc_<NN>`` where NN = round(v*100).
-        * Other numerics       → ``gradc_<sanitised>`` with ``.``→``p``,
-          ``-``→``n`` (LaTeX color names disallow ``.`` and ``-``).
-        * Non-numeric / NaN    → ``gradcx`` (collisions get suffixes).
-        """
-        if isinstance(value, Real) and value == value:  # not NaN
-            f = float(value)
-            if 0.0 <= f <= 1.0:
-                return f"gradc_{int(round(f * 100)):02d}"
-            s = f"{f:.4g}".replace(".", "p").replace("-", "n").replace("+", "")
-            return f"gradc_{s}"
-        return "gradcx"
-
-    @staticmethod
-    def _cellcolor_to_hex_or_name(
-        model: str | None, value: str
-    ) -> tuple[str, str] | tuple[None, None]:
-        r"""Normalise a ``\cellcolor`` model+value into ``(kind, value)``.
-
-        Returns:
-            ``("hex", "RRGGBB")`` for model-based colours that map to a
-                fixed RGB triple (HTML, RGB, rgb).  These can be emitted
-                with the row-grouped ``\gtcellrowfills`` macro.
-            ``("name", "<name>")`` for unmodelled named colours
-                (e.g. ``teal``, ``gray!50``, or a deduped fallback name).
-            ``(None, None)`` for unrecognised models — caller falls
-                back to a deduped ``\definecolor``.
-        """
-        if model is None:
-            return "name", value
-        m = model.upper()
-        if m == "HTML":
-            h = value.lstrip("#")[:6].upper()
-            try:
-                int(h, 16)
-            except ValueError:
-                return None, None
-            return "hex", h
-        if m == "RGB":
-            parts = [p.strip() for p in value.split(",")]
-            if len(parts) != 3:
-                return None, None
-            try:
-                ints = [int(p) for p in parts]
-            except ValueError:
-                return None, None
-            return "hex", "".join(f"{i:02X}" for i in ints)
-        if model == "rgb":
-            parts = [p.strip() for p in value.split(",")]
-            if len(parts) != 3:
-                return None, None
-            try:
-                floats = [float(p) for p in parts]
-            except ValueError:
-                return None, None
-            ints = [max(0, min(255, round(f * 255))) for f in floats]
-            return "hex", "".join(f"{i:02X}" for i in ints)
-        return None, None
-
-    def _strip_cellcolor(
-        self, text: str, fallback_color_map: dict[tuple[str, str], str]
-    ) -> tuple[str, str, str]:
-        r"""Strip a ``\cellcolor`` prefix and return ``(kind, value, clean_text)``.
-
-        ``kind`` is one of:
-
-        * ``"hex"`` — *value* is a 6-char uppercase hex string; the
-          caller groups these by row into ``\gtcellrowfills`` calls.
-        * ``"name"`` — *value* is an xcolor name; the caller emits one
-          ``\gtcellfill{<name>}{row}{col}`` per cell.
-        * ``""`` — no ``\cellcolor`` was present.
-
-        For unrecognised models, *fallback_color_map* dedups by
-        (model, value) and returns the assigned ``tikzcc<N>`` as a name.
+        Emitting the colour inline (the same approach TexTable uses) rather
+        than registering a body-level ``\definecolor`` avoids the spurious
+        horizontal space nicematrix reserves for every ``\definecolor`` that
+        appears in the document body.
         """
         m = self._CELLCOLOR_RE.match(text)
         if not m:
-            return "", "", text
+            return None, text
         model, value = m.group(1), m.group(2)
         rest = text[m.end() :]
-        kind, normalised = self._cellcolor_to_hex_or_name(model, value)
-        if kind is not None:
-            normalised = "" if normalised is None else normalised
-            return kind, normalised, rest
-        # Unknown model — fall back to dedup'd \definecolor.
-        key = (model, value)
-        existing = fallback_color_map.get(key)
-        if existing is not None:
-            return "name", existing, rest
-        cname = f"tikzcc{len(fallback_color_map)}"
-        fallback_color_map[key] = cname
-        return "name", cname, rest
+        spec = f"[{model}]{{{value}}}" if model else f"{{{value}}}"
+        return spec, rest
 
     def _format_cell_value(self, row_idx: int, col: str, cell_value: object) -> str:
         if pd.isna(cell_value):
@@ -901,723 +737,294 @@ class TikzTable:
             return self._options.str_fmt_fn(raw, raw)[1]
         return raw
 
-    def _build_color_defs(self) -> list[str]:
-        lines: list[str] = []
-        for row_idx, (color_type, color_value) in enumerate(self._options.row_highlight_colors):
-            name = f"tikztblc{row_idx}"
-            match color_type:
-                case "NONE" | "NAME":
-                    pass
-                case "HTML":
-                    hex_val = str(color_value).lstrip("#").upper()
-                    lines.append(f"\\definecolor{{{name}}}{{HTML}}{{{hex_val}}}")
-                case "RGB":
-                    r, g, b = color_value
-                    lines.append(f"\\definecolor{{{name}}}{{RGB}}{{{r},{g},{b}}}")
-                case "rgb":
-                    r, g, b = color_value
-                    lines.append(f"\\definecolor{{{name}}}{{rgb}}{{{r:.3f},{g:.3f},{b:.3f}}}")
-                case _:
-                    warnings.warn(
-                        f"Unsupported color type '{color_type}' for row highlighting; skipping.",
-                        stacklevel=2,
-                    )
-        return lines
+    def _row_fill_spec(self, row_idx: int) -> str:
+        r"""Return the inline ``\rowcolor`` colour spec for a data row, or ``""``.
 
-    def _row_fill_color(self, row_idx: int) -> str:
-        """Return a color name/spec for row highlighting, or ``""``."""
+        The spec is an xcolor argument such as ``[HTML]{F6E8C3}`` or ``{teal}``
+        emitted inline in ``\CodeBefore`` (no body-level ``\definecolor`` — see
+        :meth:`_strip_cellcolor_spec`).
+        """
         if not self._options.row_highlight_colors:
             return ""
         color_type, color_value = self._options.row_highlight_colors[row_idx]
-        if color_type == "NONE":
-            return ""
-        if color_type == "NAME":
-            return str(color_value)
-        return f"tikztblc{row_idx}"
+        match color_type:
+            case "NONE":
+                return ""
+            case "NAME":
+                return f"{{{color_value}}}"
+            case "HTML":
+                return f"[HTML]{{{str(color_value).lstrip('#').upper()}}}"
+            case "RGB":
+                r, g, b = color_value
+                return f"[RGB]{{{r},{g},{b}}}"
+            case "rgb":
+                r, g, b = color_value
+                return f"[rgb]{{{r:.3f},{g:.3f},{b:.3f}}}"
+            case _:
+                warnings.warn(
+                    f"Unsupported color type '{color_type}' for row highlighting; skipping.",
+                    stacklevel=2,
+                )
+                return ""
 
     # ==================================================================
     #   Rendering
     # ==================================================================
 
-    def _generate_latex(self) -> str:
-        """Build the complete ``tikzpicture`` string."""
+    def _boundary_spec(self, boundary: int) -> str:
+        """Build the colspec tokens for one column boundary.
+
+        ``<{...}`` decorators (which close the previous column) come first,
+        then vertical rules, then ``>{...}`` decorators (which open the next
+        column) — reconstructing a valid tabular preamble ordering.
+        """
+        extras = self._options.boundary_extras
+        extra = extras[boundary] if boundary < len(extras) else ""
+        vrules = self._options.vrule_counts
+        vrule = "|" * (vrules[boundary] if boundary < len(vrules) else 0)
+        closing = "".join(f"<{{{m.group(1)}}}" for m in self._LT_RE.finditer(extra))
+        opening = "".join(f">{{{m.group(1)}}}" for m in self._GT_RE.finditer(extra))
+        return closing + vrule + opening
+
+    def _column_format(self) -> str:
+        """Build the full NiceTabular column specification."""
         ncols = self._get_ncols()
+        alignments = self._options.tabular_alignments
+        parts: list[str] = []
+        for col_i in range(ncols):
+            parts.append(self._boundary_spec(col_i))
+            parts.append(alignments[col_i] if col_i < len(alignments) else "c")
+        parts.append(self._boundary_spec(ncols))
+        return "".join(parts)
+
+    def _styled_header_text(self, text: str, *, bold: bool, italic: bool) -> str:
+        if bold:
+            text = rf"\textbf{{{text}}}"
+        if italic:
+            text = rf"\textit{{{text}}}"
+        return text
+
+    # Geometry for the "pushed-up" header double rule (see push_header_double).
+    # The strut adds depth to the last header row so the upper rule has white
+    # room; the offset places that upper rule above the single \hline by about
+    # \doublerulesep, reproducing a tabular double rule.
+    _HEADER_RULE_STRUT = r"\rule[-2.4pt]{0pt}{0pt}"
+    _HEADER_RULE_OFFSET = "2pt"
+
+    def _generate_latex(self) -> str:
+        """Build the complete ``NiceTabular`` string."""
         column_ordering = self._get_column_ordering()
         has_groups = self._has_groups()
-        alignments = self._options.tabular_alignments
+        group_header_present = has_groups and self._options.include_group_headers
+        column_headers_present = self._options.include_column_headers
+        data_start = 1 + int(group_header_present) + int(column_headers_present)
+        ndata = len(self.df)
 
-        lines: list[str] = []
-
-        # --- inline color definitions ---
-        # Row-highlight colour defs; per-cell cellcolor defs are added
-        # after the data rows are processed (see cellcolor_map below).
-        color_def_insert_idx = len(lines)
-        row_highlight_color_defs = self._build_color_defs()
-        lines.extend(row_highlight_color_defs)
-
-        # --- base node style ---
-        # Cells have NO border by default (matching tabular).  Borders are
-        # drawn explicitly via \draw commands after the matrix, exactly where
-        # \hline and | would appear.
-        # anchor=center is intentionally NOT set here.  In TikZ, the
-        # nodes={} style is applied AFTER column/.style options, so placing
-        # anchor=center here would silently override any per-column
-        # anchor=west / anchor=east set for l / r aligned columns.
-        # TikZ's built-in default anchor is already "center", so omitting
-        # it from nodes={} leaves column styles free to override it.
-        node_parts: list[str] = [
-            self._options.node_shape,
-            f"minimum height={self._options.cell_height}",
-            f"inner sep={self._options.inner_sep}",
-            "outer sep=0pt",
-            "align=center",
-        ]
-        if self._options.cell_width:
-            node_parts.insert(1, f"minimum width={self._options.cell_width}")
-        if self._options.extra_node_style:
-            node_parts.append(self._options.extra_node_style)
-        node_style = ", ".join(node_parts)
-
-        # --- per-column styles ---
-        col_styles: list[str] = []
-        # col_align_chars[i] = \makebox alignment character for TikZ column i+1.
-        col_align_chars: list[str] = []
-        for col_i in range(ncols):
-            parts: list[str] = []
-            align = "center"
-            fixed_w: Optional[str] = None
-            if alignments and col_i < len(alignments):
-                spec = alignments[col_i]
-                fixed_w = self._col_spec_fixed_width(spec)
-                align = self._col_spec_to_tikz_align(spec)
-            explicit_w = self._options.col_widths.get(col_i)
-            effective_w = explicit_w or fixed_w
-            if effective_w:
-                parts.append(f"minimum width={effective_w}")
-                if fixed_w and not explicit_w:
-                    parts.append(f"text width={fixed_w}")
-            if align == "left":
-                parts.append("align=left")
-                parts.append("anchor=west")
-            elif align == "right":
-                parts.append("align=right")
-                parts.append("anchor=east")
-            if parts:
-                col_styles.append(f"  column {col_i + 1}/.style={{{', '.join(parts)}}}")
-            col_align_chars.append("l" if align == "left" else "r" if align == "right" else "c")
-
-        # When cell_width / normalize_cell_text_metrics are active, wrap
-        # cell text via short helper macros (\gtcell / \gtcellbox / \gtcellraise)
-        # defined at the top of the picture.  The macros expand to
-        # \makebox / \raisebox / \smash combinations that
-        #   * force the node to cell_width regardless of content
-        #     (subtracting 2*inner_sep so total width = cell_width); and
-        #   * normalize ascender/descender so anchors line up.
-        # The dimension expressions live in single \def's at the top of
-        # the picture, so the matrix body stays readable.
-        _has_makebox = bool(self._options.cell_width)
-        _has_raisebox = bool(
-            self._options.normalize_cell_text_metrics and self._options.cell_height
+        # A double \hline (count == 2) directly under the header would absorb its
+        # \doublerulesep gap into the first data row's colour band under
+        # nicematrix, making that one shaded row visibly taller than the rest.
+        # Instead, emit a single \hline at the boundary (so all data rows stay
+        # the same height) and draw the *upper* rule of the pair up inside the
+        # header via \CodeAfter, with a depth strut on the last header row to
+        # give it white room. This keeps a tabular-style double rule whose gap
+        # is the page colour, and leaves every shaded row identical.
+        push_header_double = (
+            self._options.hrule_cmd == r"\hline"
+            and bool(self._options.hrule_counts)
+            and self._options.hrule_counts[0] == 2
+            and (column_headers_present or group_header_present)
         )
 
-        def _wrap_cell_text(text: str, align_char: str) -> str:
-            if _has_makebox and _has_raisebox:
-                return f"\\gtcell{{{align_char}}}{{{text}}}"
-            if _has_makebox:
-                return f"\\gtcellbox{{{align_char}}}{{{text}}}"
-            if _has_raisebox:
-                return f"\\gtcellraise{{{text}}}"
-            return text
+        # ---- body rows + per-cell fills (stripped \cellcolor prefixes) ----
+        # (nicematrix_row, col_1based, color_spec) where color_spec is an
+        # inline xcolor argument such as ``[HTML]{B481D6}`` or ``{teal}``.
+        # The colour is emitted inline in \CodeBefore rather than via a
+        # body-level \definecolor: nicematrix adds spurious horizontal space
+        # for every \definecolor that appears in the document body, so the
+        # table drifts right by an amount that grows with the colour count.
+        cell_fills: list[tuple[int, int, str]] = []
 
-        # --- matrix preamble ---
-        _half_col_sep = r"\gtcolsephalf"
+        body_rows: list[str] = []
+        for row_idx, (df_row_idx, row) in enumerate(self.df.iterrows()):
+            nicerow = data_start + row_idx
+            cells: list[str] = []
+            col_1based = 1
+            if self._options.include_index:
+                escaped = latex_escape(str(df_row_idx))
+                text = (
+                    self._options.index_fmt_fn(cast(TableIndexValue, df_row_idx), escaped)[1]
+                    if self._options.index_fmt_fn is not None
+                    else escaped
+                )
+                fill_spec, text = self._strip_cellcolor_spec(text)
+                if fill_spec is not None:
+                    cell_fills.append((nicerow, col_1based, fill_spec))
+                cells.append(text)
+                col_1based += 1
+            for col in column_ordering:
+                text = self._format_cell_value(row_idx, col, row[col])
+                fill_spec, text = self._strip_cellcolor_spec(text)
+                if fill_spec is not None:
+                    cell_fills.append((nicerow, col_1based, fill_spec))
+                cells.append(text)
+                col_1based += 1
+            body_rows.append(" & ".join(cells) + r" \\")
 
-        lines.append("")
-        lines.append("% --- matrix (cell content) ---")
-        lines.append("\\matrix (table) [")
-        lines.append("  matrix of nodes,")
-        lines.append("  nodes in empty cells,")
-        lines.append(f"  row sep={self._options.row_sep},")
-        lines.append(f"  column sep={self._options.column_sep},")
-        lines.append(f"  nodes={{{node_style}}},")
-        for cs in col_styles:
-            lines.append(f"  {cs},")
-        lines.append("] {")
+        # ---- assemble ----
+        lines: list[str] = []
+        env_options = f"[name=table, cell-space-limits={self._options.cell_space_limits}]"
+        lines.append(f"\\begin{{NiceTabular}}{{{self._column_format()}}}{env_options}")
 
-        tikz_row = 1
+        # ---- CodeBefore: row + cell background fills ----
+        code_before: list[str] = []
+        for row_idx in range(ndata):
+            spec = self._row_fill_spec(row_idx)
+            if spec:
+                code_before.append(f"\\rowcolor{spec}{{{data_start + row_idx}}}")
+        for nicerow, col_1based, spec in cell_fills:
+            code_before.append(f"\\cellcolor{spec}{{{nicerow}-{col_1based}}}")
+        if code_before:
+            lines.append(r"\CodeBefore")
+            lines.extend(f"  {entry}" for entry in code_before)
+            lines.append(r"\Body")
 
-        # ---- build column-header texts (needed by both header rows) ----
-        col_header_texts: list[str] = []
-        if self._options.include_column_headers or (
-            has_groups and self._options.include_group_headers
-        ):
+        if self._options.toprule_cmd is not None:
+            lines.append(self._options.toprule_cmd)
+
+        # ---- group-header row ----
+        if group_header_present:
+            cells = [""] if self._options.include_index else []
+            for group_name, group_cols in self._options.groups_to_cols.items():
+                span = len(group_cols)
+                if group_name == "" or span == 0:
+                    cells.extend([""] * span)
+                    continue
+                text = self._styled_header_text(
+                    latex_escape(str(group_name)),
+                    bold=self._options.bold_group_headers,
+                    italic=self._options.italic_group_headers,
+                )
+                cells.append(rf"\Block[c]{{1-{span}}}{{{text}}}")
+                cells.extend([""] * (span - 1))
+            # When the group row is the last header row, it carries the depth
+            # strut that makes white room for the pushed-up double-rule line.
+            strut = (
+                self._HEADER_RULE_STRUT
+                if (push_header_double and not column_headers_present)
+                else ""
+            )
+            lines.append(" & ".join(cells) + strut + r" \\")
+
+        # ---- column-header row ----
+        if column_headers_present:
+            header_cells: list[str] = []
             if self._options.include_index:
                 idx_name = (
                     self._options.index_name
                     if self._options.index_name is not None
                     else (self.df.index.name if self.df.index.name is not None else "")
                 )
-                text = latex_escape(str(idx_name))
-                if self._options.bold_column_headers:
-                    text = rf"\textbf{{{text}}}"
-                if self._options.italic_column_headers:
-                    text = rf"\textit{{{text}}}"
-                col_header_texts.append(text)
-            for _, col_list in self._options.groups_to_cols.items():
-                for col in col_list:
-                    text = latex_escape(str(col))
-                    if self._options.bold_column_headers:
-                        text = rf"\textbf{{{text}}}"
-                    if self._options.italic_column_headers:
-                        text = rf"\textit{{{text}}}"
-                    col_header_texts.append(text)
-
-        # When forcing cell width or normalizing text metrics, wrap
-        # header texts in the same helper macros used for data cells.
-        if (_has_makebox or _has_raisebox) and col_header_texts:
-            col_header_texts = [
-                _wrap_cell_text(
-                    t,
-                    col_align_chars[i] if i < len(col_align_chars) else "c",
-                )
-                for i, t in enumerate(col_header_texts)
-            ]
-
-        # ---- group-header row ----
-        # Use \phantom of column header text in each cell so the nodes are
-        # at least as wide as the column headers.  This ensures node anchors
-        # (.north east etc.) align vertically with data-row anchors.
-        if has_groups and self._options.include_group_headers:
-            phantom_cells: list[str] = []
-            for ht in col_header_texts:
-                phantom_cells.append(rf"\phantom{{{ht}}}")
-            lines.append("  " + " & ".join(phantom_cells) + r" \\")
-            tikz_row += 1
-
-        # ---- column-header row ----
-        if self._options.include_column_headers:
-            lines.append("  " + " & ".join(col_header_texts) + r" \\")
-            tikz_row += 1
-
-        # ---- data rows ----
-        # Row highlighting is drawn on the background layer after the
-        # matrix.  Per-cell \cellcolor{} from formatters is converted to
-        # TikZ |[fill=...]| per-cell overrides.  cellcolor_map dedups
-        # by (model, value): the diverging gradient formatter often
-        # produces identical hex codes for nearby cells, and we want a
-        # single \definecolor per unique colour.
-        cellcolor_map: dict[tuple[str, str], str] = {}
-        # Per-cell fills collected as (tikz_row, col_1based, kind, value, raw_value):
-        #   kind="hex"  → value is a 6-char HEX, raw_value is the source cell
-        #                 value (used to derive a meaningful colour name).
-        #   kind="name" → value is an xcolor name; raw_value is unused.
-        # Hex fills end up grouped by row into a single \gtcellrowfills
-        # call referring to named colours; name fills emit one
-        # \gtcellfill per cell.
-        cell_fills: list[tuple[int, int, str, str, object]] = []
-        data_start_tikz = tikz_row
-        for row_idx, (df_row_idx, row) in enumerate(self.df.iterrows()):
-            cells: list[str] = []
-            data_col_i = 0
-
-            if self._options.include_index:
-                raw = str(df_row_idx)
-                esc = latex_escape(raw)
-                text = (
-                    self._options.index_fmt_fn(cast(TableIndexValue, df_row_idx), esc)[1]
-                    if self._options.index_fmt_fn is not None
-                    else esc
-                )
-                pre, post = self._col_decorators(data_col_i)
-                text = self._apply_decorators(text, pre, post)
-                fill_kind, fill_value, text = self._strip_cellcolor(text, cellcolor_map)
-                if fill_kind:
-                    cell_fills.append((tikz_row, data_col_i + 1, fill_kind, fill_value, df_row_idx))
-                if _has_makebox or _has_raisebox:
-                    ma = col_align_chars[data_col_i] if data_col_i < len(col_align_chars) else "c"
-                    text = _wrap_cell_text(text, ma)
-                cells.append(text)
-                data_col_i += 1
-
-            for col in column_ordering:
-                raw_value = row[col]
-                text = self._format_cell_value(row_idx, col, raw_value)
-                pre, post = self._col_decorators(data_col_i)
-                text = self._apply_decorators(text, pre, post)
-                fill_kind, fill_value, text = self._strip_cellcolor(text, cellcolor_map)
-                if fill_kind:
-                    cell_fills.append((tikz_row, data_col_i + 1, fill_kind, fill_value, raw_value))
-                if _has_makebox or _has_raisebox:
-                    ma = col_align_chars[data_col_i] if data_col_i < len(col_align_chars) else "c"
-                    text = _wrap_cell_text(text, ma)
-                cells.append(text)
-                data_col_i += 1
-
-            lines.append("  " + " & ".join(cells) + r" \\")
-            tikz_row += 1
-
-        lines.append("};")
-
-        nrows = tikz_row - 1  # total TikZ rows emitted
-
-        # ==============================================================
-        # Post-matrix draws — rules, overlays, and fills
-        # ==============================================================
-
-        # Build fit nodes for columns/rows that need canonical boundaries.
-        # In a TikZ matrix of nodes, each node sizes to its own content so
-        # anchors can vary within the same visual row/column. Full-row/full-
-        # column fit nodes give stable geometry for fills and rules.
-        _colfit_needed: set[int] = set()
-        _rowfit_needed: set[int] = set()
-
-        def _ensure_colfit(col_1based: int) -> str:
-            """Mark column ``col_1based`` for a canonical fit node and return its name."""
-            _colfit_needed.add(col_1based)
-            return f"colfitV{col_1based}"
-
-        def _ensure_rowfit(row_1based: int) -> str:
-            """Mark row ``row_1based`` for a canonical fit node and return its name."""
-            _rowfit_needed.add(row_1based)
-            return f"rowfitH{row_1based}"
-
-        # Pre-create colfit nodes for leftmost and rightmost columns so
-        # that row highlights and hlines span the true column boundaries
-        # rather than the narrow data-cell boundaries.
-        colfit_left = _ensure_colfit(1)
-        colfit_right = _ensure_colfit(ncols)
-        post_insert_idx = len(lines)
-
-        # Macro-need flags — populated as we emit and consumed when we
-        # build the picture-local macro preamble.
-        needs_gtrowfill = False
-        needs_gtcellfill = False
-        needs_gtcellrowfills = False
-        needs_gthline = False
-        needs_gthlinestyled = False
-
-        # ---- row highlighting (background layer) ----
-        # Use \fill on the background layer so the colour sits behind the
-        # text and spans the full row width (edge-to-edge).
-        bg_fill_groups: dict[str, list[int]] = {}
-        for row_idx in range(len(self.df)):
-            color = self._row_fill_color(row_idx)
-            if not color:
-                continue
-            tgt = data_start_tikz + row_idx
-            _ensure_rowfit(tgt)
-            bg_fill_groups.setdefault(color, []).append(tgt)
-        if bg_fill_groups:
-            needs_gtrowfill = True
-
-        # ---- per-cell highlights (background layer, drawn over row fills) ----
-        # Hex-typed fills get a stable, descriptive xcolor name derived
-        # from the source cell value (e.g. value 0.549 → ``gradc_55``).
-        # Each row's hex fills are then collapsed into a single
-        # ``\gtcellrowfills{row}{col1/name1, col2/name2, ...}`` call.
-        # Multiple distinct hexes that fall in the same value bucket
-        # get suffixes (gradc_55, gradc_55_b, gradc_55_c, ...).
-        # Named-colour fills (teal, gray!50, fallback tikzcc<N>) emit
-        # one \gtcellfill{name}{row}{col} per cell.
-        hex_fills_by_row: dict[int, list[tuple[int, str]]] = {}
-        named_fills: list[tuple[int, int, str]] = []  # (row, col, name)
-        # value-bucket -> {hex -> assigned color name}
-        gradient_buckets: dict[str, dict[str, str]] = {}
-        # ordered list of (color name, hex) for emission as \definecolor
-        gradient_color_defs: list[tuple[str, str]] = []
-        for tgt_row, col_1based, kind, value, raw_value in cell_fills:
-            _ensure_colfit(col_1based)
-            _ensure_rowfit(tgt_row)
-            if kind == "hex":
-                base = self._value_to_color_basename(raw_value)
-                bucket = gradient_buckets.setdefault(base, {})
-                if value in bucket:
-                    cname = bucket[value]
-                elif not bucket:
-                    cname = base
-                    bucket[value] = cname
-                    gradient_color_defs.append((cname, value))
-                else:
-                    suffix = chr(ord("b") + len(bucket) - 1)  # b, c, d, ...
-                    cname = f"{base}_{suffix}"
-                    bucket[value] = cname
-                    gradient_color_defs.append((cname, value))
-                hex_fills_by_row.setdefault(tgt_row, []).append((col_1based, cname))
-            else:
-                named_fills.append((tgt_row, col_1based, value))
-        if hex_fills_by_row:
-            needs_gtcellrowfills = True
-        if named_fills:
-            needs_gtcellfill = True
-
-        # ---- group-header overlay nodes ----
-        if has_groups and self._options.include_group_headers:
-            lines.append("")
-            lines.append("% --- group-header overlay nodes ---")
-            col_tikz = 2 if self._options.include_index else 1
-            g_aligns = self._options.group_tabular_alignments
-            g_idx = 0
-            for group, cols in self._options.groups_to_cols.items():
-                span = len(cols)
-                if span == 0:
-                    continue
-                left_col = col_tikz
-                right_col = col_tikz + span - 1
-                name = latex_escape(str(group))
-                if self._options.bold_group_headers and name:
-                    name = rf"\textbf{{{name}}}"
-                if self._options.italic_group_headers and name:
-                    name = rf"\textit{{{name}}}"
-                # Determine alignment from group tabular format.
-                anchor = "center"
-                if g_aligns and g_idx < len(g_aligns):
-                    ga = self._col_spec_to_tikz_align(g_aligns[g_idx])
-                    if ga == "left":
-                        anchor = "west"
-                    elif ga == "right":
-                        anchor = "east"
-                node_opts = f"inner sep=0pt, fit=(table-1-{left_col})(table-1-{right_col})"
-                if anchor != "center":
-                    # Use an overlay: fit the area, then place text at the
-                    # appropriate anchor.
-                    lines.append(f"\\node ({group.replace(' ', '')}_fit) [{node_opts}] {{}};")
-                    lines.append(
-                        f"\\node[anchor={anchor}]"
-                        f" at ({group.replace(' ', '')}_fit.{anchor})"
-                        f" {{{name}}};"
+                header_cells.append(
+                    self._styled_header_text(
+                        latex_escape(str(idx_name)),
+                        bold=self._options.bold_column_headers,
+                        italic=self._options.italic_column_headers,
                     )
-                else:
-                    lines.append(f"\\node[{node_opts}] {{{name}}};")
-                col_tikz += span
-                g_idx += 1
-
-        # ---- horizontal rules ----
-        # hrule_counts[i] == number of lines above data row i.
-        # hrule_counts[ndata] (optional extra entry) == lines below the last row.
-        # This is the TikZ equivalent of \hline in the TexTable body.
-        # The common north-edge case is emitted via \gthline{row} / \gthlinestyled{style}{row}
-        # macros for readability; the rare south-edge case is emitted inline.
-        if self._options.hrule_counts and any(c > 0 for c in self._options.hrule_counts):
-            lines.append("")
-            lines.append("% --- horizontal rules ---")
-            ndata_rows = len(self.df)
-            for row_idx, count in enumerate(self._options.hrule_counts):
-                if count == 0:
-                    continue
-                if row_idx < ndata_rows:
-                    tgt = data_start_tikz + row_idx
-                    edge = "north"
-                else:
-                    tgt = data_start_tikz + ndata_rows - 1
-                    edge = "south"
-                _ensure_rowfit(tgt)
-                for k in range(count):
-                    yshift = f"yshift={k * 0.4}pt" if k > 0 else ""
-                    opts = ", ".join(filter(None, [self._options.hrule_style, yshift]))
-                    if edge == "north" and not opts:
-                        lines.append(f"\\gthline{{{tgt}}}")
-                        needs_gthline = True
-                    elif edge == "north":
-                        lines.append(f"\\gthlinestyled{{{opts}}}{{{tgt}}}")
-                        needs_gthlinestyled = True
-                    else:
-                        style_str = f"[{opts}]" if opts else ""
-                        lines.append(
-                            f"\\draw{style_str}"
-                            f" ({colfit_left}.west |- rowfitH{tgt}.{edge}) --"
-                            f" ({colfit_right}.east |- rowfitH{tgt}.{edge});"
-                        )
-
-        # ---- top / bottom rules ----
-        if self._options.toprule_style is not None or self._options.bottomrule_style is not None:
-            lines.append("")
-            lines.append("% --- top / bottom rules ---")
-        if self._options.toprule_style is not None:
-            s = f"[{self._options.toprule_style}]" if self._options.toprule_style else ""
-            lines.append(f"\\draw{s} (table.north west) -- (table.north east);")
-        if self._options.bottomrule_style is not None:
-            s = f"[{self._options.bottomrule_style}]" if self._options.bottomrule_style else ""
-            lines.append(f"\\draw{s} (table.south west) -- (table.south east);")
-
-        # ---- vertical rules ----
-        # vrule_counts[j] == number of vertical lines at boundary j.
-        # Boundary 0 = left edge, boundary ncols = right edge.
-        #
-        # In a TikZ matrix of nodes, each node sizes to its own content
-        # so node anchors (.north east) vary per row even within the
-        # same column.  To get the true column boundary x-position we
-        # create a \node[fit=...] spanning all rows for each column
-        # that needs a vrule.  The fit node's edge is at the widest
-        # node in the column — the correct column boundary.
-        #
-        # When a group-header row is present, vrules extend up through
-        # it ONLY at group boundaries (matching \multicolumn in tabular).
-        group_header_present = has_groups and self._options.include_group_headers
-        vrule_top_row = 2 if group_header_present else 1
-
-        # Compute group-boundary set.
-        group_boundary_set: set[int] = set()
-        if group_header_present:
-            gb = 1 if self._options.include_index else 0
-            group_boundary_set.add(gb)
-            for cols in self._options.groups_to_cols.values():
-                gb += len(cols)
-                group_boundary_set.add(gb)
-            group_boundary_set.add(0)
-            group_boundary_set.add(ncols)
-
-        if self._options.vrule_counts and any(c > 0 for c in self._options.vrule_counts):
-            lines.append("")
-            lines.append("% --- vertical rules ---")
-            for bdry, count in enumerate(self._options.vrule_counts):
-                if count == 0:
-                    continue
-                top = (
-                    1 if (not group_header_present or bdry in group_boundary_set) else vrule_top_row
                 )
-                for k in range(count):
-                    xshift = f"xshift={k * 0.4}pt" if k > 0 else ""
-                    opts = ", ".join(filter(None, [self._options.vrule_style, xshift]))
-                    style_str = f"[{opts}]" if opts else ""
-                    if bdry == 0:
-                        fit = _ensure_colfit(1)
-                        lines.append(
-                            f"\\draw{style_str}"
-                            f" ({fit}.north west |- table-{top}-1.north) --"
-                            f" ({fit}.south west);"
-                        )
-                    elif bdry == ncols:
-                        fit = _ensure_colfit(ncols)
-                        lines.append(
-                            f"\\draw{style_str}"
-                            f" ({fit}.north east |- table-{top}-1.north) --"
-                            f" ({fit}.south east);"
-                        )
-                    else:
-                        fit = _ensure_colfit(bdry)
-                        lines.append(
-                            f"\\draw{style_str}"
-                            f" ({fit}.north east |- table-{top}-1.north) --"
-                            f" ({fit}.south east);"
-                        )
+            for col in column_ordering:
+                header_cells.append(
+                    self._styled_header_text(
+                        latex_escape(str(col)),
+                        bold=self._options.bold_column_headers,
+                        italic=self._options.italic_column_headers,
+                    )
+                )
+            strut = self._HEADER_RULE_STRUT if push_header_double else ""
+            lines.append(" & ".join(header_cells) + strut + r" \\")
 
-        # ---- per-cell borders ----
-        # Convert (r, c, side) requests into canonical boundary segments so
-        # that shared edges between adjacent cells are drawn exactly once:
-        #   horiz_edges: (c, r_bnd) — horizontal line in column c
-        #     r_bnd == 0  → north of TikZ row 1
-        #     r_bnd >= 1  → south of TikZ row r_bnd  (= north of row r_bnd+1)
-        #   vert_edges:  (r, c_bnd) — vertical line in TikZ row r
-        #     c_bnd == 0      → west of column 1
-        #     c_bnd == ncols  → east of column ncols
-        #     else            → midpoint of gap between column c_bnd and c_bnd+1
-        #                       drawn at [xshift=3pt]colfitV{c_bnd}.east
+        # ---- data rows with interior horizontal rules ----
+        # Rules are emitted verbatim so row geometry and the (row-i) boundary
+        # lattice match a real tabular — except the header double rule, which is
+        # emitted as a single \hline here and completed by an upper rule drawn
+        # in \CodeAfter (see push_header_double) to keep shaded rows uniform.
+        hrule_counts = self._options.hrule_counts
+        for row_idx, row_text in enumerate(body_rows):
+            count = hrule_counts[row_idx] if row_idx < len(hrule_counts) else 0
+            if row_idx == 0 and push_header_double:
+                count = 1
+            lines.extend([self._options.hrule_cmd] * count)
+            lines.append(row_text)
+        trailing = hrule_counts[ndata] if len(hrule_counts) > ndata else 0
+        lines.extend([self._options.hrule_cmd] * trailing)
+
+        if self._options.bottomrule_cmd is not None:
+            lines.append(self._options.bottomrule_cmd)
+
+        # ---- CodeAfter: group-header vrules + per-cell borders + user draws ----
+        code_after: list[str] = []
+
+        # Upper rule of the pushed-up header double rule, drawn inside the
+        # header (above the single \hline at the header/data boundary) so the
+        # gap between the two rules is the page colour and the first data row's
+        # colour band matches the others. See push_header_double.
+        if push_header_double:
+            ncols = self._get_ncols()
+            code_after.append(
+                r"\draw[line width=0.4pt] "
+                f"([yshift={self._HEADER_RULE_OFFSET}]row-{data_start}-|col-1) -- "
+                f"([yshift={self._HEADER_RULE_OFFSET}]row-{data_start}-|col-{ncols + 1});"
+            )
+
+        # Group-header vertical rules (from set_group_tabular_format) span only
+        # the group-header row, matching \multicolumn{n}{|c|}{} in TexTable.
+        # They are drawn on nicematrix's boundary lattice at the column
+        # position of each group boundary.
+        if group_header_present and self._options.group_vrule_counts:
+            group_spans: list[int] = []
+            if self._options.include_index:
+                group_spans.append(1)
+            group_spans.extend(len(cols) for cols in self._options.groups_to_cols.values())
+            boundary_cols = [0]
+            for span in group_spans:
+                boundary_cols.append(boundary_cols[-1] + span)
+            for boundary, count in enumerate(self._options.group_vrule_counts):
+                if count <= 0 or boundary >= len(boundary_cols):
+                    continue
+                lattice_col = boundary_cols[boundary] + 1  # nicematrix col-j is left edge of col j
+                for k in range(count):
+                    shift = f"[xshift={k * 2}pt]" if k > 0 else ""
+                    code_after.append(
+                        f"\\draw{shift} (row-1-|col-{lattice_col}) -- (row-2-|col-{lattice_col});"
+                    )
+
+        # Canonicalize (row, col, side) requests into boundary segments so
+        # shared edges between adjacent cells are drawn exactly once.
         horiz_edges: set[tuple[int, int]] = set()
         vert_edges: set[tuple[int, int]] = set()
         for (r, c), sides in self._options.cell_borders.items():
             for side in sides:
                 if side == "top":
-                    horiz_edges.add((c, r - 1))
-                elif side == "bottom":
                     horiz_edges.add((c, r))
+                elif side == "bottom":
+                    horiz_edges.add((c, r + 1))
                 elif side == "left":
-                    vert_edges.add((r, c - 1))
-                elif side == "right":
                     vert_edges.add((r, c))
+                elif side == "right":
+                    vert_edges.add((r, c + 1))
+        for c, row_boundary in sorted(horiz_edges):
+            code_after.append(
+                f"\\draw (row-{row_boundary}-|col-{c}) -- (row-{row_boundary}-|col-{c + 1});"
+            )
+        for r, col_boundary in sorted(vert_edges):
+            code_after.append(
+                f"\\draw (row-{r}-|col-{col_boundary}) -- (row-{r + 1}-|col-{col_boundary});"
+            )
+        code_after.extend(self._options.extra_draws)
+        if code_after:
+            lines.append(r"\CodeAfter")
+            lines.append(r"\begin{tikzpicture}")
+            lines.extend(f"  {entry}" for entry in code_after)
+            lines.append(r"\end{tikzpicture}")
 
-        if horiz_edges or vert_edges:
-            lines.append("")
-            lines.append("% --- per-cell borders ---")
-
-        for c, r_bnd in sorted(horiz_edges):
-            _ensure_colfit(c)
-            colfit = f"colfitV{c}"
-            lmod = "" if c == 1 else f"[xshift=-{_half_col_sep}]"
-            rmod = "" if c == ncols else f"[xshift={_half_col_sep}]"
-            row_ref, edge = (1, "north") if r_bnd == 0 else (r_bnd, "south")
-            rowfit = _ensure_rowfit(row_ref)
-            lines.append(
-                f"\\draw"
-                f" ({lmod}{colfit}.west |- {rowfit}.{edge}) --"
-                f" ({rmod}{colfit}.east |- {rowfit}.{edge});"
-            )
-
-        for r, c_bnd in sorted(vert_edges):
-            rowfit = _ensure_rowfit(r)
-            if c_bnd == 0:
-                _ensure_colfit(1)
-                x = "colfitV1.west"
-            elif c_bnd == ncols:
-                _ensure_colfit(ncols)
-                x = f"colfitV{ncols}.east"
-            else:
-                _ensure_colfit(c_bnd)
-                x = f"[xshift={_half_col_sep}]colfitV{c_bnd}.east"
-            lines.append(f"\\draw ({x} |- {rowfit}.north) -- ({x} |- {rowfit}.south);")
-
-        post_prefix: list[str] = []
-        if _colfit_needed or _rowfit_needed:
-            post_prefix.append("")
-            post_prefix.append("% --- canonical row/column fit nodes ---")
-        if _colfit_needed:
-            col_targets = "".join(f"(table-{row_1based}-\\c)" for row_1based in range(1, nrows + 1))
-            post_prefix.append(f"\\foreach \\c in {{{_latex_foreach_list(_colfit_needed)}}} {{")
-            post_prefix.append(f"  \\node[fit={col_targets}, inner sep=0pt] (colfitV\\c) {{}};")
-            post_prefix.append("}")
-        if _rowfit_needed:
-            row_targets = "".join(f"(table-\\r-{col_1based})" for col_1based in range(1, ncols + 1))
-            post_prefix.append(f"\\foreach \\r in {{{_latex_foreach_list(_rowfit_needed)}}} {{")
-            post_prefix.append(f"  \\node[fit={row_targets}, inner sep=0pt] (rowfitH\\r) {{}};")
-            post_prefix.append("}")
-        if bg_fill_groups or hex_fills_by_row or named_fills:
-            post_prefix.append("")
-            post_prefix.append("% --- background fills (row highlights + per-cell colours) ---")
-            post_prefix.append("\\begin{scope}[on background layer]")
-            for color, rows in bg_fill_groups.items():
-                post_prefix.append(f"  \\foreach \\r in {{{_latex_foreach_list(rows)}}} {{")
-                post_prefix.append(f"    \\gtrowfill{{{color}}}{{\\r}}")
-                post_prefix.append("  }")
-            # One \gtcellrowfills call per row carrying every hex-coloured cell.
-            for row in sorted(hex_fills_by_row):
-                pairs = sorted(hex_fills_by_row[row])
-                body = ", ".join(f"{c}/{h}" for c, h in pairs)
-                post_prefix.append(f"  \\gtcellrowfills{{{row}}}{{{body}}}")
-            # Named-colour cells emit one fill apiece (rare).
-            for tgt_row, col_1based, name in named_fills:
-                post_prefix.append(f"  \\gtcellfill{{{name}}}{{{tgt_row}}}{{{col_1based}}}")
-            post_prefix.append("\\end{scope}")
-        lines[post_insert_idx:post_insert_idx] = post_prefix
-
-        # ---- user extra draws ----
-        if self._options.extra_draws:
-            lines.append("")
-            lines.append("% --- user extra draws ---")
-            lines.extend(self._options.extra_draws)
-
-        # ---- picture-local macro preamble ----
-        # Definitions go at the very top of the picture so the body is
-        # readable.  Each macro is only emitted if something below uses
-        # it; \gtcolsephalf is always defined since cell fills, cell
-        # borders, and per-cell highlights all reference it.
-        macro_lines: list[str] = ["% --- gerrytools tikz table macros (picture-local) ---"]
-        macro_lines.append("% \\gtcolsephalf: half of the matrix column separation, used to extend")
-        macro_lines.append("%   per-cell borders into adjacent inter-column gaps.")
-        macro_lines.append(f"\\def\\gtcolsephalf{{\\dimexpr {self._options.column_sep}/2\\relax}}")
-        if _has_makebox:
-            macro_lines.append(
-                "% \\gtboxwidth: width of the inner makebox so a cell's total width"
-                " (content + 2*inner_sep) equals the requested cell_width."
-            )
-            macro_lines.append(
-                f"\\def\\gtboxwidth{{\\dimexpr {self._options.cell_width}"
-                f"-{self._options.inner_sep}*2\\relax}}"
-            )
-        if _has_raisebox:
-            macro_lines.append(
-                "% \\gtraiseheight / \\gtraiseshift: half-height and vertical shift used by"
-                " the \\raisebox wrapper to normalise ascender/descender so all rows"
-                " share the same baseline anchor."
-            )
-            macro_lines.append(
-                f"\\def\\gtraiseheight{{\\dimexpr {self._options.cell_height}"
-                f"/2-{self._options.inner_sep}\\relax}}"
-            )
-            macro_lines.append(r"\def\gtraiseshift{\dimexpr (\dp\strutbox-\ht\strutbox)/2\relax}")
-        if _has_makebox and _has_raisebox:
-            macro_lines.append(
-                "% \\gtcell{align}{text}: standard cell wrapper used in the matrix body."
-                "  Forces the node to the configured cell_width and centres the"
-                " baseline so anchors line up across rows."
-            )
-            macro_lines.append(
-                r"\def\gtcell#1#2{\raisebox{\gtraiseshift}"
-                r"[\gtraiseheight][\gtraiseheight]"
-                r"{\smash{\strut \makebox[\gtboxwidth][#1]{#2}}}}"
-            )
-        elif _has_makebox:
-            macro_lines.append(
-                "% \\gtcellbox{align}{text}: cell wrapper that only forces width"
-                " (no baseline normalisation)."
-            )
-            macro_lines.append(r"\def\gtcellbox#1#2{\makebox[\gtboxwidth][#1]{#2}}")
-        elif _has_raisebox:
-            macro_lines.append(
-                "% \\gtcellraise{text}: cell wrapper that only normalises baseline"
-                " (no fixed width)."
-            )
-            macro_lines.append(
-                r"\def\gtcellraise#1{\raisebox{\gtraiseshift}"
-                r"[\gtraiseheight][\gtraiseheight]{\smash{\strut #1}}}"
-            )
-        if needs_gthline:
-            macro_lines.append(
-                "% \\gthline{row}: horizontal rule across the table at the top of"
-                " the given TikZ row (1-indexed, header rows count)."
-            )
-            macro_lines.append(
-                f"\\def\\gthline#1{{\\draw (colfitV1.west |- rowfitH#1.north)"
-                f" -- (colfitV{ncols}.east |- rowfitH#1.north);}}"
-            )
-        if needs_gthlinestyled:
-            macro_lines.append(
-                "% \\gthlinestyled{tikz options}{row}: same as \\gthline with extra"
-                " TikZ draw options (e.g. yshift=0.4pt for double rules)."
-            )
-            macro_lines.append(
-                f"\\def\\gthlinestyled#1#2{{\\draw[#1] (colfitV1.west |- rowfitH#2.north)"
-                f" -- (colfitV{ncols}.east |- rowfitH#2.north);}}"
-            )
-        if needs_gtrowfill:
-            macro_lines.append(
-                "% \\gtrowfill{color}{row}: fill the entire row width with <color>"
-                " (an xcolor name or expression like gray!50)."
-            )
-            macro_lines.append(
-                f"\\def\\gtrowfill#1#2{{\\fill[fill={{#1}}]"
-                f" (colfitV1.west |- rowfitH#2.north)"
-                f" rectangle (colfitV{ncols}.east |- rowfitH#2.south);}}"
-            )
-        if needs_gtcellfill:
-            macro_lines.append(
-                "% \\gtcellfill{color}{row}{col}: fill a single cell with the named xcolor <color>."
-            )
-            macro_lines.append(
-                r"\def\gtcellfill#1#2#3{\fill[fill={#1}]"
-                r" (colfitV#3.west |- rowfitH#2.north) rectangle"
-                r" (colfitV#3.east |- rowfitH#2.south);}"
-            )
-        if needs_gtcellrowfills:
-            macro_lines.append(
-                "% \\gtcellrowfills{row}{col1/name1, col2/name2, ...}: row-grouped"
-                " cell fills.  Names refer to \\definecolor entries above; their"
-                " suffix encodes the source value (e.g. gradc_55 ~ value 0.55)."
-            )
-            macro_lines.append(
-                r"\def\gtcellrowfills#1#2{\foreach \gtc/\gtn in {#2} {"
-                r"\fill[fill={\gtn}]"
-                r" (colfitV\gtc.west |- rowfitH#1.north) rectangle"
-                r" (colfitV\gtc.east |- rowfitH#1.south);}}"
-            )
-        # Build the consolidated \definecolor block from every source:
-        # gradient cells (named by source value), unknown-model fallback
-        # (cellcolor_map), and row-highlight colours (row_highlight_color_defs
-        # was already extended into ``lines`` at color_def_insert_idx).
-        color_def_lines: list[str] = []
-        if gradient_color_defs:
-            color_def_lines.extend(
-                f"\\definecolor{{{name}}}{{HTML}}{{{hex_value}}}"
-                for name, hex_value in gradient_color_defs
-            )
-        if cellcolor_map:
-            color_def_lines.extend(
-                f"\\definecolor{{{name}}}{{{model}}}{{{value}}}"
-                for (model, value), name in cellcolor_map.items()
-            )
-        if color_def_lines or row_highlight_color_defs:
-            header = ["", "% --- color definitions ---"]
-            for i, cd in enumerate(header + color_def_lines):
-                lines.insert(color_def_insert_idx + i, cd)
-        lines[0:0] = macro_lines
-
-        body = "\n".join(lines)
-        return f"\\begin{{tikzpicture}}\n{body}\n\\end{{tikzpicture}}"
+        lines.append(r"\end{NiceTabular}")
+        return "\n".join(lines)

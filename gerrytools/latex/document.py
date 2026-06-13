@@ -187,6 +187,9 @@ class TexDocument:
         self._auto_color_count = 0
         self._auto_color_map: dict[str, str] = {}
         self.engine_preference_order = ("tectonic", "pdflatex", "xelatex", "lualatex")
+        self.compile_passes: int = 1
+        """Number of LaTeX passes per compile. Packages that persist node
+        positions in the aux file (e.g. nicematrix) need 2."""
         self._finalizer = weakref.finalize(
             self,
             shutil.rmtree,
@@ -470,10 +473,14 @@ class TexDocument:
                 str(self._tex_path),
             ]
 
-        proc = subprocess.run(cmd, capture_output=True, text=True)
-        log = (proc.stdout or "") + "\n" + (proc.stderr or "")
-        if proc.returncode != 0 or not self._pdf_path.exists():  # pragma: no cover
-            raise RuntimeError(f"LaTeX compile failed with {engine}.\n\nLOG:\n{log}")
+        # tectonic reruns itself until stable; other engines need explicit
+        # extra passes for aux-file-dependent packages (e.g. nicematrix).
+        passes = 1 if engine == "tectonic" else max(1, int(self.compile_passes))
+        for _ in range(passes):
+            proc = subprocess.run(cmd, capture_output=True, text=True)
+            log = (proc.stdout or "") + "\n" + (proc.stderr or "")
+            if proc.returncode != 0 or not self._pdf_path.exists():  # pragma: no cover
+                raise RuntimeError(f"LaTeX compile failed with {engine}.\n\nLOG:\n{log}")
 
     def _render_to_temp_png(self, preferred_engine: Optional[str] = None, dpi: int = 250) -> None:
         """Render the current document body to a temporary PNG file.
