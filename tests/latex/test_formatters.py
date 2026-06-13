@@ -2,6 +2,8 @@
 
 import math
 
+import pytest
+
 from gerrytools.latex.formatters import (
     _safe_round,
     boxed_center,
@@ -109,6 +111,10 @@ class TestBasicFormatters:
 
         assert formatter(0.75, "0.750")[1].startswith(r"\cellcolor[HTML]{")
         assert latex_commands_for(formatter) == ()
+
+    def test_diverging_gradient_formatter_rejects_none_endpoint(self):
+        with pytest.raises(ValueError, match="cannot be 'none'"):
+            diverging_gradient_formatter(command_name=None, color_mid="none")
 
 
 # ======================

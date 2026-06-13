@@ -685,6 +685,11 @@ def diverging_gradient_formatter(
 
     def _resolve(c: Color) -> tuple[int, int, int]:
         hex_str = convert_color_to_hexa_or_none(c)
+        if hex_str.lower() == "none":
+            raise ValueError(
+                f"Gradient endpoint colors cannot be 'none' (got {c!r}); "
+                "a transparent endpoint cannot be interpolated."
+            )
         h = hex_str.lstrip("#")[:6]
         return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
 
