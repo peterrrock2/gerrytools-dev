@@ -5,11 +5,10 @@ from typing import ClassVar
 import pandas as pd
 from frozendict import frozendict
 
-# Canonical race prefixes shared between ACS VAP/CVAP and decennial PL block
-# VAP columns. Each prefix combines with a measure (e.g. ``WHITE_VAP``) and
-# then a source suffix (e.g. ``WHITE_VAP_ACS5`` or ``WHITE_VAP_P3``). Keep
-# this tuple in sync with the base names produced by ``ACSVAPTableInfo``,
-# ``ACSCVAPTableInfo``, and ``PLBlockVAPTableInfo``.
+# Canonical race prefixes shared between ACS VAP/CVAP and decennial PL block VAP columns. Each
+# prefix combines with a measure (e.g. ``WHITE_VAP``) and then a source suffix (e.g.
+# ``WHITE_VAP_ACS5`` or ``WHITE_VAP_P3``). Keep this tuple in sync with the base names produced by
+# ``ACSVAPTableInfo``, ``ACSCVAPTableInfo``, and ``PLBlockVAPTableInfo``.
 RACE_PREFIXES: tuple[str, ...] = (
     "TOT",
     "WHITE",
@@ -31,8 +30,8 @@ def append_source_suffix(name: str, source: str | None) -> str:
 
     Args:
         name (str): Base local column name.
-        source (str | None): Source suffix (e.g. ``"ACS5"``, ``"P1"``). When
-            falsy, ``name`` is returned unchanged.
+        source (str | None): Source suffix (e.g. ``"ACS5"``, ``"P1"``). When falsy, ``name`` is
+            returned unchanged.
 
     Returns:
         str: ``"{name}_{source}"`` when ``source`` is truthy, otherwise ``name``.
@@ -66,18 +65,16 @@ def decennial_pl_source_from_variable(variable: str) -> str:
 def _canonical_replacement(name: str) -> str:
     """Shorten a long English-language ACS column name to its canonical form.
 
-    Substitutions are driven by ``ACSTableInfo.standard_abbreviations`` so
-    there is a single source of truth. The order of that mapping matters:
-    longer phrases must be collapsed before any shorter phrase that is a
-    substring of them (e.g. ``AMERICAN_INDIAN_AND_ALASKAN_NATIVE`` before
+    Substitutions are driven by ``ACSTableInfo.standard_abbreviations`` so there is a single source
+    of truth. The order of that mapping matters: longer phrases must be collapsed before any shorter
+    phrase that is a substring of them (e.g. ``AMERICAN_INDIAN_AND_ALASKAN_NATIVE`` before
     ``NATIVE``).
 
     Args:
         name (str): Long column name to shorten.
 
     Returns:
-        str: Canonical short form of ``name`` with ``_ALONE`` and ``_EST``
-        suffixes stripped.
+        str: Canonical short form of ``name`` with ``_ALONE`` and ``_EST`` suffixes stripped.
     """
 
     for long, short in ACSTableInfo.standard_abbreviations.items():
@@ -93,15 +90,14 @@ def shorten_acs_column_names(
 ) -> None:
     """Shorten ACS column names on ``df`` in place and append a source suffix.
 
-    Each column is run through ``_canonical_replacement`` and then
-    ``append_source_suffix`` with ``source_suffix``.
+    Each column is run through ``_canonical_replacement`` and then ``append_source_suffix`` with
+    ``source_suffix``.
 
     Args:
         df (pd.DataFrame): DataFrame whose column names will be rewritten in place.
-        source_suffix (str | None): Source suffix appended to each shortened
-            column. Defaults to ``"ACS5"`` so ACS-derived short columns are
-            distinguishable from decennial PL columns such as ``*_P1`` or
-            ``*_P3``.
+        source_suffix (str | None): Source suffix appended to each shortened column. Defaults to
+            ``"ACS5"`` so ACS-derived short columns are distinguishable from decennial PL columns
+            such as ``*_P1`` or ``*_P3``.
 
     Warning:
         Modifies ``df`` in place.
@@ -123,24 +119,22 @@ PL_POP_YEARS: tuple[int, ...] = (2010, 2020)
 def pl_pop_table(table: str, year: int) -> "PLTableInfo":
     """Build a PLTableInfo for one of the decennial PL P1/P2/P3/P4 pop tables.
 
-    Wraps the legacy column-alias data in ``ptable_column_aliases.py`` so
-    that decennial pop tables can be passed to the same fetch path as any
-    other ``PLTableInfo``.
+    Wraps the legacy column-alias data in ``ptable_column_aliases.py`` so that decennial pop tables
+    can be passed to the same fetch path as any other ``PLTableInfo``.
 
     Args:
         table (str): One of ``"P1"``, ``"P2"``, ``"P3"``, ``"P4"``.
         year (int): ``2010`` or ``2020``.
 
     Returns:
-        PLTableInfo: Table info whose ``variable_to_short_name`` carries
-        every Census variable form present in the alias dict for the given
-        ``(year, table)``. For 2010 this includes both the zero-padded
-        (``P0010001``) and short (``P001001``) forms so renames work
-        whichever the API returns.
+        PLTableInfo: Table info whose ``variable_to_short_name`` carries every Census variable form
+        present in the alias dict for the given ``(year, table)``. For 2010 this includes both the
+        zero-padded (``P0010001``) and short (``P001001``) forms so renames work whichever the API
+        returns.
 
     Raises:
-        ValueError: If ``table`` is not one of ``"P1"``–``"P4"`` or ``year``
-            is not ``2010`` or ``2020``.
+        ValueError: If ``table`` is not one of ``"P1"``–``"P4"`` or ``year`` is not ``2010`` or
+            ``2020``.
     """
 
     if year not in PL_POP_YEARS:
@@ -162,18 +156,17 @@ def pl_pop_table(table: str, year: int) -> "PLTableInfo":
 class PLTableInfo:
     """Base table definition for decennial Public Law 94-171 (PL) Census API tables.
 
-    Unlike ACS table definitions, PL variables do not use estimate/MOE suffixes
-    or grouped variants. A PL table definition directly maps Census variable
-    names to the base local column names used downstream. Public short names
-    are source-suffixed from the raw PL variable prefix, so ``P1_001N`` mapped
-    to ``"TOTAL_POP"`` would become ``"TOTAL_POP_P1"``, while ``P3_001N``
-    becomes ``"TOT_VAP_P3"``.
+    Unlike ACS table definitions, PL variables do not use estimate/MOE suffixes or grouped variants.
+    A PL table definition directly maps Census variable names to the base local column names used
+    downstream. Public short names are source-suffixed from the raw PL variable prefix, so
+    ``P1_001N`` mapped to ``"TOTAL_POP"`` would become ``"TOTAL_POP_P1"``, while ``P3_001N`` becomes
+    ``"TOT_VAP_P3"``.
 
     Attributes:
         table_name (str): Human-readable name for the logical PL table.
-        variable_to_short_name (frozendict): Mapping from raw Census variable
-            name (e.g. ``"P3_001N"``) to the base local column name before
-            source suffixing (e.g. ``"TOT_VAP"``).
+        variable_to_short_name (frozendict): Mapping from raw Census variable name (e.g.
+            ``"P3_001N"``) to the base local column name before source suffixing (e.g.
+            ``"TOT_VAP"``).
     """
 
     table_name: str = ""
@@ -192,28 +185,18 @@ class PLTableInfo:
         """Return the source-suffixed local short column names for this PL table.
 
         Returns:
-            tuple[str, ...]: Source-suffixed local column names (e.g.
-            ``"TOT_VAP_P3"``) paired 1:1 with ``construct_variable_names``.
+            tuple[str, ...]: Source-suffixed local column names (e.g. ``"TOT_VAP_P3"``) paired 1:1
+            with ``construct_variable_names``.
         """
 
         return tuple(self.construct_rename_map().values())
-
-    def construct_base_short_names(self) -> tuple[str, ...]:
-        """Return local short column names before source suffixing.
-
-        Returns:
-            tuple[str, ...]: Base local column names (e.g. ``"TOT_VAP"``)
-            paired 1:1 with ``construct_variable_names``.
-        """
-
-        return tuple(self.variable_to_short_name.values())
 
     def construct_rename_map(self) -> dict[str, str]:
         """Return the raw-variable-to-source-suffixed-column rename mapping.
 
         Returns:
-            dict[str, str]: Mapping suitable for ``DataFrame.rename`` from raw
-            Census variable names to source-suffixed local column names.
+            dict[str, str]: Mapping suitable for ``DataFrame.rename`` from raw Census variable names
+            to source-suffixed local column names.
         """
 
         return {
@@ -268,20 +251,19 @@ class PLTableInfo:
 class PLBlockVAPTableInfo(PLTableInfo):
     """Decennial PL block-level voting-age population (VAP) table definition.
 
-    Wraps Census PL tables P3 (VAP by race) and P4 (VAP by Hispanic origin) at
-    block geography. Output column names preserve the source table suffix, so
-    race-by-VAP columns from P3 become ``*_VAP_P3`` and Hispanic-origin VAP
-    columns from P4 become ``*_VAP_P4``.
+    Wraps Census PL tables P3 (VAP by race) and P4 (VAP by Hispanic origin) at block geography.
+    Output column names preserve the source table suffix, so race-by-VAP columns from P3 become
+    ``*_VAP_P3`` and Hispanic-origin VAP columns from P4 become ``*_VAP_P4``.
 
     Attributes:
         table_name (str): ``"PLBlockVAP"`` by default.
-        race_prefixes (tuple[str, ...]): Race prefixes this table covers,
-            defaulting to ``RACE_PREFIXES``. Block-CVAP estimation iterates
-            over these when pairing PL source-suffixed ``{RACE}_VAP`` columns
-            with ACS source-suffixed ``{RACE}_VAP`` and ``{RACE}_CVAP`` columns.
-        variable_to_short_name (frozendict): Maps the specific P3/P4 variable
-            names above to their base ``{RACE}_VAP`` short names. The source
-            suffix is added by ``PLTableInfo.construct_rename_map``.
+        race_prefixes (tuple[str, ...]): Race prefixes this table covers, defaulting to
+            ``RACE_PREFIXES``. Block-CVAP estimation iterates over these when pairing PL
+            source-suffixed ``{RACE}_VAP`` columns with ACS source-suffixed ``{RACE}_VAP`` and
+            ``{RACE}_CVAP`` columns.
+        variable_to_short_name (frozendict): Maps the specific P3/P4 variable names above to their
+            base ``{RACE}_VAP`` short names. The source suffix is added by
+            ``PLTableInfo.construct_rename_map``.
     """
 
     table_name: str = "PLBlockVAP"
@@ -308,36 +290,32 @@ class PLBlockVAPTableInfo(PLTableInfo):
 class ACSTableInfo:
     """Base class for American Community Survey (ACS) table definitions.
 
-    Subclasses specify the Census base tables, indices, and demographic groups
-    that make up one logical "table" (e.g. VAP, CVAP). The base class derives
-    both the long Census-variable-to-descriptive-name mapping and the
-    ``condense_group_dict`` (raw variable groupings to sum) from those fields.
+    Subclasses specify the Census base tables, indices, and demographic groups that make up one
+    logical "table" (e.g. VAP, CVAP). The base class derives both the long
+    Census-variable-to-descriptive-name mapping and the ``condense_group_dict`` (raw variable
+    groupings to sum) from those fields.
 
-    Subclasses override ``condense_group_dict`` only when the standard
-    "group letter × indices → per-race sum" derivation does not fit, as is
-    the case for ``ACSHispByRaceTableInfo``.
+    Subclasses override ``condense_group_dict`` only when the standard "group letter × indices →
+    per-race sum" derivation does not fit, as is the case for ``ACSHispByRaceTableInfo``.
 
     Attributes:
-        table_name (str): Human-readable name for the logical ACS table
-            (e.g. ``"CVAP"``, ``"VAP"``).
-        base_table_strings (tuple[str, ...]): Census base table codes used
-            (e.g. ``("B05003",)``).
-        table_indices (tuple[int, ...]): Numeric indices within each base
-            table that correspond to the variables this table cares about.
-        groups_tup (tuple[str, ...]): Single-letter Census group suffixes
-            (e.g. ``""`` for all races, ``"A"`` for White alone) that this
-            table requests.
-        index_to_name_dict (frozendict): Mapping from a Census index to the
-            descriptive suffix appended to the long column name (e.g.
-            ``{8: "MALE", 19: "FEMALE"}`` for VAP).
+        table_name (str): Human-readable name for the logical ACS table (e.g. ``"CVAP"``,
+            ``"VAP"``).
+        base_table_strings (tuple[str, ...]): Census base table codes used (e.g. ``("B05003",)``).
+        table_indices (tuple[int, ...]): Numeric indices within each base table that correspond to
+            the variables this table cares about.
+        groups_tup (tuple[str, ...]): Single-letter Census group suffixes (e.g. ``""`` for all
+            races, ``"A"`` for White alone) that this table requests.
+        index_to_name_dict (frozendict): Mapping from a Census index to the descriptive suffix
+            appended to the long column name (e.g. ``{8: "MALE", 19: "FEMALE"}`` for VAP).
 
     Class Attributes:
-        table_to_group_dict (frozendict): Long English-language name for each
-            Census group-suffix letter.
-        standard_abbreviations (frozendict): Long-to-short substring
-            substitutions consumed by ``shorten_acs_column_names``.
-        suffix_to_abbrev_dict (frozendict): Census variable suffixes (``"E"``,
-            ``"M"``, ``"EA"``, ``"MA"``) mapped to their short forms.
+        table_to_group_dict (frozendict): Long English-language name for each Census group-suffix
+            letter.
+        standard_abbreviations (frozendict): Long-to-short substring substitutions consumed by
+            ``shorten_acs_column_names``.
+        suffix_to_abbrev_dict (frozendict): Census variable suffixes (``"E"``, ``"M"``, ``"EA"``,
+            ``"MA"``) mapped to their short forms.
     """
 
     table_name: str = ""
@@ -361,12 +339,11 @@ class ACSTableInfo:
         }
     )
 
-    # Maps the long English-language substring to its canonical short form.
-    # Order matters: longer phrases must appear before any shorter phrase that
-    # is a substring of them (e.g. ``AMERICAN_INDIAN_AND_ALASKAN_NATIVE`` must
-    # be collapsed to ``AIAN`` before the bare ``NATIVE -> NAT`` rule runs,
-    # and the two-word races must collapse before ``MALE -> M`` eats the
-    # ``MALE`` inside ``FEMALE``).
+    # Maps the long English-language substring to its canonical short form. Order matters: longer
+    # phrases must appear before any shorter phrase that is a substring of them (e.g.
+    # ``AMERICAN_INDIAN_AND_ALASKAN_NATIVE`` must be collapsed to ``AIAN`` before the bare
+    # ``NATIVE -> NAT`` rule runs, and the two-word races must collapse before ``MALE -> M``
+    # eats the ``MALE`` inside ``FEMALE``).
     standard_abbreviations: ClassVar[frozendict] = frozendict(
         {
             "TOTAL": "TOT",
@@ -404,18 +381,17 @@ class ACSTableInfo:
         """Construct descriptive ACS column names for this table definition.
 
         Args:
-            suffix (str): Census variable suffix: ``"E"`` for estimates, ``"M"``
-                for margins of error. Defaults to ``"E"``.
-            year (int | None): ACS year to append to the descriptive column
-                names. When omitted, generated names do not include a year suffix.
-            source_suffix (str | None): Source suffix appended to the descriptive
-                column name, such as ``"ACS5"`` or ``"ACS1"``. When omitted, no
-                source suffix is appended.
+            suffix (str): Census variable suffix: ``"E"`` for estimates, ``"M"`` for margins of
+                error. Defaults to ``"E"``.
+            year (int | None): ACS year to append to the descriptive column names. When omitted,
+                generated names do not include a year suffix.
+            source_suffix (str | None): Source suffix appended to the descriptive column name, such
+                as ``"ACS5"`` or ``"ACS1"``. When omitted, no source suffix is appended.
 
         Returns:
-            dict[str, str]: Mapping from Census API variable names (e.g.
-            ``"B05003_008E"``) to descriptive column names (e.g.
-            ``"TOTAL_VAP_EST_MALE_ACS1"`` when ``source_suffix="ACS1"``).
+            dict[str, str]: Mapping from Census API variable names (e.g. ``"B05003_008E"``) to
+            descriptive column names (e.g. ``"TOTAL_VAP_EST_MALE_ACS1"`` when
+            ``source_suffix="ACS1"``).
         """
 
         long_name_dict = {}
@@ -442,16 +418,15 @@ class ACSTableInfo:
     def condense_group_dict(self) -> frozendict:
         """Output group name to raw Census variable names to sum into it.
 
-        Default behaviour: for each Census base table × group-suffix letter,
-        produce one output group ``{long_group_name}_{table_name}`` that sums
-        all ``table_indices`` for that (base table, group) pair. Subclasses
-        whose structure does not fit (e.g. ``ACSHispByRaceTableInfo``, which uses
-        the per-index name as the output key) override this property.
+        Default behaviour: for each Census base table × group-suffix letter, produce one output
+        group ``{long_group_name}_{table_name}`` that sums all ``table_indices`` for that (base
+        table, group) pair. Subclasses whose structure does not fit (e.g.
+        ``ACSHispByRaceTableInfo``, which uses the per-index name as the output key) override this
+        property.
 
         Returns:
-            frozendict: Mapping from output group name to a tuple of raw
-            Census variable names (without estimate/MOE suffix) whose values
-            should be summed.
+            frozendict: Mapping from output group name to a tuple of raw Census variable names
+            (without estimate/MOE suffix) whose values should be summed.
         """
 
         result = {}
@@ -468,9 +443,8 @@ class ACSTableInfo:
 class ACSCVAPTableInfo(ACSTableInfo):
     """ACS Citizen Voting-Age Population (CVAP) table definition.
 
-    Sources variables from Census base table B05003 and sums male/female
-    native/foreign-born citizen counts (indices 9, 11, 20, 22) into per-race
-    CVAP totals.
+    Sources variables from Census base table B05003 and sums male/female native/foreign-born citizen
+    counts (indices 9, 11, 20, 22) into per-race CVAP totals.
     """
 
     table_name: str = "CVAP"
@@ -493,8 +467,8 @@ class ACSCVAPTableInfo(ACSTableInfo):
 class ACSVAPTableInfo(ACSTableInfo):
     """ACS Voting-Age Population (VAP) table definition.
 
-    Sources variables from Census base table B05003 and sums the male/female
-    voting-age subtotals (indices 8 and 19) into per-race VAP totals.
+    Sources variables from Census base table B05003 and sums the male/female voting-age subtotals
+    (indices 8 and 19) into per-race VAP totals.
     """
 
     table_name: str = "VAP"
@@ -515,8 +489,8 @@ class ACSVAPTableInfo(ACSTableInfo):
 class ACSTotPopTableInfo(ACSTableInfo):
     """ACS total-population table definition.
 
-    Pulls the total-population row (index 1) from Census base table B01001
-    into a single ``TOTAL_POP`` condensed group.
+    Pulls the total-population row (index 1) from Census base table B01001 into a single
+    ``TOTAL_POP`` condensed group.
     """
 
     table_name: str = "POP"
@@ -530,11 +504,10 @@ class ACSTotPopTableInfo(ACSTableInfo):
 class ACSHispByRaceTableInfo(ACSTableInfo):
     """ACS Hispanic-by-Race table definition.
 
-    Sources variables from Census base table B03002, which cross-tabulates
-    Hispanic origin with race. Condenses into both ``*_NHISP`` (non-Hispanic)
-    and ``*_HISP`` (Hispanic) groups for each race category. Because the
-    output keys are per-index rather than per-group, this subclass overrides
-    ``condense_group_dict``.
+    Sources variables from Census base table B03002, which cross-tabulates Hispanic origin with
+    race. Condenses into both ``*_NHISP`` (non-Hispanic) and ``*_HISP`` (Hispanic) groups for each
+    race category. Because the output keys are per-index rather than per-group, this subclass
+    overrides ``condense_group_dict``.
     """
 
     table_name: str = "HispByRace"
@@ -573,10 +546,9 @@ class ACSHispByRaceTableInfo(ACSTableInfo):
         """Map each per-index name to a single-variable tuple.
 
         Returns:
-            frozendict: Mapping from each ``index_to_name_dict`` value (e.g.
-            ``"WHITE_NHISP"``) to a one-element tuple containing the raw
-            Census variable name without estimate/MOE suffix (e.g.
-            ``("B03002_003",)``).
+            frozendict: Mapping from each ``index_to_name_dict`` value (e.g. ``"WHITE_NHISP"``) to a
+            one-element tuple containing the raw Census variable name without estimate/MOE suffix
+            (e.g. ``("B03002_003",)``).
         """
 
         result = {}

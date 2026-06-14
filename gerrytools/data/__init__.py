@@ -2,24 +2,43 @@
 Facilities for processing data and districting plans in a standardized fashion.
 """
 
-from .census.acs import acs, acs_full, block_cvap_estimates, cvap
-from .census.census import census
-from .districtr.legacy.fetch import Submission as LegacySubmission
-from .districtr.legacy.fetch import submissions as legacy_submissions
-from .districtr.legacy.fetch import tabularized as legacy_tabularized
 from .geometries import dualgraphs20, geometries20, vtds20
+from .uscensus import (
+    ACSCVAPTableInfo,
+    ACSHispByRaceTableInfo,
+    ACSTableInfo,
+    ACSTotPopTableInfo,
+    ACSVAPTableInfo,
+    CensusRateLimitError,
+    PLBlockVAPTableInfo,
+    PLTableInfo,
+    acs,
+    acs_full,
+    block_cvap_estimates,
+    census,
+    cvap,
+    pl_pop_table,
+)
 
 __all__ = [
-    "legacy_submissions",
-    "legacy_tabularized",
-    "LegacySubmission",
+    # Census fetch functions
     "acs",
     "acs_full",
-    "block_cvap_estimates",
     "cvap",
     "census",
+    "block_cvap_estimates",
+    # Table definitions accepted by acs()/census()
+    "ACSTableInfo",
+    "ACSTotPopTableInfo",
+    "ACSVAPTableInfo",
+    "ACSCVAPTableInfo",
+    "ACSHispByRaceTableInfo",
+    "PLTableInfo",
+    "PLBlockVAPTableInfo",
+    "pl_pop_table",
+    "CensusRateLimitError",
+    # Lab-processed geometry downloads
     "vtds20",
     "dualgraphs20",
     "geometries20",
-    "vtds20",
 ]

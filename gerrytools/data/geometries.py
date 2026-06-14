@@ -8,15 +8,14 @@ from gerrytools.logging import get_logger
 
 logger = get_logger(__name__)
 
-# data.mggg.org is served from an S3 static-website endpoint, which only
-# supports HTTP (S3 website hosting does not terminate TLS), so this base URL
-# is intentionally http:// rather than https://.
+# data.mggg.org is served from an S3 static-website endpoint, which only supports HTTP (S3 website
+# hosting does not terminate TLS), so this base URL is intentionally http:// rather than https://.
 DATA_MGGG_BASE_URL = "http://data.mggg.org.s3-website.us-east-2.amazonaws.com"
 
 _REQUEST_TIMEOUT = httpx.Timeout(120)
 
-# Dual-graph geometry levels mapped to their data.mggg.org filename
-# identifiers. "block group" and "blockgroup" are accepted spellings of "bg".
+# Dual-graph geometry levels mapped to their data.mggg.org filename identifiers. "block group"
+# and "blockgroup" are accepted spellings of "bg".
 _DUALGRAPH_GEOMETRY_IDS = frozendict(
     {
         "bg": "bg",
@@ -46,9 +45,9 @@ _CENSUS_GEOMETRY_IDS = frozendict(
 def _download_to_file(url: str, filepath: str | os.PathLike[str]) -> None:
     """Stream a GET response body to ``filepath``, raising on HTTP error.
 
-    Streaming keeps memory use flat for large shapefile and dual-graph
-    archives, and ``raise_for_status`` ensures an S3 error page is never
-    written to disk in place of the requested file.
+    Streaming keeps memory use flat for large shapefile and dual-graph archives, and
+    ``raise_for_status`` ensures an S3 error page is never written to disk in place of the
+    requested file.
 
     Args:
         url (str): URL to download.
@@ -77,10 +76,9 @@ def dualgraphs20(
 
     Args:
         state (us.states.State): State for which to retrieve data.
-        filepath (str | os.PathLike): Destination path for the downloaded
-            dual graph JSON.
-        geometry (str): Geometry level. One of ``"bg"`` / ``"block group"`` /
-            ``"blockgroup"`` or ``"vtd"``. Defaults to ``"block group"``.
+        filepath (str | os.PathLike): Destination path for the downloaded dual graph JSON.
+        geometry (str): Geometry level. One of ``"bg"`` / ``"block group"`` / ``"blockgroup"`` or
+            ``"vtd"``. Defaults to ``"block group"``.
 
     Raises:
         ValueError: If ``geometry`` is not an available dual-graph level.
@@ -109,8 +107,7 @@ def vtds20(state: us.states.State, filepath: str | os.PathLike[str]) -> None:
 
     Args:
         state (us.states.State): State for which to retrieve data.
-        filepath (str | os.PathLike): Destination path for the downloaded
-            zipped shapefile.
+        filepath (str | os.PathLike): Destination path for the downloaded zipped shapefile.
 
     Raises:
         httpx.HTTPStatusError: If the download request fails.
@@ -134,12 +131,10 @@ def geometries20(
 
     Args:
         state (us.states.State): State for which to retrieve data.
-        filepath (str | os.PathLike): Destination path for the downloaded
-            zipped shapefile.
-        geometry (str): Geometry level at which to retrieve data. One of
-            ``"block group"``, ``"block"``, ``"congress"``, ``"county"``,
-            ``"cousub"``, ``"place"``, ``"senate"``, ``"house"``, ``"tract"``,
-            or ``"vtd"``. Defaults to ``"tract"``.
+        filepath (str | os.PathLike): Destination path for the downloaded zipped shapefile.
+        geometry (str): Geometry level at which to retrieve data. One of ``"block group"``,
+            ``"block"``, ``"congress"``, ``"county"``, ``"cousub"``, ``"place"``, ``"senate"``,
+            ``"house"``, ``"tract"``, or ``"vtd"``. Defaults to ``"tract"``.
 
     Raises:
         ValueError: If ``geometry`` is not a recognized level.
