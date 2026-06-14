@@ -1,66 +1,34 @@
-import requests
+import os
 
+import httpx
+import us
+from frozendict import frozendict
 
-def dualgraphs20(state, filepath, geometry="block group"):
-    """
-    Retrieves Lab-processed dual graph data for the provided state and geometry
-    level and writes it to the provided filepath.
+from gerrytools.logging import get_logger
 
-    Args:
-        state (us.State): State for which we retrieve data.
-    """
-    acceptable = {"bg", "block group", "blockgroup", "vtd"}
+logger = get_logger(__name__)
 
-    if geometry.lower() not in acceptable:
-        print(f'Requested geometry "{geometry}" is not allowed; loading block groups.')
-        geometry = "bg"
+# data.mggg.org is served from an S3 static-website endpoint, which only
+# supports HTTP (S3 website hosting does not terminate TLS), so this base URL
+# is intentionally http:// rather than https://.
+DATA_MGGG_BASE_URL = "http://data.mggg.org.s3-website.us-east-2.amazonaws.com"
 
-    # Specify the base url.
-    base = "http://data.mggg.org.s3-website.us-east-2.amazonaws.com/dual-graphs/"
-    suffix = f"{state.abbr.lower()}-{geometry}-connected.json"
+_REQUEST_TIMEOUT = httpx.Timeout(120)
 
-    # Send the request!
-    request = requests.get(base + suffix)
+# Dual-graph geometry levels mapped to their data.mggg.org filename
+# identifiers. "block group" and "blockgroup" are accepted spellings of "bg".
+_DUALGRAPH_GEOMETRY_IDS = frozendict(
+    {
+        "bg": "bg",
+        "block group": "bg",
+        "blockgroup": "bg",
+        "vtd": "vtd",
+    }
+)
 
-    with open(filepath, "wb") as w:
-        w.write(request.content)
-
-
-def vtds20(state, filepath):
-    """
-    Retrieves Lab-processed geometric data for the provided state and geometry
-    level and writes it to the provided filepath.
-
-    Args:
-        state (us.State): State for which we retrieve data.
-    """
-    # Specify the base url.
-    base = "http://data.mggg.org.s3-website.us-east-2.amazonaws.com/vtd-shapefiles/"
-    suffix = f"{state.abbr.upper()}_vtd20.zip"
-
-    # Send the request!
-    request = requests.get(base + suffix)
-
-    with open(filepath, "wb") as w:
-        w.write(request.content)
-
-
-def geometries20(state, filepath, geometry="tract"):
-    """
-    Retrieves Lab-processed geometric data for the provided state and geometry
-    level and writes it to the provided filepath.
-
-    Args:
-        state (us.State): State for which we retrieve data.
-        filepath (str): Location to which we write the compressed data.
-        geometry (str, optional): Geometry level at which we retrieve data.
-            Accepted values are `block group`, `block`, `congress`, `county`,
-            `cousub`, `place`, `senate`, `house`, `tract`, and `vtd`. Defaults
-            to `tract`.
-    """
-    # Create a mapping from standard geometry names to data.mggg.org geometry
-    # identifiers.
-    geometrymap = {
+# Census-2020 geometry levels mapped to their data.mggg.org identifiers.
+_CENSUS_GEOMETRY_IDS = frozendict(
+    {
         "block group": "bg",
         "block": "block",
         "congress": "cd116",
@@ -72,18 +40,124 @@ def geometries20(state, filepath, geometry="tract"):
         "tract": "tract",
         "vtd": "vtd",
     }
+)
 
-    # Check that the passed geometry is allowable.
-    if geometry not in set(geometrymap.keys()):
-        print(f'Requested geometry "{geometry}" is not allowed; loading tracts.')
-        geometry = "tract"
 
-    # Specify the base url.
-    base = "http://data.mggg.org.s3-website.us-east-2.amazonaws.com/census-2020/"
-    suffix = f"{state.abbr.lower()}/{state.abbr.lower()}_{geometrymap[geometry]}.zip"
+def _download_to_file(url: str, filepath: str | os.PathLike[str]) -> None:
+    """Stream a GET response body to ``filepath``, raising on HTTP error.
 
-    # Send the request!
-    request = requests.get(base + suffix)
+    Streaming keeps memory use flat for large shapefile and dual-graph
+    archives, and ``raise_for_status`` ensures an S3 error page is never
+    written to disk in place of the requested file.
 
-    with open(filepath, "wb") as w:
-        w.write(request.content)
+    Args:
+        url (str): URL to download.
+        filepath (str | os.PathLike): Destination path for the response body.
+
+    Raises:
+        httpx.HTTPStatusError: If the server returns an error status.
+    """
+
+    with (
+        httpx.Client(timeout=_REQUEST_TIMEOUT, follow_redirects=True) as client,
+        client.stream("GET", url) as response,
+    ):
+        response.raise_for_status()
+        with open(filepath, "wb") as output_file:
+            for chunk in response.iter_bytes():
+                output_file.write(chunk)
+
+
+def dualgraphs20(
+    state: us.states.State,
+    filepath: str | os.PathLike[str],
+    geometry: str = "block group",
+) -> None:
+    """Download Lab-processed dual graph data for a state and write it to disk.
+
+    Args:
+        state (us.states.State): State for which to retrieve data.
+        filepath (str | os.PathLike): Destination path for the downloaded
+            dual graph JSON.
+        geometry (str): Geometry level. One of ``"bg"`` / ``"block group"`` /
+            ``"blockgroup"`` or ``"vtd"``. Defaults to ``"block group"``.
+
+    Raises:
+        ValueError: If ``geometry`` is not an available dual-graph level.
+        httpx.HTTPStatusError: If the download request fails.
+
+    Warning:
+        Writes the downloaded file to ``filepath``.
+    """
+
+    geometry_key = geometry.lower()
+    if geometry_key not in _DUALGRAPH_GEOMETRY_IDS:
+        raise ValueError(
+            f"Requested geometry {geometry!r} is not available as a dual graph; "
+            f"choose one of {sorted(_DUALGRAPH_GEOMETRY_IDS)}."
+        )
+
+    geometry_id = _DUALGRAPH_GEOMETRY_IDS[geometry_key]
+    url = f"{DATA_MGGG_BASE_URL}/dual-graphs/{state.abbr.lower()}-{geometry_id}-connected.json"
+
+    logger.info("Downloading %s %s dual graph to %s.", state.abbr, geometry_id, filepath)
+    _download_to_file(url, filepath)
+
+
+def vtds20(state: us.states.State, filepath: str | os.PathLike[str]) -> None:
+    """Download Lab-processed 2020 VTD shapefile data and write it to disk.
+
+    Args:
+        state (us.states.State): State for which to retrieve data.
+        filepath (str | os.PathLike): Destination path for the downloaded
+            zipped shapefile.
+
+    Raises:
+        httpx.HTTPStatusError: If the download request fails.
+
+    Warning:
+        Writes the downloaded file to ``filepath``.
+    """
+
+    url = f"{DATA_MGGG_BASE_URL}/vtd-shapefiles/{state.abbr.upper()}_vtd20.zip"
+
+    logger.info("Downloading %s VTD shapefile to %s.", state.abbr, filepath)
+    _download_to_file(url, filepath)
+
+
+def geometries20(
+    state: us.states.State,
+    filepath: str | os.PathLike[str],
+    geometry: str = "tract",
+) -> None:
+    """Download Lab-processed 2020 geometric data and write it to disk.
+
+    Args:
+        state (us.states.State): State for which to retrieve data.
+        filepath (str | os.PathLike): Destination path for the downloaded
+            zipped shapefile.
+        geometry (str): Geometry level at which to retrieve data. One of
+            ``"block group"``, ``"block"``, ``"congress"``, ``"county"``,
+            ``"cousub"``, ``"place"``, ``"senate"``, ``"house"``, ``"tract"``,
+            or ``"vtd"``. Defaults to ``"tract"``.
+
+    Raises:
+        ValueError: If ``geometry`` is not a recognized level.
+        httpx.HTTPStatusError: If the download request fails.
+
+    Warning:
+        Writes the downloaded file to ``filepath``.
+    """
+
+    if geometry not in _CENSUS_GEOMETRY_IDS:
+        raise ValueError(
+            f"Requested geometry {geometry!r} is not allowed; "
+            f"choose one of {sorted(_CENSUS_GEOMETRY_IDS)}."
+        )
+
+    geometry_id = _CENSUS_GEOMETRY_IDS[geometry]
+    state_abbr = state.abbr.lower()
+    url = f"{DATA_MGGG_BASE_URL}/census-2020/{state_abbr}/{state_abbr}_{geometry_id}.zip"
+
+    logger.info("Downloading %s %s geometries to %s.", state.abbr, geometry_id, filepath)
+    _download_to_file(url, filepath)
