@@ -26,5 +26,4 @@ def test_public_data_and_geometry_plot_imports():
     _ = data.BoxPlot
     _ = data.ViolinPlot
     _ = geometry.GeoPlot
-    _ = geometry.ColoredGeoPlot
     _ = geometry.DotDensityPlot

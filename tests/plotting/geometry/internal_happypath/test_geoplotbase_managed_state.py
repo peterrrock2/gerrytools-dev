@@ -5,7 +5,7 @@ shared matplotlib axes:
 
 - artist counts stay flat across N rebuilds (no leak);
 - external matplotlib content (text, imshow) on a shared axes survives
-  GeoPlot/ColoredGeoPlot rebuilds;
+  GeoPlotBase/GeoPlot rebuilds;
 - ``_figure_is_shared`` blocks ``subplots_adjust`` mutation when the user
   supplied their own ``ax``;
 - ``show_axis`` is a managed unit (most-recent-wins between gerrytools and
@@ -22,7 +22,7 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 
-from gerrytools.plotting.geometry.coloredgeoplot import ColoredGeoPlot
+from gerrytools.plotting.geometry.geoplot import GeoPlot
 
 
 def _total_artist_count(ax) -> int:
@@ -36,18 +36,18 @@ def _total_artist_count(ax) -> int:
 
 class TestNoLeakAcrossRebuilds:
     def test_geoplot_artist_counts_flat_across_rebuilds(self, testing_gdf):
-        # GeoPlot's _build_plot is abstract; use ColoredGeoPlot as the
-        # concrete proxy since GeoPlot is also abstract for instantiation.
-        plot = ColoredGeoPlot(testing_gdf)
+        # GeoPlotBase's _build_plot is abstract; use GeoPlot as the
+        # concrete proxy since GeoPlotBase is also abstract for instantiation.
+        plot = GeoPlot(testing_gdf)
         plot.add_outline_layer()
         counts = [_total_artist_count(plot.ax) for _ in range(4)]
         assert counts[0] > 0
         assert len(set(counts)) == 1, f"artist counts drift: {counts}"
 
-    def test_coloredgeoplot_with_outline_no_leak(self, testing_gdf):
+    def test_geoplot_with_outline_no_leak(self, testing_gdf):
         # Choropleth is fixture-dependent (needs a numeric column with the
         # right shape); outline is the safe stand-in for the leak guardrail.
-        plot = ColoredGeoPlot(testing_gdf)
+        plot = GeoPlot(testing_gdf)
         plot.add_outline_layer()
         counts = [_total_artist_count(plot.ax) for _ in range(4)]
         assert counts[0] > 0
@@ -63,7 +63,7 @@ class TestExternalContentSurvives:
     def test_external_text_survives_geoplot_rebuild(self, testing_gdf):
         _, ax = plt.subplots()
         ax.text(0.5, 0.5, "external", transform=ax.transAxes)
-        plot = ColoredGeoPlot(testing_gdf, ax=ax)
+        plot = GeoPlot(testing_gdf, ax=ax)
         plot.add_outline_layer()
         plot.ax
         plot.ax  # second rebuild
@@ -79,11 +79,11 @@ class TestExternalContentSurvives:
 class TestFigureIsShared:
     def test_figure_is_shared_flag_set_when_user_supplies_ax(self, testing_gdf):
         _, ax = plt.subplots()
-        plot = ColoredGeoPlot(testing_gdf, ax=ax)
+        plot = GeoPlot(testing_gdf, ax=ax)
         assert plot._figure_is_shared is True
 
     def test_figure_is_shared_flag_unset_when_gerrytools_creates_figure(self, testing_gdf):
-        plot = ColoredGeoPlot(testing_gdf)
+        plot = GeoPlot(testing_gdf)
         assert plot._figure_is_shared is False
 
     def test_subplots_adjust_skipped_on_shared_figure(self, testing_gdf):
@@ -94,14 +94,14 @@ class TestFigureIsShared:
         # Pre-set right=0.5 — a value gerrytools would normally reset to 0.98.
         fig.subplots_adjust(right=0.5)
         before_right = fig.subplotpars.right
-        plot = ColoredGeoPlot(testing_gdf, ax=ax)
+        plot = GeoPlot(testing_gdf, ax=ax)
         plot.add_outline_layer()
         plot.ax  # triggers _clear_colorbars_and_reset_layout via _draw_colorbars
         # subplots_adjust must NOT have run, so the right margin is unchanged.
         assert fig.subplotpars.right == before_right
 
     def test_subplots_adjust_runs_on_owned_figure(self, testing_gdf):
-        plot = ColoredGeoPlot(testing_gdf)
+        plot = GeoPlot(testing_gdf)
         plot.add_outline_layer()
         plot.ax
         # gerrytools-owned figure: subplots_adjust ran, so right is the
@@ -116,19 +116,19 @@ class TestFigureIsShared:
 
 class TestShowAxisManagedUnit:
     def test_constructor_show_axis_true_renders_axis_on(self, testing_gdf):
-        plot = ColoredGeoPlot(testing_gdf, show_axis=True)
+        plot = GeoPlot(testing_gdf, show_axis=True)
         plot.add_outline_layer()
         plot.ax
         assert plot._ax.axison
 
     def test_constructor_default_renders_axis_off(self, testing_gdf):
-        plot = ColoredGeoPlot(testing_gdf)
+        plot = GeoPlot(testing_gdf)
         plot.add_outline_layer()
         plot.ax
         assert not plot._ax.axison
 
     def test_show_axis_setter_most_recent_wins(self, testing_gdf):
-        plot = ColoredGeoPlot(testing_gdf)
+        plot = GeoPlot(testing_gdf)
         plot.add_outline_layer()
         plot.ax
         assert not plot._ax.axison
@@ -153,7 +153,7 @@ class TestShowAxisManagedUnit:
 
 class TestLimitsManagedUnit:
     def test_set_xlim_then_external_set_xlim_external_wins(self, testing_gdf):
-        plot = ColoredGeoPlot(testing_gdf)
+        plot = GeoPlot(testing_gdf)
         plot.add_outline_layer()
         plot.set_xlim(-100.0, 100.0)
         ax = plot.ax
@@ -163,7 +163,7 @@ class TestLimitsManagedUnit:
         assert plot._ax.get_xlim() == (0.0, 50.0)
 
     def test_explicit_xlim_survives_bind_to_ax(self, testing_gdf):
-        plot = ColoredGeoPlot(testing_gdf)
+        plot = GeoPlot(testing_gdf)
         plot.add_outline_layer()
         plot.set_xlim(-100.0, 100.0)
         plot.ax

@@ -32,7 +32,6 @@ from gerrytools.plotting.data.sealevel import SeaLevel
 from gerrytools.plotting.data.seatsvotes import SeatsVotes
 from gerrytools.plotting.data.violin import ViolinPlot
 from gerrytools.plotting.geometry._layers._continuous import ColormapLayer
-from gerrytools.plotting.geometry.coloredgeoplot import ColoredGeoPlot
 from gerrytools.plotting.geometry.dotdensity import DotDensityPlot
 from gerrytools.plotting.geometry.geoplot import GeoPlot
 from gerrytools.plotting.mpl.axis_title_style import AxisLabelStyle, TitleStyle
@@ -63,14 +62,13 @@ __all__ = [
     "BoxPlotStats",
     "ColormapLayer",
     "ColorbarOptions",
-    "ColoredGeoPlot",
+    "GeoPlot",
     "DotDensityPlot",
     "FontFamily",
     "FontStretch",
     "FontStyle",
     "FontVariant",
     "FontWeight",
-    "GeoPlot",
     "Histogram",
     "HistogramOptions",
     "LabelArrowStyle",

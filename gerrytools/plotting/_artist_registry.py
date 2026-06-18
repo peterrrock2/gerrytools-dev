@@ -1,6 +1,6 @@
 """`_ArtistRegistry` — tracks gerrytools-managed matplotlib artists.
 
-Owned by `GerryPlotBase` and `GeoPlot` so rebuild flows can remove only the
+Owned by `GerryPlotBase` and `GeoPlotBase` so rebuild flows can remove only the
 artists gerrytools created on its axes, leaving any external artists (user
 overlays, neighbouring subplot content, etc.) untouched.
 

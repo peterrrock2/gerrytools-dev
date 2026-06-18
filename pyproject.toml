@@ -22,7 +22,7 @@ dependencies = [
   "gerrychain>=0.3.2",
   "jsonlines>=4.0.0",
   "maup>=2.0.3",
-  "binary-ensemble>=0.3.0",
+  "binary-ensemble==1.0.0",
   # Data manipulation
   "pandas>=2.3.2",
   "scipy>=1.16.1",

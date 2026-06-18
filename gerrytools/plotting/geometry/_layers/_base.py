@@ -34,7 +34,7 @@ def _as_geoseries(source: GeoSource) -> gpd.GeoSeries:
 
 @dataclass(frozen=True, slots=True)
 class _GeoLayer(ABC):
-    """Abstract base class for a geographic layer to be rendered on a GeoPlot.
+    """Abstract base class for a geographic layer to be rendered on a GeoPlotBase.
 
     Attributes:
         geosource (GeoSource): The source of geometries for this layer.

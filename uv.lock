@@ -88,15 +88,18 @@ wheels = [
 
 [[package]]
 name = "binary-ensemble"
-version = "0.3.0"
+version = "1.0.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/db/96/c0f9c968f016834b0a44937625d542cfd8600274e920f9d0449fcfa05fae/binary_ensemble-0.3.0.tar.gz", hash = "sha256:45df838e69b0159b45d4deeb2d65da219cfb5cadd81c6b468c6f7abe73969a86", size = 208508, upload-time = "2025-10-17T00:44:14.866Z" }
+dependencies = [
+    { name = "networkx" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f7/32/8d6b221b7b53fdbb867f92862a7f51b7677195269a158807c270a864b210/binary_ensemble-1.0.0.tar.gz", hash = "sha256:203484f7a2d578fa5cfee1c1f1175dfeaa299c5eab6265619a22754f1924a7d4", size = 668383, upload-time = "2026-06-16T05:23:08.923Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/07/db/6a895e913a1d4a519e55fa9f65c7408dd9909ecf3680bd3824fdc587df61/binary_ensemble-0.3.0-cp311-abi3-macosx_10_13_x86_64.macosx_11_0_arm64.macosx_10_13_universal2.whl", hash = "sha256:e4beeed66c5001798796baff73f594fb51e8d9cfaba8459a5dab95862a41e785", size = 807030, upload-time = "2025-10-17T00:44:06.797Z" },
-    { url = "https://files.pythonhosted.org/packages/4a/95/c42dbc33edfc4531b312b8c44375c74d06a4f5ad777e1147ecf195730e3d/binary_ensemble-0.3.0-cp311-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:d4632a0ac8438e77755e8134b5b756544b82ae39365390551dd9d2b2bd49d081", size = 484030, upload-time = "2025-10-17T00:44:08.918Z" },
-    { url = "https://files.pythonhosted.org/packages/b3/c2/5459d1b6189e3866f4f80dcfa13e29388266c9136b75597937400f747bb6/binary_ensemble-0.3.0-cp311-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:e816aae9f8b2c1f49498f0904cfb8923bb46d189af4ac3ba088276457f51e98c", size = 499787, upload-time = "2025-10-17T00:44:10.561Z" },
-    { url = "https://files.pythonhosted.org/packages/c8/77/62b2c035c91f952646fc5fd5c6c9e09c69565735cbdb34d8efb8a13471cc/binary_ensemble-0.3.0-cp311-abi3-win_amd64.whl", hash = "sha256:f1de9513cbfb0c681e49421f9a79a1e2f6e15e8a4fab18419d479c096d193c1f", size = 327191, upload-time = "2025-10-17T00:44:12.023Z" },
-    { url = "https://files.pythonhosted.org/packages/8e/8a/633d7cb0c297b3b80b8fe85ce9962ec185854ff8a3247cf47e6686a417eb/binary_ensemble-0.3.0-cp311-abi3-win_arm64.whl", hash = "sha256:aabbca7c8976f2df9ee344f1db4c7621c73edcae10b941bd48a76fbd7354fc9b", size = 312598, upload-time = "2025-10-17T00:44:13.423Z" },
+    { url = "https://files.pythonhosted.org/packages/7c/9a/d008f5a2b440da7cebdb8e4a8ee5f58b38066d5a7c721ca70050af2685b7/binary_ensemble-1.0.0-cp311-abi3-macosx_10_13_x86_64.macosx_11_0_arm64.macosx_10_13_universal2.whl", hash = "sha256:94f7d0b1a26bf297c7434145b7f0d52343232ff1120de5d29598d7ba150dcb7b", size = 1984243, upload-time = "2026-06-16T05:22:58.977Z" },
+    { url = "https://files.pythonhosted.org/packages/63/12/7c9c7ca5b672e26d9efd356958e02db942ba84b3463ff9c26fbfa7fae4a5/binary_ensemble-1.0.0-cp311-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:e9a8e964b3328c45007dcd68c23e46af4ffb6a099175eaa842dd0cd97ab7297e", size = 1131559, upload-time = "2026-06-16T05:23:00.931Z" },
+    { url = "https://files.pythonhosted.org/packages/3c/57/d204371f7600fa6932cd5ef10fae42fff577f2c76ef2dda59cb77f72d505/binary_ensemble-1.0.0-cp311-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:1aff06a312c3e41aa9b9c47931248c0a875148973fc77dcb66ab1a3361b5bab8", size = 1228831, upload-time = "2026-06-16T05:23:03.215Z" },
+    { url = "https://files.pythonhosted.org/packages/92/3b/4dbb8fd964adc8a1939a6411797c4d3b21ab2eea65c904e57b22304331b1/binary_ensemble-1.0.0-cp311-abi3-win_amd64.whl", hash = "sha256:a568eb8233189280d127d16abc1a646f696e1889527c9bb1e9760e98d615b338", size = 909326, upload-time = "2026-06-16T05:23:05.329Z" },
+    { url = "https://files.pythonhosted.org/packages/0b/e4/839861ed8469890dd7bc8ac348b6a6d535375a9b19708a76a161cd940d79/binary_ensemble-1.0.0-cp311-abi3-win_arm64.whl", hash = "sha256:1d42f840998cd3f879c0ee5889d433fab4fb8d15c8e4d1c158f8f7068c02d2c5", size = 865212, upload-time = "2026-06-16T05:23:07.212Z" },
 ]
 
 [[package]]
@@ -756,7 +759,7 @@ tex = [
 
 [package.metadata]
 requires-dist = [
-    { name = "binary-ensemble", specifier = ">=0.3.0" },
+    { name = "binary-ensemble", specifier = "==1.0.0" },
     { name = "docker", marker = "extra == 'mgrp'", specifier = ">=7.1.0" },
     { name = "frozendict", specifier = ">=2.4.0" },
     { name = "geopandas", specifier = ">=1.1.1" },

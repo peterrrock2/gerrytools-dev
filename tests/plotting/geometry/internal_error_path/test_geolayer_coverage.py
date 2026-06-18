@@ -11,8 +11,8 @@ import pytest
 from geopandas import GeoDataFrame, GeoSeries
 from shapely.geometry import Point, box
 
-from gerrytools.plotting.geometry.coloredgeoplot import ColoredGeoPlot
-from gerrytools.plotting.geometry.geoplot import (
+from gerrytools.plotting.geometry.geoplot import GeoPlot
+from gerrytools.plotting.geometry.geoplotbase import (
     _CategoricalColorLayer,
     _MarkerLayer,
 )
@@ -42,7 +42,7 @@ class TestGeometriesInCRSReproject:
         """When source and target CRS differ, geometries are reprojected."""
         gdf_crs = testing_gdf.copy().set_crs("EPSG:4326")
         # target_crs must differ from source to trigger the to_crs() call
-        plot = ColoredGeoPlot(gdf_crs, dpi=50, silent=True, target_crs="EPSG:3857")
+        plot = GeoPlot(gdf_crs, dpi=50, silent=True, target_crs="EPSG:3857")
         with tempfile.TemporaryDirectory() as tmpdir:
             plot.save(str(Path(tmpdir) / "reproject.png"))
 

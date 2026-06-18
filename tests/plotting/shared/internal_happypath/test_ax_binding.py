@@ -16,7 +16,7 @@ import warnings  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
 import pytest  # noqa: E402
 
-from gerrytools.plotting import ColoredGeoPlot, Histogram  # noqa: E402
+from gerrytools.plotting import GeoPlot, Histogram  # noqa: E402
 
 # ----------------------------------------------------------------------
 # Constructor accepts ax=
@@ -119,7 +119,7 @@ class TestBindToAx:
 
 
 # ----------------------------------------------------------------------
-# ax= on GeoPlot too
+# ax= on GeoPlotBase too
 # ----------------------------------------------------------------------
 
 
@@ -133,7 +133,7 @@ class TestGeoPlotAxParameter:
             crs="EPSG:4326",
         )
         fig, user_ax = plt.subplots()
-        plot = ColoredGeoPlot(gdf, ax=user_ax)
+        plot = GeoPlot(gdf, ax=user_ax)
         assert plot._ax is user_ax
 
     def test_geoplot_dpi_with_ax_warns(self):
@@ -147,7 +147,7 @@ class TestGeoPlotAxParameter:
         fig, user_ax = plt.subplots()
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            ColoredGeoPlot(gdf, dpi=72, ax=user_ax)
+            GeoPlot(gdf, dpi=72, ax=user_ax)
         assert any("ignored when ax is provided" in str(w.message) for w in caught)
 
     def test_geoplot_bind_to_ax(self):
@@ -158,7 +158,7 @@ class TestGeoPlotAxParameter:
             {"name": ["A"], "geometry": [Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])]},
             crs="EPSG:4326",
         )
-        plot = ColoredGeoPlot(gdf)
+        plot = GeoPlot(gdf)
         _, new_ax = plt.subplots()
         plot.bind_to_ax(new_ax)
         assert plot._ax is new_ax
@@ -171,7 +171,7 @@ class TestGeoPlotAxParameter:
             {"name": ["A"], "geometry": [Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])]},
             crs="EPSG:4326",
         )
-        plot = ColoredGeoPlot(gdf, dpi=150)
+        plot = GeoPlot(gdf, dpi=150)
         plot.bind_to_ax(None)
         assert plot.fig.dpi == 150
 
@@ -216,7 +216,7 @@ class TestFigureLifecycle:
         plt.close("all")
         gdf = _simple_gdf()
         for _ in range(5):
-            plot = ColoredGeoPlot(gdf)
+            plot = GeoPlot(gdf)
         del plot
         gc.collect()
         assert plt.get_fignums() == []
@@ -231,7 +231,7 @@ class TestFigureLifecycle:
         gc.collect()
         assert plt.get_fignums() == [fig.number]
 
-        geo_plot = ColoredGeoPlot(_simple_gdf(), ax=user_ax)
+        geo_plot = GeoPlot(_simple_gdf(), ax=user_ax)
         del geo_plot
         gc.collect()
         assert plt.get_fignums() == [fig.number]
@@ -240,7 +240,7 @@ class TestFigureLifecycle:
         import gc
 
         plt.close("all")
-        plot = ColoredGeoPlot(_simple_gdf())
+        plot = GeoPlot(_simple_gdf())
         fig, user_ax = plt.subplots()
         plot.bind_to_ax(user_ax)
         del plot

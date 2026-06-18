@@ -1,21 +1,14 @@
-import tempfile
-from pathlib import Path
-
 import matplotlib
 
 matplotlib.use("Agg")
 
-import pandas as pd
+import numpy as np
 import pytest
-from geopandas import GeoDataFrame, GeoSeries
-from shapely.geometry import Point, box
+from geopandas import GeoDataFrame
+from shapely.geometry import box
 
-from gerrytools.plotting.geometry.coloredgeoplot import ColoredGeoPlot
-from gerrytools.plotting.geometry.geoplot import (
-    _LabelRequest,
-)
-from gerrytools.plotting.mpl.label_text_options import LabelFontOptions
-from gerrytools.plotting.mpl.marker_options import PointMarkerOptions
+from gerrytools.plotting.geometry.geoplot import GeoPlot, _ContinuousColorLayer
+from gerrytools.plotting.mpl.geoplot_options import ColorbarOptions
 
 
 def _rect_gdf_with_crs(crs="EPSG:4326"):
@@ -32,362 +25,324 @@ def _rect_gdf_with_crs(crs="EPSG:4326"):
     )
 
 
-# ==========================
-# == OUTLINE LAYER ERRORS ==
-# ==========================
-class TestAddOutlineLayerErrors:
-    def test_dissolve_non_gdf_raises_typeerror(self, testing_gdf):
-        """dissolve_column with GeoSeries raises TypeError."""
-        gs = testing_gdf.geometry
-        plot = ColoredGeoPlot(testing_gdf, dpi=50, silent=True)
-        with pytest.raises(TypeError, match="geosource must be a GeoDataFrame"):
-            plot.add_outline_layer(geosource=gs, dissolve_column="district")
+# ===========================
+# == CONTINUOUS LAYER INIT ==
+# ===========================
+class TestContinuousColorLayerPostInit:
+    def test_invalid_colormap_type_raises(self, testing_gdf):
+        """Non-str, non-Colormap colormap raises TypeError."""
+        with pytest.raises(TypeError, match="colormap.*must be a str or Colormap"):
+            _ContinuousColorLayer(
+                geometry_source=testing_gdf,
+                datacolumn="tot_pop",
+                colormap={"A": "red"},  # ty: ignore [invalid-argument-type]
+            )
 
-    def test_show_labels_without_dissolve_column_raises(self, testing_gdf):
-        """show_labels=True without dissolve_column raises ValueError."""
-        plot = ColoredGeoPlot(testing_gdf, dpi=50, silent=True)
-        with pytest.raises(ValueError, match="dissolve_column.*must be set"):
-            plot.add_outline_layer(show_labels=True)
+    def test_missing_datacolumn_raises(self, testing_gdf):
+        """Missing datacolumn raises TypeError."""
+        with pytest.raises(TypeError, match="datacolumn.*must be set"):
+            _ContinuousColorLayer(
+                geometry_source=testing_gdf,
+                datacolumn=None,
+                colormap="viridis",
+            )
 
-    def test_show_labels_geoseries_without_dissolve_raises_typeerror(self, testing_gdf):
-        """show_labels=True with GeoSeries geosource and no dissolve_column raises TypeError."""
-        gs = testing_gdf.geometry
-        plot = ColoredGeoPlot(testing_gdf, dpi=50, silent=True)
-        with pytest.raises(TypeError, match="geosource must be a GeoDataFrame"):
-            plot.add_outline_layer(geosource=gs, show_labels=True)
 
-    def test_show_labels_with_labelfont_options(self, testing_gdf, tmp_path):
-        """show_labels=True with custom labelfont_options uses them."""
-        plot = ColoredGeoPlot(testing_gdf, dpi=50, silent=True)
-        plot.add_outline_layer(
-            dissolve_column="district",
-            show_labels=True,
-            labelfont_options=LabelFontOptions(fontsize=6, fontcolor="red"),
+# ====================
+# == BIN BOUNDARIES ==
+# ====================
+
+
+class TestBinBoundariesError:
+    def test_bin_boundaries_none_bins_raises(self, testing_gdf):
+        """Calling _bin_boundaries with bins=None raises RuntimeError."""
+        layer = _ContinuousColorLayer(
+            geometry_source=testing_gdf,
+            datacolumn="tot_pop",
+            bins=None,
         )
-        plot.save(str(tmp_path / "outline_custom_font.png"))
-        assert (tmp_path / "outline_custom_font.png").exists()
+        with pytest.raises(RuntimeError, match="_bin_boundaries"):
+            layer._bin_boundaries(0.0, 1.0)
 
-    def test_show_labels_with_exclude_labels(self, testing_gdf, tmp_path):
+
+# =======================
+# == BIN COLOR MAPPING ==
+# =======================
+
+
+class TestContinuousLayerColormapObject:
+    def test_colormap_object_works(self, testing_gdf, tmp_path):
+        """A Colormap object can be used instead of a string."""
+        import matplotlib.pyplot as plt
+
+        cmap = plt.get_cmap("viridis")
+        plot = GeoPlot(testing_gdf, dpi=50, silent=True)
+        plot.add_choropleth_layer(datacolumn="tot_pop", colormap=cmap)
+        plot.save(str(tmp_path / "colormap_obj.png"))
+        assert (tmp_path / "colormap_obj.png").exists()
+
+
+class TestColorMappingForBinsAlpha:
+    def test_bins_with_facealpha(self, testing_gdf, tmp_path):
+        """bins + facealpha triggers _color_mapping_for_bins alpha path."""
+        plot = GeoPlot(testing_gdf, dpi=50, silent=True)
+        plot.add_choropleth_layer(
+            datacolumn="tot_pop",
+            bins=4,
+            facealpha=0.6,
+            show_colorbar=True,
+        )
+        plot.save(str(tmp_path / "bins_facealpha.png"))
+        assert (tmp_path / "bins_facealpha.png").exists()
+
+    def test_facealpha_no_bins_with_colorbar(self, testing_gdf, tmp_path):
+        """facealpha without bins and with colorbar triggers _with_alpha in _mappable."""
+        plot = GeoPlot(testing_gdf, dpi=50, silent=True)
+        plot.add_choropleth_layer(
+            datacolumn="tot_pop",
+            facealpha=0.5,
+            bins=None,
+            show_colorbar=True,
+        )
+        plot.save(str(tmp_path / "facealpha_colorbar.png"))
+        assert (tmp_path / "facealpha_colorbar.png").exists()
+
+
+# =========================
+# == BINNED COLOR SERIES ==
+# =========================
+
+
+class TestContinuousColorSeriesBinPaths:
+    def test_nan_value_in_bins_uses_missing_color(self, testing_gdf, tmp_path):
+        """NaN values with bins get missing_color."""
+        gdf = testing_gdf.copy()
+        gdf["pop_with_nan"] = gdf["tot_pop"].astype(float)
+        gdf.loc[gdf.index[0], "pop_with_nan"] = np.nan
+        plot = GeoPlot(gdf, dpi=50, silent=True)
+        plot.add_choropleth_layer(datacolumn="pop_with_nan", bins=4)
+        plot.save(str(tmp_path / "bins_nan.png"))
+        assert (tmp_path / "bins_nan.png").exists()
+
+    def test_value_equals_upper_bound_gets_last_bin(self, testing_gdf):
+        """Value equal to upper_bound is assigned to the last bin."""
+        layer = _ContinuousColorLayer(
+            geometry_source=testing_gdf,
+            datacolumn="tot_pop",
+            bins=4,
+        )
+        cs = layer.color_series
+        assert len(cs) == len(testing_gdf)
+
+    def test_value_below_lower_bound_gets_first_bin(self, testing_gdf):
+        """Value below the bin lower bound gets index 0."""
+        gdf = testing_gdf.copy()
+        min_val = gdf["tot_pop"].min()
+        # Set vmin higher so values are below the first bin
+        layer = _ContinuousColorLayer(
+            geometry_source=gdf,
+            datacolumn="tot_pop",
+            bins=[min_val + 10000, min_val + 20000, min_val + 30000],
+        )
+        cs = layer.color_series
+        assert len(cs) == len(gdf)
+
+    def test_value_above_upper_bound_gets_last_bin(self, testing_gdf):
+        """Value above the bin upper bound gets last bin index."""
+        gdf = testing_gdf.copy()
+        layer = _ContinuousColorLayer(
+            geometry_source=gdf,
+            datacolumn="tot_pop",
+            bins=[0.0, 1.0, 2.0],  # All values above the last bin
+        )
+        cs = layer.color_series
+        assert len(cs) == len(gdf)
+
+
+# ===================
+# == RENDER ERRORS ==
+# ===================
+
+
+class TestContinuousLayerRender:
+    def test_render_unknown_kwargs_raises(self, testing_gdf):
+        """Unknown kwargs to render raises TypeError."""
+        import matplotlib.pyplot as plt
+
+        layer = _ContinuousColorLayer(
+            geometry_source=testing_gdf,
+            datacolumn="tot_pop",
+        )
+        fig, ax = plt.subplots()
+        with pytest.raises(TypeError, match="Unknown keyword argument"):
+            layer.render(ax, bad_kwarg="oops")
+        plt.close(fig)
+
+    def test_render_missing_column_keyerror(self, testing_gdf):
+        """Rendering with a column absent from geometry_source raises KeyError.
+
+        _ContinuousColorLayer.__post_init__ only checks datacolumn is not None,
+        not that the column actually exists in the GDF. So we can create a layer
+        with a nonexistent column and get a KeyError at render time.
+        """
+        import matplotlib.pyplot as plt
+
+        try:
+            # init doesn't check column existence, only that it's not None
+            fake_layer = _ContinuousColorLayer(
+                geometry_source=testing_gdf,
+                datacolumn="__nonexistent_col__",
+            )
+            fig, ax = plt.subplots()
+            with pytest.raises(KeyError):
+                fake_layer.render(ax)
+            plt.close(fig)
+        except TypeError:
+            # If __post_init__ raised TypeError, that is also acceptable
+            pass
+
+
+# ============================
+# == DISTRICTING PLAN LAYER ==
+# ============================
+
+
+class TestAddDistrictingPlanLayerExtras:
+    def test_add_plan_layer_with_geosource(self, testing_gdf, tmp_path):
+        """add_districting_plan_layer with explicit geosource uses that."""
+        plot = GeoPlot(testing_gdf, dpi=50, silent=True)
+        subset = testing_gdf[testing_gdf["district"].isin([0, 1])].copy()
+        plot.add_districting_plan_layer(
+            geosource=subset,
+            plancolumn="district",
+        )
+        plot.save(str(tmp_path / "plan_geosource.png"))
+        assert (tmp_path / "plan_geosource.png").exists()
+
+    def test_add_plan_layer_show_labels_with_exclude(self, testing_gdf, tmp_path):
         """show_labels=True with exclude_labels excludes them."""
-        plot = ColoredGeoPlot(testing_gdf, dpi=50, silent=True)
-        plot.add_outline_layer(
-            dissolve_column="district",
+        plot = GeoPlot(testing_gdf, dpi=50, silent=True)
+        plot.add_districting_plan_layer(
+            plancolumn="district",
             show_labels=True,
-            exclude_labels=[0],
+            exclude_labels=[0, 1],
         )
-        plot.save(str(tmp_path / "outline_exclude.png"))
-        assert (tmp_path / "outline_exclude.png").exists()
-
-
-# ============================
-# == HIGHLIGHT LAYER ERRORS ==
-# ============================
-
-
-class TestAddHighlightLayerErrors:
-    def test_show_labels_no_label_column_raises(self, testing_gdf):
-        """show_labels=True without label_column raises ValueError."""
-        plot = ColoredGeoPlot(testing_gdf, dpi=50, silent=True)
-        with pytest.raises(ValueError, match="label_column"):
-            plot.add_highlight_layer(
-                geosource=testing_gdf,
-                show_labels=True,
-                label_column=None,
-            )
-
-    def test_show_labels_no_geosource_raises(self, testing_gdf):
-        """show_labels=True without geosource raises ValueError."""
-        plot = ColoredGeoPlot(testing_gdf, dpi=50, silent=True)
-        with pytest.raises(ValueError, match="geosource"):
-            plot.add_highlight_layer(
-                show_labels=True,
-                label_column="district",
-                geosource=None,
-            )
-
-    def test_show_labels_geoseries_geosource_raises(self, testing_gdf):
-        """show_labels=True with GeoSeries geosource raises TypeError."""
-        plot = ColoredGeoPlot(testing_gdf, dpi=50, silent=True)
-        with pytest.raises(TypeError, match="GeoDataFrame"):
-            plot.add_highlight_layer(
-                geosource=testing_gdf.geometry,
-                show_labels=True,
-                label_column="district",
-            )
-
-    def test_highlight_geosource_none_uses_gdf(self, testing_gdf, tmp_path):
-        """When geosource=None, uses base gdf geometry."""
-        plot = ColoredGeoPlot(testing_gdf, dpi=50, silent=True)
-        plot.add_highlight_layer()  # geosource=None
-        plot.save(str(tmp_path / "highlight_no_src.png"))
-        assert (tmp_path / "highlight_no_src.png").exists()
-
-    def test_highlight_with_geometry_mask(self, testing_gdf, tmp_path):
-        """geometry_mask filters highlight geometries."""
-        mask = testing_gdf["district"] == 0
-        plot = ColoredGeoPlot(testing_gdf, dpi=50, silent=True)
-        plot.add_highlight_layer(geometry_mask=mask)
-        plot.save(str(tmp_path / "highlight_mask.png"))
-        assert (tmp_path / "highlight_mask.png").exists()
-
-    def test_highlight_show_labels_with_mask(self, testing_gdf, tmp_path):
-        """geometry_mask with show_labels applies mask to label_gdf."""
-        mask = testing_gdf["district"] == 0
-        plot = ColoredGeoPlot(testing_gdf, dpi=50, silent=True)
-        plot.add_highlight_layer(
-            geosource=testing_gdf,
-            show_labels=True,
-            label_column="district",
-            geometry_mask=mask,
-        )
-        plot.save(str(tmp_path / "highlight_mask_labels.png"))
-        assert (tmp_path / "highlight_mask_labels.png").exists()
-
-    def test_highlight_show_labels_with_custom_font(self, testing_gdf, tmp_path):
-        """Custom labelfont_options used when provided."""
-        plot = ColoredGeoPlot(testing_gdf, dpi=50, silent=True)
-        plot.add_highlight_layer(
-            geosource=testing_gdf,
-            show_labels=True,
-            label_column="district",
-            labelfont_options=LabelFontOptions(fontsize=8),
-        )
-        plot.save(str(tmp_path / "highlight_custom_font.png"))
-        assert (tmp_path / "highlight_custom_font.png").exists()
-
-
-# ==================
-# == MARKER LAYER ==
-# ==================
-
-
-class TestAddMarkerLayer:
-    def test_add_marker_layer_no_args_raises(self, testing_gdf):
-        """Both args None raises ValueError."""
-        plot = ColoredGeoPlot(testing_gdf, dpi=50, silent=True)
-        with pytest.raises(ValueError, match="Either"):
-            plot.add_marker_layer()
-
-    def test_add_marker_layer_both_args_raises(self, testing_gdf):
-        """Both args provided raises ValueError."""
-        plot = ColoredGeoPlot(testing_gdf, dpi=50, silent=True)
-        pts = GeoSeries([Point(0, 0)])
-        with pytest.raises(ValueError, match="Only one"):
-            plot.add_marker_layer(
-                points_geoseries=pts,
-                latlon_list=[(0.0, 0.0)],
-            )
-
-    def test_add_marker_layer_with_lat_lon_list(self, testing_gdf, tmp_path):
-        """lat/lon list path builds correctly."""
-        gdf_crs = testing_gdf.copy().set_crs("EPSG:4326")
-        plot = ColoredGeoPlot(gdf_crs, dpi=50, silent=True, target_crs="EPSG:4326")
-        plot.add_marker_layer(
-            latlon_list=[(40.0, -90.0), (41.0, -91.0)],
-        )
-        plot.save(str(tmp_path / "marker_latlon.png"))
-        assert (tmp_path / "marker_latlon.png").exists()
-
-    def test_add_marker_layer_with_geoseries(self, testing_gdf, tmp_path):
-        """GeoSeries path builds correctly."""
-        pts = GeoSeries([Point(2.0, 3.0), Point(5.0, 7.0)])
-        plot = ColoredGeoPlot(testing_gdf, dpi=50, silent=True)
-        plot.add_marker_layer(points_geoseries=pts, show_labels=False)
-        plot.save(str(tmp_path / "marker_geoseries.png"))
-        assert (tmp_path / "marker_geoseries.png").exists()
-
-    def test_add_marker_layer_geoseries_with_input_crs(self, testing_gdf, tmp_path):
-        """GeoSeries without CRS + input_crs sets the CRS."""
-        pts = GeoSeries([Point(-90.0, 40.0)])
-        plot = ColoredGeoPlot(testing_gdf, dpi=50, silent=True)
-        plot.add_marker_layer(
-            points_geoseries=pts,
-            input_crs="EPSG:4326",
-            show_labels=False,
-        )
-        plot.save(str(tmp_path / "marker_input_crs.png"))
-        assert (tmp_path / "marker_input_crs.png").exists()
-
-    def test_add_marker_layer_with_all_options(self, testing_gdf, tmp_path):
-        """Full marker layer with labels, custom marker options."""
-        pts = GeoSeries([Point(2.0, 3.0)])
-        marker_options = PointMarkerOptions(
-            markerfacecolor="red",
-            markerfacealpha=0.8,
-            marker="^",
-            markersize=4.0,
-            markeredgecolor="black",
-            markeredgealpha=1.0,
-            markeredgewidth=0.5,
-        )
-        plot = ColoredGeoPlot(testing_gdf, dpi=50, silent=True)
-        plot.add_marker_layer(
-            points_geoseries=pts,
-            labels=["Test"],
-            show_labels=True,
-            marker_options=marker_options,
-        )
-        plot.save(str(tmp_path / "marker_full.png"))
-        assert (tmp_path / "marker_full.png").exists()
-
-
-# =================
-# == LABEL LAYER ==
-# =================
-
-
-class TestAddLabelLayer:
-    def test_add_label_layer_no_args_raises(self, testing_gdf):
-        """Both args None raises ValueError."""
-        plot = ColoredGeoPlot(testing_gdf, dpi=50, silent=True)
-        with pytest.raises(ValueError, match="Either"):
-            plot.add_label_layer()
-
-    def test_add_label_layer_both_args_raises(self, testing_gdf):
-        """Both args provided raises ValueError."""
-        plot = ColoredGeoPlot(testing_gdf, dpi=50, silent=True)
-        pts = GeoSeries([Point(0, 0)])
-        with pytest.raises(ValueError, match="Only one"):
-            plot.add_label_layer(
-                points_geoseries=pts,
-                latlon_list=[(0.0, 0.0)],
-            )
-
-    def test_add_label_layer_with_geoseries(self, testing_gdf, tmp_path):
-        """GeoSeries path for add_label_layer builds correctly."""
-        pts = GeoSeries([Point(2.0, 3.0), Point(5.0, 7.0)])
-        plot = ColoredGeoPlot(testing_gdf, dpi=50, silent=True)
-        plot.add_label_layer(points_geoseries=pts)
-        plot.save(str(tmp_path / "label_layer_geoseries.png"))
-        assert (tmp_path / "label_layer_geoseries.png").exists()
-
-    def test_add_label_layer_with_lat_lon_list(self, testing_gdf, tmp_path):
-        """lat/lon list path for add_label_layer."""
-        gdf_crs = testing_gdf.copy().set_crs("EPSG:4326")
-        plot = ColoredGeoPlot(gdf_crs, dpi=50, silent=True, target_crs="EPSG:4326")
-        plot.add_label_layer(latlon_list=[(40.0, -90.0)])
-        plot.save(str(tmp_path / "label_layer_latlon.png"))
-        assert (tmp_path / "label_layer_latlon.png").exists()
-
-    def test_add_label_layer_with_custom_labels(self, testing_gdf, tmp_path):
-        """Custom labels list used instead of default numbering."""
-        pts = GeoSeries([Point(2.0, 3.0)])
-        plot = ColoredGeoPlot(testing_gdf, dpi=50, silent=True)
-        plot.add_label_layer(
-            points_geoseries=pts,
-            labels=["MyLabel"],
-            labelfont_options=LabelFontOptions(fontsize=6),
-        )
-        plot.save(str(tmp_path / "label_layer_custom.png"))
-        assert (tmp_path / "label_layer_custom.png").exists()
-
-
-# ================
-# == FOCUS AXES ==
-# ================
-
-
-class TestFocusAxesPaths:
-    def test_focus_axes_with_geometry_mask(self, testing_gdf):
-        """geometry_mask arg filters the geoseries."""
-        plot = ColoredGeoPlot(testing_gdf, dpi=50, silent=True)
-        mask = testing_gdf["district"] == 0
-        plot.focus_axes(geometry_mask=mask)
-        assert plot._xlim is not None
-
-    def test_focus_axes_empty_mask_raises(self, testing_gdf):
-        """All-False mask results in empty geoseries → ValueError."""
-        plot = ColoredGeoPlot(testing_gdf, dpi=50, silent=True)
-        mask = pd.Series([False] * len(testing_gdf), index=testing_gdf.index)
-        with pytest.raises(ValueError, match="no geometries"):
-            plot.focus_axes(geometry_mask=mask)
-
-    def test_focus_axes_with_crs_reprojection(self):
-        """When geoseries.crs != target_crs, to_crs is called."""
-        gdf = _rect_gdf_with_crs("EPSG:4326")
-        plot = ColoredGeoPlot(gdf, dpi=50, silent=True, target_crs="EPSG:3857")
-        plot.focus_axes()
-        assert plot._xlim is not None
-
-    def test_focus_axes_tuple_pad(self, testing_gdf):
-        """Tuple pad is split into (pad_x, pad_y)."""
-        plot = ColoredGeoPlot(testing_gdf, dpi=50, silent=True)
-        plot.focus_axes(pad=(0.01, 0.05))
-        assert plot._xlim is not None
-
-    def test_focus_axes_invalid_pad_mode_raises(self, testing_gdf):
-        """Invalid pad_mode raises ValueError."""
-        plot = ColoredGeoPlot(testing_gdf, dpi=50, silent=True)
-        with pytest.raises(ValueError, match="pad_mode must be"):
-            plot.focus_axes(pad_mode="invalid_mode")  # ty: ignore [invalid-argument-type]
-
-    def test_focus_axes_geosource_geoseries(self, testing_gdf):
-        """GeoSeries as geosource works without error."""
-        plot = ColoredGeoPlot(testing_gdf, dpi=50, silent=True)
-        plot.focus_axes(geosource=testing_gdf.geometry)
-        assert plot._xlim is not None
+        plot.save(str(tmp_path / "plan_exclude_labels.png"))
+        assert (tmp_path / "plan_exclude_labels.png").exists()
 
 
 # =====================
-# == DEFERRED LABELS ==
+# == COLORBAR LAYOUT ==
 # =====================
 
 
-class TestDrawDeferredLabels:
-    def test_labels_crs_reprojection(self):
-        """Labels with CRS != target_crs triggers to_crs."""
-        gdf = _rect_gdf_with_crs("EPSG:4326")
-        plot = ColoredGeoPlot(gdf, dpi=50, silent=True, target_crs="EPSG:3857")
-        plot.add_outline_layer(dissolve_column="category", show_labels=True)
-        with tempfile.TemporaryDirectory() as tmpdir:
-            plot.save(str(Path(tmpdir) / "labels_crs.png"))
+class TestClearColorbarsAndResetLayout:
+    def test_clear_colorbars_called_on_rebuild(self, testing_gdf, tmp_path):
+        """Building twice exercises cax.remove() in _clear_colorbars_and_reset_layout."""
+        plot = GeoPlot(testing_gdf, dpi=50, silent=True)
+        plot.add_choropleth_layer(datacolumn="tot_pop", show_colorbar=True)
+        # First build creates the colorbar axes
+        plot.save(str(tmp_path / "build1.png"))
+        # Second build triggers _clear_colorbars_and_reset_layout with non-empty _colorbar_axes
+        plot.save(str(tmp_path / "build2.png"))
+        assert (tmp_path / "build2.png").exists()
 
-    def test_labels_skip_when_clip_empty(self, testing_gdf, tmp_path):
-        """Labels outside the current view are clipped and skipped."""
-        plot = ColoredGeoPlot(testing_gdf, dpi=50, silent=True)
-        plot.add_outline_layer(dissolve_column="district", show_labels=True)
-        # Set xlim/ylim to a region outside the data
-        plot.set_xlim(1000, 2000)
-        plot.set_ylim(1000, 2000)
-        plot.save(str(tmp_path / "labels_skip.png"))
-        assert (tmp_path / "labels_skip.png").exists()
 
-    def test_label_format_fn_exception_fallback(self, testing_gdf, tmp_path):
-        """label_format_fn that raises uses the raw string fallback."""
-
-        def bad_fn(x):
-            raise ValueError("intentional error")
-
-        plot = ColoredGeoPlot(testing_gdf, dpi=50, silent=True)
-        # Manually insert a label request with a bad format fn
-        dissolved = GeoDataFrame(testing_gdf.dissolve(by="district").reset_index())
-        req = _LabelRequest(
-            gdf=dissolved,
-            label_column="district",
-            labelfont_options=None,
-            labelbox_options=None,
-            label_format_fn=bad_fn,
+class TestSetColorbarLayoutAllParams:
+    def test_set_colorbar_layout_all_params(self, testing_gdf, tmp_path):
+        """set_colorbar_layout with all params updates _colorbar_layout_options."""
+        plot = GeoPlot(testing_gdf, dpi=50, silent=True)
+        plot.add_choropleth_layer(datacolumn="tot_pop", show_colorbar=True)
+        plot.set_colorbar_layout(
+            outer_pad=0.01,
+            inner_pad=0.01,
+            width=0.02,
+            right_margin=0.01,
         )
-        plot._label_requests.append(req)
-        plot.save(str(tmp_path / "label_format_fallback.png"))
-        assert (tmp_path / "label_format_fallback.png").exists()
+        plot.save(str(tmp_path / "colorbar_all_params.png"))
+        assert (tmp_path / "colorbar_all_params.png").exists()
 
 
-# =====================
-# == LABEL POSITIONS ==
-# =====================
+# ======================
+# == COLORBAR OPTIONS ==
+# ======================
 
 
-class TestGetLabelPositionsAsLatLong:
-    def test_get_label_positions_as_lat_long(self):
-        """as_lat_long=True converts label positions to EPSG:4326."""
-        gdf = _rect_gdf_with_crs("EPSG:4326")
-        plot = ColoredGeoPlot(gdf, dpi=50, silent=True, target_crs="EPSG:4326")
-        plot.add_outline_layer(dissolve_column="category", show_labels=True)
-        crs_str, positions = plot.get_label_positions(as_lat_long=True)
-        assert isinstance(crs_str, str)
+class TestColorbarOptions:
+    def test_colorbar_with_custom_label(self, testing_gdf, tmp_path):
+        """colorbar_label override is used instead of datacolumn."""
+        plot = GeoPlot(testing_gdf, dpi=50, silent=True)
+        plot.add_choropleth_layer(
+            datacolumn="tot_pop",
+            show_colorbar=True,
+            colorbar_label="Population",
+        )
+        plot.save(str(tmp_path / "colorbar_custom_label.png"))
+        assert (tmp_path / "colorbar_custom_label.png").exists()
+
+    def test_colorbar_with_label_fontsize_options(self, testing_gdf, tmp_path):
+        """ColorbarOptions with label_fontsize triggers extended set_label call."""
+        cb_options = ColorbarOptions(label_fontsize=10, label_rotation=90, label_pad=5.0)
+        plot = GeoPlot(testing_gdf, dpi=50, silent=True)
+        plot.add_choropleth_layer(
+            datacolumn="tot_pop",
+            show_colorbar=True,
+            colorbar_options=cb_options,
+        )
+        plot.save(str(tmp_path / "colorbar_label_opts.png"))
+        assert (tmp_path / "colorbar_label_opts.png").exists()
+
+    def test_colorbar_force_ticks(self, testing_gdf, tmp_path):
+        """force_ticks is applied to colorbar."""
+        cb_options = ColorbarOptions(force_ticks=[1000, 3000, 5000])
+        plot = GeoPlot(testing_gdf, dpi=50, silent=True)
+        plot.add_choropleth_layer(
+            datacolumn="tot_pop",
+            show_colorbar=True,
+            colorbar_options=cb_options,
+        )
+        plot.save(str(tmp_path / "colorbar_force_ticks.png"))
+        assert (tmp_path / "colorbar_force_ticks.png").exists()
+
+    def test_colorbar_force_ticklabels(self, testing_gdf, tmp_path):
+        """force_ticklabels is applied to colorbar."""
+        cb_options = ColorbarOptions(
+            force_ticks=[1000, 3000, 5000],
+            force_ticklabels=["low", "mid", "high"],
+        )
+        plot = GeoPlot(testing_gdf, dpi=50, silent=True)
+        plot.add_choropleth_layer(
+            datacolumn="tot_pop",
+            show_colorbar=True,
+            colorbar_options=cb_options,
+        )
+        plot.save(str(tmp_path / "colorbar_force_ticklabels.png"))
+        assert (tmp_path / "colorbar_force_ticklabels.png").exists()
+
+    def test_colorbar_max_n_ticks(self, testing_gdf, tmp_path):
+        """max_n_ticks reduces the number of displayed ticks."""
+        cb_options = ColorbarOptions(max_n_ticks=3)
+        plot = GeoPlot(testing_gdf, dpi=50, silent=True)
+        plot.add_choropleth_layer(
+            datacolumn="tot_pop",
+            show_colorbar=True,
+            colorbar_options=cb_options,
+        )
+        plot.save(str(tmp_path / "colorbar_max_ticks.png"))
+        assert (tmp_path / "colorbar_max_ticks.png").exists()
+
+    def test_colorbar_bins_with_ticks(self, testing_gdf, tmp_path):
+        """Bins path with colorbar uses ticks from layer_defaults."""
+        plot = GeoPlot(testing_gdf, dpi=50, silent=True)
+        plot.add_choropleth_layer(
+            datacolumn="tot_pop",
+            bins=4,
+            show_colorbar=True,
+        )
+        plot.save(str(tmp_path / "colorbar_bins_ticks.png"))
+        assert (tmp_path / "colorbar_bins_ticks.png").exists()
 
 
 # ===========================
-# == CONTINUOUS LAYER INIT ==
+# == RANDOM POINTS IN POLY ==
 # ===========================

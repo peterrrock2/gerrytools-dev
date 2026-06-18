@@ -19,7 +19,7 @@ These tests exercise the five concrete patterns we care about:
 - pre-render axes-state configuration — ``ax.set_xlim(...)`` *before*
   ``Histogram(ax=ax)`` survives the first render.
 
-Both a data plot (``Histogram``) and a geometry plot (``ColoredGeoPlot``)
+Both a data plot (``Histogram``) and a geometry plot (``GeoPlot``)
 are exercised where the scenario is meaningful for both families.
 """
 
@@ -32,7 +32,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 from gerrytools.plotting.data.histogram import Histogram  # noqa: E402
-from gerrytools.plotting.geometry.coloredgeoplot import ColoredGeoPlot  # noqa: E402
+from gerrytools.plotting.geometry.geoplot import GeoPlot  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Subplot grid embedding
@@ -54,7 +54,7 @@ class TestSubplotGridEmbedding:
 
     def test_geoplot_renders_in_one_subplot_cell_only(self, testing_gdf):
         fig, axes = plt.subplots(2, 2)
-        plot = ColoredGeoPlot(testing_gdf, ax=axes[0, 0])
+        plot = GeoPlot(testing_gdf, ax=axes[0, 0])
         plot.add_outline_layer()
         plot.ax
 
@@ -89,7 +89,7 @@ class TestOverlayOnExistingContent:
         fig, ax = plt.subplots()
         ax.imshow([[0.1, 0.2], [0.3, 0.4]])
         images_before = len(ax.images)
-        plot = ColoredGeoPlot(testing_gdf, ax=ax)
+        plot = GeoPlot(testing_gdf, ax=ax)
         plot.add_outline_layer()
         plot.ax
         assert len(ax.images) == images_before
@@ -111,7 +111,7 @@ class TestPostRenderCustomization:
         assert len(matching) == 1
 
     def test_external_text_survives_subsequent_geoplot_rebuild(self, testing_gdf):
-        plot = ColoredGeoPlot(testing_gdf)
+        plot = GeoPlot(testing_gdf)
         plot.add_outline_layer()
         ax = plot.ax
         ax.text(0.5, 0.5, "Note", transform=ax.transAxes)
@@ -143,7 +143,7 @@ class TestPostRenderAxesStateMutation:
         assert hist._ax.get_ylim() == (0.0, 999.0)
 
     def test_external_xlim_after_render_survives_rebuild_geoplot(self, testing_gdf):
-        plot = ColoredGeoPlot(testing_gdf)
+        plot = GeoPlot(testing_gdf)
         plot.add_outline_layer()
         ax = plot.ax
         ax.set_xlim(-1000.0, 1000.0)
@@ -176,7 +176,7 @@ class TestPreConfiguredAxes:
     def test_pre_set_xlim_preserved_after_geoplot_first_render(self, testing_gdf):
         fig, ax = plt.subplots()
         ax.set_xlim(0.0, 50.0)
-        plot = ColoredGeoPlot(testing_gdf, ax=ax)
+        plot = GeoPlot(testing_gdf, ax=ax)
         plot.add_outline_layer()
         plot.ax
         assert ax.get_xlim() == (0.0, 50.0)

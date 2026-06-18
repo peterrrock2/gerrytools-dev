@@ -20,7 +20,7 @@ from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
 from gerrytools.plotting._legend_utils import build_legend_options, save_legend_handles
 from gerrytools.plotting._rng import resolve_numpy_rng, spawn_child_seeds
-from gerrytools.plotting.geometry.geoplot import GeoPlot
+from gerrytools.plotting.geometry.geoplotbase import GeoPlotBase
 from gerrytools.plotting.mpl.label_text_options import LabelBoxOptions, LabelFontOptions
 from gerrytools.plotting.mpl.marker_options import PointMarkerOptions
 from gerrytools.typing import Color, CRSLike, MplCompatibleColor, ScatterMarkerKwargs
@@ -159,7 +159,7 @@ def _make_random_points(
     return xs, ys, pids
 
 
-class DotDensityPlot(GeoPlot):
+class DotDensityPlot(GeoPlotBase):
     """Class for creating dot density plots from GeoDataFrames.
 
     Each dot represents a specified number of people, and dots are randomly placed

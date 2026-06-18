@@ -1,8 +1,8 @@
 """Internal layer adapters for the geometry plot classes.
 
 Each layer is a frozen dataclass implementing the `_GeoLayer` ABC. They are
-private (leading underscore) and are re-exported by `geoplot.py` and
-`coloredgeoplot.py` to preserve existing import paths used by tests.
+private (leading underscore) and are re-exported by `geoplotbase.py` and
+`geoplot.py` to preserve existing import paths used by tests.
 """
 
 from gerrytools.plotting.geometry._layers._base import _as_geoseries, _GeoLayer

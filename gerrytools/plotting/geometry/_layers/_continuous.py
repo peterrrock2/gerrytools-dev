@@ -22,7 +22,7 @@ class ColormapLayer(Protocol):
     """Public protocol for layers that can produce a standalone colorbar.
 
     Any object implementing ``datacolumn`` and ``mappable()`` satisfies this
-    protocol and can be passed to ``ColoredGeoPlot.save_colorbar()``.
+    protocol and can be passed to ``GeoPlot.save_colorbar()``.
     """
 
     @property
