@@ -137,7 +137,7 @@ class TestHistogramOptionsSlot:
 class TestBoxPlotOptionsSlot:
     def test_options_alone_propagates(self):
         plot = BoxPlot()
-        plot.add_boxplot_datasets(
+        plot.add_boxplot_dataset(
             {"A": [1.0, 2.0, 3.0]},
             options=BoxPlotOptions(facecolor="red", percentiles=(5, 95)),
         )
@@ -148,7 +148,7 @@ class TestBoxPlotOptionsSlot:
 
     def test_kwarg_overrides_options(self):
         plot = BoxPlot()
-        plot.add_boxplot_datasets(
+        plot.add_boxplot_dataset(
             {"A": [1.0, 2.0, 3.0]},
             options=BoxPlotOptions(facecolor="red"),
             facecolor="blue",

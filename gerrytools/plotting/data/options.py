@@ -219,7 +219,7 @@ class HistogramOptions:
 
 @dataclass(frozen=True)
 class BoxPlotOptions:
-    """Styling for a single boxplot dataset added via ``BoxPlot.add_boxplot_datasets``.
+    """Styling for a single boxplot dataset added via ``BoxPlot.add_boxplot_dataset``.
 
     Attributes:
         facecolor (Color): Fill color for boxes.

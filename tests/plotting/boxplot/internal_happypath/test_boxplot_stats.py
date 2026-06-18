@@ -169,43 +169,55 @@ class TestConvertStatsToDictionary:
 class TestAddBoxplotStatsDatasets:
     def test_appends_stats_set(self):
         bp = BoxPlot()
-        bp.add_boxplot_stats_datasets({"A": _stats(), "B": _stats(1.5)})
+        bp.add_boxplot_stats_dataset({"A": _stats(), "B": _stats(1.5)})
         assert len(bp._boxplot_data_list) == 1
         assert isinstance(bp._boxplot_data_list[0], BoxPlotStatsSetData)
 
     def test_defines_labels(self):
         bp = BoxPlot()
-        bp.add_boxplot_stats_datasets({"A": _stats(), "B": _stats(1.5)})
+        bp.add_boxplot_stats_dataset({"A": _stats(), "B": _stats(1.5)})
         assert bp._labels == ["A", "B"]
 
     def test_auto_name_shares_counter_with_raw_sets(self):
         bp = BoxPlot()
-        bp.add_boxplot_datasets({"A": [1], "B": [2]})
-        bp.add_boxplot_stats_datasets({"A": _stats(), "B": _stats(1.5)})
+        bp.add_boxplot_dataset({"A": [1], "B": [2]})
+        bp.add_boxplot_stats_dataset({"A": _stats(), "B": _stats(1.5)})
         assert bp._boxplot_data_list[1].name == "Set 2"
 
     def test_explicit_name(self):
         bp = BoxPlot()
-        bp.add_boxplot_stats_datasets({"A": _stats()}, name="Precomputed")
+        bp.add_boxplot_stats_dataset({"A": _stats()}, name="Precomputed")
         assert bp._boxplot_data_list[0].name == "Precomputed"
 
     def test_empty_stats_raises(self):
         bp = BoxPlot()
         with pytest.raises(ValueError, match="at least one category"):
-            bp.add_boxplot_stats_datasets({})
+            bp.add_boxplot_stats_dataset({})
 
     def test_mismatched_labels_raise(self):
         bp = BoxPlot()
-        bp.add_boxplot_stats_datasets({"A": _stats(), "B": _stats(1.5)})
+        bp.add_boxplot_stats_dataset({"A": _stats(), "B": _stats(1.5)})
         with pytest.raises(ValueError, match="labels must match"):
-            bp.add_boxplot_stats_datasets({"C": _stats()})
+            bp.add_boxplot_stats_dataset({"C": _stats()})
 
     def test_styling_kwargs_override_options(self):
         bp = BoxPlot()
-        bp.add_boxplot_stats_datasets({"A": _stats()}, facecolor="red", edgewidth=2.0)
+        bp.add_boxplot_stats_dataset({"A": _stats()}, facecolor="red", edgewidth=2.0)
         set_data = bp._boxplot_data_list[0]
         assert set_data.facecolor == "#ff0000"
         assert set_data.edgewidth == 2.0
+
+    def test_facecolor_none_resolves_to_none(self):
+        bp = BoxPlot()
+        bp.add_boxplot_stats_dataset({"A": _stats()}, facecolor=None)
+        assert bp._boxplot_data_list[0].facecolor == "none"
+
+    def test_edgecolor_none_resolves_to_none_and_drops_edgewidth(self):
+        bp = BoxPlot()
+        bp.add_boxplot_stats_dataset({"A": _stats()}, edgecolor=None)
+        set_data = bp._boxplot_data_list[0]
+        assert set_data.edgecolor == "none"
+        assert set_data.edgewidth == 0.0
 
 
 # ===================
@@ -216,12 +228,12 @@ class TestAddBoxplotStatsDatasets:
 class TestStatsBuilds:
     def test_build_single_stats_set(self):
         bp = BoxPlot(include_legend=False)
-        bp.add_boxplot_stats_datasets({"A": _stats(), "B": _stats(1.5)})
+        bp.add_boxplot_stats_dataset({"A": _stats(), "B": _stats(1.5)})
         assert bp.ax is not None
 
     def test_medians_render_at_precomputed_values(self):
         bp = BoxPlot(include_legend=False)
-        bp.add_boxplot_stats_datasets({"A": _stats(median=0.55), "B": _stats(median=1.55)})
+        bp.add_boxplot_stats_dataset({"A": _stats(median=0.55), "B": _stats(median=1.55)})
         ax = bp.ax
         # Median lines are horizontal (two equal y-values).
         horizontal_ys = set()
@@ -234,31 +246,31 @@ class TestStatsBuilds:
 
     def test_build_mixed_raw_and_stats(self):
         bp = BoxPlot()
-        bp.add_boxplot_datasets({"A": [1.0, 2.0, 3.0], "B": [4.0, 5.0, 6.0]}, name="Raw")
-        bp.add_boxplot_stats_datasets({"A": _stats(), "B": _stats(1.5)}, name="Stats")
+        bp.add_boxplot_dataset({"A": [1.0, 2.0, 3.0], "B": [4.0, 5.0, 6.0]}, name="Raw")
+        bp.add_boxplot_stats_dataset({"A": _stats(), "B": _stats(1.5)}, name="Stats")
         assert bp.ax is not None
         assert len(bp._boxplot_data_list) == 2
 
     def test_build_with_fliers_shown(self):
         bp = BoxPlot(include_legend=False)
-        bp.add_boxplot_stats_datasets({"A": _stats(fliers=[0.95, 0.99])}, showfliers=True)
+        bp.add_boxplot_stats_dataset({"A": _stats(fliers=[0.95, 0.99])}, showfliers=True)
         assert bp.ax is not None
 
     def test_build_with_means(self):
         bp = BoxPlot(include_legend=False)
-        bp.add_boxplot_stats_datasets({"A": _stats(mean=0.5), "B": _stats(1.5, mean=1.5)})
+        bp.add_boxplot_stats_dataset({"A": _stats(mean=0.5), "B": _stats(1.5, mean=1.5)})
         assert bp.ax is not None
 
     def test_category_without_stats_is_skipped(self):
         bp = BoxPlot()
         # First set defines labels A, B; second stats set covers only A.
-        bp.add_boxplot_datasets({"A": [1.0], "B": [2.0]})
-        bp.add_boxplot_stats_datasets({"A": _stats()}, add_extra_labels=True)
+        bp.add_boxplot_dataset({"A": [1.0], "B": [2.0]})
+        bp.add_boxplot_stats_dataset({"A": _stats()}, add_extra_labels=True)
         assert bp.ax is not None
 
     def test_stats_set_appears_in_legend(self):
         bp = BoxPlot()
-        bp.add_boxplot_stats_datasets({"A": _stats()}, name="Ensemble Summary")
+        bp.add_boxplot_stats_dataset({"A": _stats()}, name="Ensemble Summary")
         labels = [h.get_label() for h in bp._legend_handles]
         assert "Ensemble Summary" in labels
 

@@ -71,7 +71,7 @@ class TestBoxPlotProperties:
 class TestBoxPlotCategoryCenters:
     def test_category_centers_are_1_indexed(self):
         bp = BoxPlot()
-        bp.add_boxplot_datasets({"A": [1], "B": [2], "C": [3]})
+        bp.add_boxplot_dataset({"A": [1], "B": [2], "C": [3]})
         centers = bp._boxplot_centers
         np.testing.assert_array_equal(centers, [1.0, 2.0, 3.0])
 

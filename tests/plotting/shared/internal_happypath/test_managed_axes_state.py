@@ -55,7 +55,7 @@ def _simple_hist() -> Histogram:
 
 def _simple_box() -> BoxPlot:
     box = BoxPlot()
-    box.add_boxplot_datasets({"A": [1.0, 2.0, 3.0, 4.0, 5.0], "B": [2.0, 3.0, 4.0, 5.0, 6.0]})
+    box.add_boxplot_dataset({"A": [1.0, 2.0, 3.0, 4.0, 5.0], "B": [2.0, 3.0, 4.0, 5.0, 6.0]})
     return box
 
 
@@ -582,13 +582,13 @@ class TestNamedAddReclaimsLegend:
     def test_named_add_boxplot_reclaims_legend_unit(self):
         box = BoxPlot()
         assert not box._axes_state.is_reclaimed("legend")
-        box.add_boxplot_datasets({"A": [1, 2, 3]}, name="series-A")
+        box.add_boxplot_dataset({"A": [1, 2, 3]}, name="series-A")
         assert box._axes_state.is_reclaimed("legend")
 
     def test_unnamed_add_boxplot_does_not_reclaim_legend(self):
         box = BoxPlot()
         assert not box._axes_state.is_reclaimed("legend")
-        box.add_boxplot_datasets({"A": [1, 2, 3]})
+        box.add_boxplot_dataset({"A": [1, 2, 3]})
         assert not box._axes_state.is_reclaimed("legend")
 
 

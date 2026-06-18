@@ -317,7 +317,7 @@ class GerryPlotBase(ABC):
         back to an auto-generated label), but they should not displace an
         externally-placed legend.
 
-        Subclasses' named-add methods (``add_histogram``, ``add_boxplot_datasets``,
+        Subclasses' named-add methods (``add_histogram``, ``add_boxplot_dataset``,
         etc.) call this helper immediately after appending to their data list.
         """
         if name is not None and self._axes_state_initialized:
@@ -1155,7 +1155,7 @@ class GerryPlotBase(ABC):
 
     def _resolved_rgba(
         self,
-        color: Color,
+        color: Color | None,
         alpha: float | None = None,
         *,
         field: str = "color",
@@ -1163,7 +1163,8 @@ class GerryPlotBase(ABC):
         """Resolve a ``Color`` plus optional alpha override to an RGBA tuple.
 
         Args:
-            color (Color): GerryTools color input.
+            color (Color | None): GerryTools color input. ``None`` resolves to the
+                fully transparent ``"none"`` color.
             alpha (float | None, optional): Optional alpha override. Defaults to None.
             field (str, optional): Field name used in validation and warning messages.
                 Defaults to ``"color"``.

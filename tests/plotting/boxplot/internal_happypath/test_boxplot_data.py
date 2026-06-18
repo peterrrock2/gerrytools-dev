@@ -70,32 +70,32 @@ class TestConvertDistributionDataToDictionary:
 class TestLabelSynchronization:
     def test_first_dataset_defines_labels(self):
         bp = BoxPlot()
-        bp.add_boxplot_datasets({"A": [1], "B": [2]})
+        bp.add_boxplot_dataset({"A": [1], "B": [2]})
         assert bp._labels == ["A", "B"]
 
     def test_second_dataset_same_labels_succeeds(self):
         bp = BoxPlot()
-        bp.add_boxplot_datasets({"A": [1], "B": [2]})
-        bp.add_boxplot_datasets({"A": [3], "B": [4]})
+        bp.add_boxplot_dataset({"A": [1], "B": [2]})
+        bp.add_boxplot_dataset({"A": [3], "B": [4]})
         assert len(bp._boxplot_data_list) == 2
 
     def test_second_dataset_different_labels_raises_valueerror(self):
         bp = BoxPlot()
-        bp.add_boxplot_datasets({"A": [1], "B": [2]})
+        bp.add_boxplot_dataset({"A": [1], "B": [2]})
         with pytest.raises(ValueError, match="labels must match"):
-            bp.add_boxplot_datasets({"C": [3], "D": [4]})
+            bp.add_boxplot_dataset({"C": [3], "D": [4]})
 
     def test_add_extra_labels_merges_labels(self):
         bp = BoxPlot()
-        bp.add_boxplot_datasets({"A": [1], "B": [2]})
-        bp.add_boxplot_datasets({"A": [3], "B": [4], "C": [5]}, add_extra_labels=True)
+        bp.add_boxplot_dataset({"A": [1], "B": [2]})
+        bp.add_boxplot_dataset({"A": [3], "B": [4], "C": [5]}, add_extra_labels=True)
         assert bp._labels is not None
         assert sorted(bp._labels) == ["A", "B", "C"]
 
     def test_add_extra_labels_preserves_original_order(self):
         bp = BoxPlot()
-        bp.add_boxplot_datasets({"A": [1], "B": [2]})
-        bp.add_boxplot_datasets({"C": [5], "A": [3]}, add_extra_labels=True)
+        bp.add_boxplot_dataset({"A": [1], "B": [2]})
+        bp.add_boxplot_dataset({"C": [5], "A": [3]}, add_extra_labels=True)
         # Original order A, B maintained, with C appended
         assert bp._labels is not None
         assert bp._labels[:2] == ["A", "B"]
@@ -109,25 +109,55 @@ class TestLabelSynchronization:
 class TestBoxPlotAutoNaming:
     def test_auto_name_for_boxplot_dataset(self):
         bp = BoxPlot()
-        bp.add_boxplot_datasets({"A": [1]})
+        bp.add_boxplot_dataset({"A": [1]})
         assert bp._boxplot_data_list[0].name == "Set 1"
 
     def test_explicit_name_for_boxplot_dataset(self):
         bp = BoxPlot()
-        bp.add_boxplot_datasets({"A": [1]}, name="Custom Name")
+        bp.add_boxplot_dataset({"A": [1]}, name="Custom Name")
         assert bp._boxplot_data_list[0].name == "Custom Name"
 
     def test_auto_name_for_pointset(self):
         bp = BoxPlot()
-        bp.add_boxplot_datasets({"A": [1]})
+        bp.add_boxplot_dataset({"A": [1]})
         bp.add_pointset({"A": 1.5})
         assert bp._pointset_data_list[0].name == "Point Set 1"
 
     def test_explicit_name_for_pointset(self):
         bp = BoxPlot()
-        bp.add_boxplot_datasets({"A": [1]})
+        bp.add_boxplot_dataset({"A": [1]})
         bp.add_pointset({"A": 1.5}, name="Enacted Plan")
         assert bp._pointset_data_list[0].name == "Enacted Plan"
+
+
+# ===============================
+# == BOXPLOT COLOR RESOLUTION ===
+# ===============================
+
+
+class TestBoxPlotColorResolution:
+    def test_facecolor_none_resolves_to_none(self):
+        bp = BoxPlot()
+        bp.add_boxplot_dataset({"A": [1, 2, 3]}, facecolor=None)
+        assert bp._boxplot_data_list[0].facecolor == "none"
+
+    def test_edgecolor_none_resolves_to_none_and_drops_edgewidth(self):
+        bp = BoxPlot()
+        bp.add_boxplot_dataset({"A": [1, 2, 3]}, edgecolor=None)
+        set_data = bp._boxplot_data_list[0]
+        assert set_data.edgecolor == "none"
+        assert set_data.edgewidth == 0.0
+
+    def test_omitted_facecolor_uses_options_default(self):
+        bp = BoxPlot()
+        bp.add_boxplot_dataset({"A": [1, 2, 3]})
+        # The default "denim" resolves to its hex form.
+        assert bp._boxplot_data_list[0].facecolor == "#1560bd"
+
+    def test_explicit_facecolor_still_resolves(self):
+        bp = BoxPlot()
+        bp.add_boxplot_dataset({"A": [1, 2, 3]}, facecolor="red")
+        assert bp._boxplot_data_list[0].facecolor == "#ff0000"
 
 
 # ==============================

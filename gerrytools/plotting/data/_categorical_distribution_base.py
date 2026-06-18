@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 from matplotlib.axes import Axes
 from matplotlib.lines import Line2D
+from numpy.typing import NDArray
 
 from gerrytools.plotting.data._gerryplot_dataclasses import LineData, PointSetData
 from gerrytools.plotting.data.gerryplot import GerryPlotBase
@@ -90,6 +91,7 @@ class CategoricalDistributionPlotBase(GerryPlotBase):
             | Sequence[float]
             | Sequence[Sequence[float]]
             | pd.DataFrame
+            | NDArray
         ),
         scores_labels: list[str] | None = None,
     ) -> dict[str, list[float]]:
@@ -114,9 +116,7 @@ class CategoricalDistributionPlotBase(GerryPlotBase):
 
         if isinstance(scores, Sequence):
             if scores_labels is None:
-                raise ValueError(
-                    "When providing lists of scores, also provide labels for each list."
-                )
+                scores_labels = [i for i in range(len(scores))]
 
             if len(scores) == 0:
                 raise ValueError("scores is empty; provide at least one score list.")
@@ -159,6 +159,34 @@ class CategoricalDistributionPlotBase(GerryPlotBase):
                 label: list(score_list)
                 for label, score_list in zip(scores_labels, scores_list_of_lists, strict=True)
             }
+        if isinstance(scores, np.ndarray):
+            print(scores.ndim)
+            if scores.ndim == 1:
+                if scores_labels is None:
+                    raise ValueError(
+                        "When providing a 1D array of scores, also provide labels for each list."
+                    )
+                return {
+                    label: [float(score)]
+                    for label, score in zip(scores_labels, scores, strict=True)
+                }
+            elif scores.ndim == 2:
+                print("here")
+                if scores_labels is None:
+                    raise ValueError(
+                        "When providing a 2D array of scores, also provide labels for each list."
+                    )
+                if len(scores_labels) != scores.shape[0]:
+                    raise ValueError(
+                        f"scores_labels has length {len(scores_labels)} but you provided "
+                        f"{scores.shape[0]} score lists."
+                    )
+                return {
+                    label: [float(score) for score in row]
+                    for label, row in zip(scores_labels, scores, strict=True)
+                }
+            else:
+                raise ValueError("scores array must be 1D or 2D.")
 
         raise TypeError(
             "Scores must be a dict[str, list[float]], list[float], list[list[float]], "

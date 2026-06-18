@@ -84,7 +84,7 @@ class TestSaveLegend:
         from gerrytools.plotting.data.boxplot import BoxPlot
 
         bp = BoxPlot(include_legend=True)
-        bp.add_boxplot_datasets({"A": [1.0, 2.0, 3.0]}, name="Dataset 1")
+        bp.add_boxplot_dataset({"A": [1.0, 2.0, 3.0]}, name="Dataset 1")
         legend_path = str(tmp_path / "legend.png")
         bp.save_legend(legend_path)
         assert (tmp_path / "legend.png").exists()
@@ -122,7 +122,7 @@ class TestShowMethod:
         from gerrytools.plotting.data.boxplot import BoxPlot
 
         bp = BoxPlot(include_legend=False)
-        bp.add_boxplot_datasets({"A": [1.0, 2.0, 3.0]})
+        bp.add_boxplot_dataset({"A": [1.0, 2.0, 3.0]})
         # show() always writes to "gerrytools_plot.png" in cwd for non-GUI backends
         bp.show()
         out_file = "gerrytools_plot.png"

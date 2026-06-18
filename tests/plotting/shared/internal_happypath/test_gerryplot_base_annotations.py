@@ -93,7 +93,7 @@ class TestGerryPlotArrowLength:
         from gerrytools.plotting.data.boxplot import BoxPlot
 
         bp = BoxPlot(include_legend=False)
-        bp.add_boxplot_datasets({"A": [1.0, 2.0, 3.0]})
+        bp.add_boxplot_dataset({"A": [1.0, 2.0, 3.0]})
         bp.add_label_arrow(
             arrowtip=(1.0, 2.0),
             direction="right",
@@ -118,7 +118,7 @@ class TestGerryPlotAxisBuildPaths:
         from gerrytools.plotting.data.boxplot import BoxPlot
 
         bp = BoxPlot(include_legend=False)
-        bp.add_boxplot_datasets({"Alpha": [1.0, 2.0], "Beta": [3.0, 4.0]})
+        bp.add_boxplot_dataset({"Alpha": [1.0, 2.0], "Beta": [3.0, 4.0]})
         # No explicit tick calls - subclass default labels should apply
         ax = bp.ax
         tick_labels = [t.get_text() for t in ax.get_xticklabels()]
@@ -129,7 +129,7 @@ class TestGerryPlotAxisBuildPaths:
         from gerrytools.plotting.data.boxplot import BoxPlot
 
         bp = BoxPlot(include_legend=False)
-        bp.add_boxplot_datasets({"A": [1.0, 2.0]})
+        bp.add_boxplot_dataset({"A": [1.0, 2.0]})
         bp.clear_ytick_labels()
         ax = bp.ax
         assert ax is not None
@@ -184,7 +184,7 @@ class TestAnnotationTextOutlineEffects:
         from gerrytools.plotting.data.boxplot import BoxPlot
 
         bp = BoxPlot(include_legend=False)
-        bp.add_boxplot_datasets({"A": [1.0, 2.0]})
+        bp.add_boxplot_dataset({"A": [1.0, 2.0]})
         bp.add_label_arrow(
             arrowtip=(1.0, 2.0),
             direction="right",
@@ -200,7 +200,7 @@ class TestAnnotationTextOutlineEffects:
         from gerrytools.plotting.data.boxplot import BoxPlot
 
         bp = BoxPlot(include_legend=False)
-        bp.add_boxplot_datasets({"A": [1.0, 2.0]})
+        bp.add_boxplot_dataset({"A": [1.0, 2.0]})
         bp.add_label_arrow(
             arrowtip=(1.0, 2.0),
             direction="right",

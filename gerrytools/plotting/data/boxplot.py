@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import enum
 import logging
 import math
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Mapping, Sequence, SupportsFloat, cast
+from typing import Any, Final, Iterable, Mapping, Sequence, SupportsFloat, cast
 
 import numpy as np
 import pandas as pd
 from matplotlib.axes import Axes
 from matplotlib.patches import Patch
+from numpy.typing import NDArray
 
 from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
@@ -18,6 +20,22 @@ from gerrytools.plotting.mpl.marker_options import PointMarkerOptions
 from gerrytools.typing import Color, LegendHandle
 
 logger = get_logger(__name__)
+
+
+class _Unset(enum.Enum):
+    """Sentinel distinguishing an omitted color kwarg from an explicit ``None``.
+
+    Color kwargs default to this rather than ``None`` so a caller can pass
+    ``facecolor=None`` (or ``edgecolor=None``) to mean "no fill/edge" (resolved
+    to ``"none"``), while a genuinely omitted kwarg still falls back to the
+    ``options`` default.
+    """
+
+    token = enum.auto()
+
+
+_UNSET: Final = _Unset.token
+
 
 # Field names a summary-stats mapping/DataFrame must provide for each category.
 _REQUIRED_STAT_FIELDS: tuple[str, ...] = (
@@ -65,9 +83,9 @@ class BoxPlotSetData:
 
     name: str
     scores_dict: dict[str, list[float]]
-    facecolor: Color
+    facecolor: Color | None
     facealpha: float | None = None
-    edgecolor: Color = "black"
+    edgecolor: Color | None = "black"
     edgealpha: float | None = None
     edgewidth: float = 0.8
     percentiles: tuple[float, float] = (1, 99)
@@ -131,7 +149,7 @@ class BoxPlotSetData:
 class BoxPlotStats:
     """Precomputed summary statistics for a single box.
 
-    Pass these to :meth:`BoxPlot.add_boxplot_stats_datasets` to draw a box from
+    Pass these to :meth:`BoxPlot.add_boxplot_stats_dataset` to draw a box from
     an already-computed five-number summary instead of from raw samples — useful
     when the underlying ensemble is too large to keep in memory or the statistics
     were computed elsewhere.
@@ -235,9 +253,9 @@ class BoxPlotStatsSetData:
 
     name: str
     stats_dict: dict[str, BoxPlotStats]
-    facecolor: Color
+    facecolor: Color | None
     facealpha: float | None = None
-    edgecolor: Color = "black"
+    edgecolor: Color | None = "black"
     edgealpha: float | None = None
     edgewidth: float = 0.8
     showfliers: bool = False
@@ -291,8 +309,8 @@ class BoxPlotStatsSetData:
 class BoxPlot(CategoricalDistributionPlotBase):
     """Create grouped boxplot comparison figures across categories.
 
-    Add data either from raw samples via :meth:`add_boxplot_datasets` or from a
-    precomputed five-number summary via :meth:`add_boxplot_stats_datasets`. Both
+    Add data either from raw samples via :meth:`add_boxplot_dataset` or from a
+    precomputed five-number summary via :meth:`add_boxplot_stats_dataset`. Both
     kinds of sets can be combined on a single figure and share the grouped layout.
     """
 
@@ -378,6 +396,7 @@ class BoxPlot(CategoricalDistributionPlotBase):
             | Sequence[int | float]
             | Sequence[Sequence[int | float]]
             | pd.DataFrame
+            | NDArray
         ),
         scores_labels: list[str] | None = None,
     ) -> dict[str, list[float]]:
@@ -397,21 +416,22 @@ class BoxPlot(CategoricalDistributionPlotBase):
             scores_labels,
         )
 
-    def add_boxplot_datasets(
+    def add_boxplot_dataset(
         self,
         scores: (
             Mapping[str, Sequence[float]]
             | Sequence[float]
             | Sequence[Sequence[float]]
             | pd.DataFrame
+            | NDArray
         ),
         name: str | None = None,
         *,
         scores_labels: list[str] | None = None,
         options: BoxPlotOptions | None = None,
-        facecolor: Color | None = None,
+        facecolor: Color | None | _Unset = _UNSET,
         facealpha: float | None = None,
-        edgecolor: Color | None = None,
+        edgecolor: Color | None | _Unset = _UNSET,
         edgealpha: float | None = None,
         edgewidth: float | None = None,
         percentiles: tuple[float, float] | None = None,
@@ -430,9 +450,11 @@ class BoxPlot(CategoricalDistributionPlotBase):
             name (str | None, optional): Legend label for the dataset. Defaults to None.
             options (BoxPlotOptions | None, optional): Base styling whose values are used
                 for any styling argument left as None. Defaults to None.
-            facecolor (Color, optional): Box fill color. Defaults to ``"denim"``.
+            facecolor (Color | None, optional): Box fill color. Pass ``None`` for an
+                unfilled (transparent) box. Omit to use the ``options`` default ``"denim"``.
             facealpha (float | None, optional): Box fill alpha override. Defaults to None.
-            edgecolor (Color, optional): Box edge color. Defaults to ``"black"``.
+            edgecolor (Color | None, optional): Box edge color. Pass ``None`` for no edge.
+                Omit to use the ``options`` default ``"black"``.
             edgealpha (float | None, optional): Box edge alpha override. Defaults to None.
             edgewidth (float, optional): Box edge width. Defaults to ``0.8``.
             percentiles (tuple[float, float], optional): Lower/upper whisker percentiles.
@@ -448,9 +470,12 @@ class BoxPlot(CategoricalDistributionPlotBase):
             None
         """
         base = options if options is not None else BoxPlotOptions()
-        resolved_facecolor = facecolor if facecolor is not None else base.facecolor
+        # facecolor/edgecolor use the _UNSET sentinel so an explicit None reaches
+        # resolve_color_and_alpha (which maps it to "none"); only a truly omitted
+        # kwarg falls back to the options default.
+        resolved_facecolor = base.facecolor if facecolor is _UNSET else facecolor
         resolved_facealpha = facealpha if facealpha is not None else base.facealpha
-        resolved_edgecolor = edgecolor if edgecolor is not None else base.edgecolor
+        resolved_edgecolor = base.edgecolor if edgecolor is _UNSET else edgecolor
         resolved_edgealpha = edgealpha if edgealpha is not None else base.edgealpha
         resolved_edgewidth = edgewidth if edgewidth is not None else base.edgewidth
         resolved_percentiles = percentiles if percentiles is not None else base.percentiles
@@ -576,15 +601,15 @@ class BoxPlot(CategoricalDistributionPlotBase):
             "DataFrame."
         )
 
-    def add_boxplot_stats_datasets(
+    def add_boxplot_stats_dataset(
         self,
         stats: Mapping[str, BoxPlotStats | Mapping[str, object]] | pd.DataFrame,
         name: str | None = None,
         *,
         options: BoxPlotOptions | None = None,
-        facecolor: Color | None = None,
+        facecolor: Color | None | _Unset = _UNSET,
         facealpha: float | None = None,
-        edgecolor: Color | None = None,
+        edgecolor: Color | None | _Unset = _UNSET,
         edgealpha: float | None = None,
         edgewidth: float | None = None,
         showfliers: bool | None = None,
@@ -594,7 +619,7 @@ class BoxPlot(CategoricalDistributionPlotBase):
     ) -> None:
         """Add one boxplot dataset from precomputed summary statistics.
 
-        Use this instead of :meth:`add_boxplot_datasets` when you already have a
+        Use this instead of :meth:`add_boxplot_dataset` when you already have a
         five-number summary per category (median, quartiles, whiskers) rather than
         the raw samples. Boxes are drawn via Matplotlib's ``Axes.bxp``. Stats and
         raw datasets can be mixed on the same figure; all sets share the grouped
@@ -611,9 +636,11 @@ class BoxPlot(CategoricalDistributionPlotBase):
             options (BoxPlotOptions | None, optional): Base styling whose values are
                 used for any styling argument left as None. The ``percentiles`` field
                 is ignored because whiskers are supplied directly. Defaults to None.
-            facecolor (Color | None, optional): Box fill color. Defaults to ``"denim"``.
+            facecolor (Color | None, optional): Box fill color. Pass ``None`` for an
+                unfilled (transparent) box. Omit to use the ``options`` default ``"denim"``.
             facealpha (float | None, optional): Box fill alpha override. Defaults to None.
-            edgecolor (Color | None, optional): Box edge color. Defaults to ``"black"``.
+            edgecolor (Color | None, optional): Box edge color. Pass ``None`` for no edge.
+                Omit to use the ``options`` default ``"black"``.
             edgealpha (float | None, optional): Box edge alpha override. Defaults to None.
             edgewidth (float | None, optional): Box edge width. Defaults to ``0.8``.
             showfliers (bool | None, optional): Whether to render outlier markers from
@@ -631,9 +658,12 @@ class BoxPlot(CategoricalDistributionPlotBase):
             ValueError: If ``stats`` is empty.
         """
         base = options if options is not None else BoxPlotOptions()
-        resolved_facecolor = facecolor if facecolor is not None else base.facecolor
+        # facecolor/edgecolor use the _UNSET sentinel so an explicit None reaches
+        # resolve_color_and_alpha (which maps it to "none"); only a truly omitted
+        # kwarg falls back to the options default.
+        resolved_facecolor = base.facecolor if facecolor is _UNSET else facecolor
         resolved_facealpha = facealpha if facealpha is not None else base.facealpha
-        resolved_edgecolor = edgecolor if edgecolor is not None else base.edgecolor
+        resolved_edgecolor = base.edgecolor if edgecolor is _UNSET else edgecolor
         resolved_edgealpha = edgealpha if edgealpha is not None else base.edgealpha
         resolved_edgewidth = edgewidth if edgewidth is not None else base.edgewidth
         resolved_showfliers = showfliers if showfliers is not None else base.showfliers
