@@ -135,6 +135,13 @@ class TestViolinPlotActualBuilds:
         tick_labels = [t.get_text() for t in ax.get_xticklabels()]
         assert "Group1" in tick_labels
 
+    def test_unlabeled_data_uses_numeric_tick_labels(self):
+        vp = ViolinPlot()
+        vp.add_violinplot_datasets([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+        ax = vp.ax
+        tick_labels = [t.get_text() for t in ax.get_xticklabels()]
+        assert tick_labels == ["0", "1"]
+
 
 # ======================================
 # == EMPTY VALUE LISTS IN VIOLIN DATA ==

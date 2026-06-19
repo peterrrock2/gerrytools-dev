@@ -1,4 +1,5 @@
 import matplotlib
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -43,9 +44,21 @@ class TestConvertDistributionDataToDictionary:
         )
         assert result == {"A": [1, 2], "B": [3, 4]}
 
-    def test_list_without_labels_raises_valueerror(self):
-        with pytest.raises(ValueError, match="labels"):
-            BoxPlot._convert_boxplot_data_to_dictionary([1, 2, 3])
+    def test_flat_list_without_labels_is_single_numeric_category(self):
+        result = BoxPlot._convert_boxplot_data_to_dictionary([1, 2, 3])
+        assert result == {"0": [1, 2, 3]}
+
+    def test_nested_list_without_labels_auto_numbers_categories(self):
+        result = BoxPlot._convert_boxplot_data_to_dictionary([[1, 2], [3, 4], [5, 6]])
+        assert result == {"0": [1, 2], "1": [3, 4], "2": [5, 6]}
+
+    def test_2d_array_without_labels_auto_numbers_categories(self):
+        result = BoxPlot._convert_boxplot_data_to_dictionary(np.array([[1.0, 2.0], [3.0, 4.0]]))
+        assert result == {"0": [1.0, 2.0], "1": [3.0, 4.0]}
+
+    def test_1d_array_without_labels_auto_numbers_categories(self):
+        result = BoxPlot._convert_boxplot_data_to_dictionary(np.array([1.0, 2.0, 3.0]))
+        assert result == {"0": [1.0], "1": [2.0], "2": [3.0]}
 
     def test_empty_list_raises_valueerror(self):
         with pytest.raises(ValueError, match="empty"):

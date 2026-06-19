@@ -171,6 +171,13 @@ class TestBoxPlotActualBuilds:
         assert "Alpha" in tick_labels
         assert "Beta" in tick_labels
 
+    def test_unlabeled_data_uses_numeric_tick_labels(self):
+        bp = BoxPlot()
+        bp.add_boxplot_dataset([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]])
+        ax = bp.ax
+        tick_labels = [t.get_text() for t in ax.get_xticklabels()]
+        assert tick_labels == ["0", "1", "2"]
+
 
 # =======================================
 # == EMPTY VALUE LISTS IN BOXPLOT DATA ==

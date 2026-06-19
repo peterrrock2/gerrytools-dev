@@ -99,14 +99,42 @@ class CategoricalDistributionPlotBase(GerryPlotBase):
 
         Args:
             scores (dict[str, list[float]] | list[float] | list[list[float]] | pd.DataFrame):
-                Distribution values. DataFrames use each column as a category.
-            scores_labels (list[str] | None, optional): Labels for list-based input.
-                Required when ``scores`` is provided as ``list[float]`` or ``list[list[float]]``.
-                Defaults to None.
+                Distribution values. DataFrames use each column as a category and dicts use
+                their keys; list/array input is labeled by ``scores_labels`` or auto-numbered.
+            scores_labels (list[str] | None, optional): Labels for list/array input. When None,
+                categories are auto-numbered ``"0", "1", ...`` (0-indexed). Defaults to None.
 
         Returns:
             dict[str, list[float]]: Category label to score-list mapping.
         """
+
+        def _to_labeled_dict(
+            rows: list[list[float]],
+            labels: list[str] | None,
+        ) -> dict[str, list[float]]:
+            """Pair score rows with labels, defaulting to ``"0".."k-1"`` when none given.
+
+            Args:
+                rows (list[list[float]]): One score list per category.
+                labels (list[str] | None): Explicit category labels, or None to
+                    auto-number the categories ``"0", "1", ...`` (0-indexed).
+
+            Returns:
+                dict[str, list[float]]: Category label to score-list mapping.
+
+            Raises:
+                ValueError: If ``labels`` is given but its length does not match the
+                    number of score lists.
+            """
+            if labels is None:
+                labels = [str(index) for index in range(len(rows))]
+            elif len(labels) != len(rows):
+                raise ValueError(
+                    f"scores_labels has length {len(labels)} but you provided "
+                    f"{len(rows)} score lists."
+                )
+            return {str(label): row for label, row in zip(labels, rows, strict=True)}
+
         if isinstance(scores, dict):
             typed_scores = cast(dict[str, Sequence[float]], scores)
             return {str(k): list(v) for k, v in typed_scores.items()}
@@ -115,9 +143,6 @@ class CategoricalDistributionPlotBase(GerryPlotBase):
             return {str(col): scores[col].dropna().tolist() for col in scores.columns}
 
         if isinstance(scores, Sequence):
-            if scores_labels is None:
-                scores_labels = [i for i in range(len(scores))]
-
             if len(scores) == 0:
                 raise ValueError("scores is empty; provide at least one score list.")
 
@@ -147,46 +172,24 @@ class CategoricalDistributionPlotBase(GerryPlotBase):
                     return False
                 return isinstance(x, (list, tuple, np.ndarray, pd.Series))
 
-            scores_list_of_lists = scores if _is_score_series(first) else [scores]
+            if _is_score_series(first):
+                nested = cast(Sequence[Sequence[float]], scores)
+                rows = [list(score_list) for score_list in nested]
+            else:
+                # A flat sequence of scalars is a single category.
+                flat = cast(Sequence[float], scores)
+                rows = [list(flat)]
+            return _to_labeled_dict(rows, scores_labels)
 
-            if len(scores_labels) != len(scores_list_of_lists):
-                raise ValueError(
-                    f"scores_labels has length {len(scores_labels)} but you provided "
-                    f"{len(scores_list_of_lists)} score lists."
-                )
-
-            return {
-                label: list(score_list)
-                for label, score_list in zip(scores_labels, scores_list_of_lists, strict=True)
-            }
         if isinstance(scores, np.ndarray):
-            print(scores.ndim)
             if scores.ndim == 1:
-                if scores_labels is None:
-                    raise ValueError(
-                        "When providing a 1D array of scores, also provide labels for each list."
-                    )
-                return {
-                    label: [float(score)]
-                    for label, score in zip(scores_labels, scores, strict=True)
-                }
+                # Each scalar becomes its own single-value category.
+                rows = [[float(score)] for score in scores]
             elif scores.ndim == 2:
-                print("here")
-                if scores_labels is None:
-                    raise ValueError(
-                        "When providing a 2D array of scores, also provide labels for each list."
-                    )
-                if len(scores_labels) != scores.shape[0]:
-                    raise ValueError(
-                        f"scores_labels has length {len(scores_labels)} but you provided "
-                        f"{scores.shape[0]} score lists."
-                    )
-                return {
-                    label: [float(score) for score in row]
-                    for label, row in zip(scores_labels, scores, strict=True)
-                }
+                rows = [[float(score) for score in row] for row in scores]
             else:
                 raise ValueError("scores array must be 1D or 2D.")
+            return _to_labeled_dict(rows, scores_labels)
 
         raise TypeError(
             "Scores must be a dict[str, list[float]], list[float], list[list[float]], "
