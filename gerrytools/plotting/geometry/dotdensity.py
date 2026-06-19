@@ -382,7 +382,6 @@ class DotDensityPlot(GeoPlotBase):
         self,
         column_name: str,
         color: Color,
-        *,
         force_new_dots: bool = False,
         n_cores: int = -1,
         n_chunks: int = 10,

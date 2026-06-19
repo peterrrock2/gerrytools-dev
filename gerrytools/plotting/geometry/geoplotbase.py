@@ -179,7 +179,6 @@ class GeoPlotBase(ABC):
     def add_outline_layer(
         self,
         geosource: GeoDataFrame | GeoSeries | None = None,
-        *,
         geometry_mask: pd.Series | None = None,
         dissolve_column: str | None = None,
         edgecolor: Color = "black",
@@ -282,9 +281,8 @@ class GeoPlotBase(ABC):
 
     def add_highlight_layer(
         self,
-        geosource: GeoDataFrame | GeoSeries | None = None,
         label_column: str | None = None,
-        *,
+        geosource: GeoDataFrame | GeoSeries | None = None,
         geometry_mask: pd.Series | None = None,
         facecolor: Color = "gray",
         facealpha: float | None = 0.5,
@@ -297,12 +295,12 @@ class GeoPlotBase(ABC):
         """Add a highlight layer to the GeoPlotBase.
 
         Args:
+            label_column (str | None): Optional column to label geometries by
+                before highlighting. Default is None.
             geosource (GeoDataFrame | GeoSeries | None): The GeoDataFrame or GeoSeries source
                 for the layer. If None, uses the base gdf of the GeoPlotBase. Default is None.
             geometry_mask (pd.Series | None): Optional boolean mask to filter geometries.
                 Default is None.
-            label_column (str | None): Optional column to label geometries by
-                before highlighting. Default is None.
             facecolor (Color): Color for geometry faces. Default is "gray".
             facealpha (float | None): Alpha transparency for face colors. Default is 0.5.
             show_labels (bool): Whether to show labels on the highlighted geometries. Default is
@@ -417,7 +415,6 @@ class GeoPlotBase(ABC):
     def add_marker_layer(
         self,
         points_geoseries: gpd.GeoSeries | None = None,
-        *,
         latlon_list: Sequence[tuple[float, float]] | None = None,
         input_crs: CRSLike | None = None,
         marker_options: PointMarkerOptions | None = None,
@@ -514,7 +511,6 @@ class GeoPlotBase(ABC):
         self,
         points_geoseries: gpd.GeoSeries | None = None,
         labels: Sequence[str] | None = None,
-        *,
         latlon_list: Sequence[tuple[float, float]] | None = None,
         input_crs: CRSLike | None = None,
         labelfont_options: LabelFontOptions | None = None,

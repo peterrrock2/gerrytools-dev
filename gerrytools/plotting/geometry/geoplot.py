@@ -107,9 +107,8 @@ class GeoPlot(GeoPlotBase):
 
     def add_choropleth_layer(
         self,
-        geosource: GeoDataFrame | None = None,
         datacolumn: str | None = None,
-        *,
+        geosource: GeoDataFrame | None = None,
         colormap: str | Colormap = "Purples",
         missing_color: MplCompatibleColor | None = "lightgrey",
         facealpha: float | None = None,
@@ -127,9 +126,9 @@ class GeoPlot(GeoPlotBase):
         """Add a choropleth layer to the GeoPlotBase.
 
         Args:
+            datacolumn (str): The data column to use for color mapping.
             geosource (GeoDataFrame | None): The GeoDataFrame source for the layer.
                 If None, uses the base gdf of the GeoPlotBase. Default is None.
-            datacolumn (str): The data column to use for color mapping.
             colormap (str | Colormap): The colormap to use for color mapping. Default is "Purples".
             missing_color (MplCompatibleColor | None): Color to use for missing data.
                 Default is "lightgrey".
@@ -185,9 +184,8 @@ class GeoPlot(GeoPlotBase):
 
     def add_districting_plan_layer(
         self,
-        geosource: GeoDataFrame | None = None,
         plancolumn: str | None = None,
-        *,
+        geosource: GeoDataFrame | None = None,
         dissolve: bool = False,
         show_labels: bool = False,
         exclude_labels: Sequence[CategoryKey] | None = None,
@@ -204,9 +202,9 @@ class GeoPlot(GeoPlotBase):
         """Add a districting plan layer to the GeoPlotBase.
 
         Args:
+            plancolumn (str): The column containing district identifiers.
             geosource (GeoDataFrame | None): The GeoDataFrame source for the layer.
                 If None, uses the base gdf of the GeoPlotBase. Default is None.
-            plancolumn (str): The column containing district identifiers.
             dissolve (bool): Whether to dissolve geometries by district. Default is False.
             show_labels (bool): Whether to show district labels. Default is False.
             exclude_labels (Sequence[CategoryKey] | None): District labels to exclude from

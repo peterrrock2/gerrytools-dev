@@ -62,9 +62,34 @@ class TestCategoricalColorLayerColorSeries:
             )
 
 
-# =======================
+# ===========================
 # == GeoPlotBase XY LIMITS ==
-# =======================
+# ===========================
+
+
+class TestGeoPlotPositionalArgs:
+    def test_choropleth_datacolumn_is_first_positional(self, testing_gdf):
+        plot = GeoPlot(testing_gdf, dpi=50, silent=True)
+        layer = plot.add_choropleth_layer("tot_pop")
+        assert layer.datacolumn == "tot_pop"
+
+    def test_choropleth_geosource_is_second_positional(self, testing_gdf, tmp_path):
+        plot = GeoPlot(testing_gdf, dpi=50, silent=True)
+        plot.add_choropleth_layer("tot_pop", testing_gdf)
+        plot.save(str(tmp_path / "choro_pos.png"))
+        assert (tmp_path / "choro_pos.png").exists()
+
+    def test_districting_plancolumn_is_first_positional(self, testing_gdf, tmp_path):
+        plot = GeoPlot(testing_gdf, dpi=50, silent=True)
+        plot.add_districting_plan_layer("district")
+        plot.save(str(tmp_path / "plan_pos.png"))
+        assert (tmp_path / "plan_pos.png").exists()
+
+    def test_highlight_label_column_first_geosource_second(self, testing_gdf, tmp_path):
+        plot = GeoPlot(testing_gdf, dpi=50, silent=True)
+        plot.add_highlight_layer("district", testing_gdf.iloc[:1])
+        plot.save(str(tmp_path / "hl_pos.png"))
+        assert (tmp_path / "hl_pos.png").exists()
 
 
 class TestGeoPlotContinuousLayer:
