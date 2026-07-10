@@ -18,3 +18,9 @@ discrete_color_layer
 outline and highlight layers can just be special calls to the discrete color layer
 
 move seats-votes computation to scoring module
+
+
+For Census
+
+- Add in a way to get shapefiles
+- Better name converter for census data
