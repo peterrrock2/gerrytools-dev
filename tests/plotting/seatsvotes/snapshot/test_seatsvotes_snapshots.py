@@ -6,7 +6,7 @@ import pytest
 
 matplotlib.use("Agg")
 
-from gerrytools.plotting.data.seatsvotes import SeatsVotes
+from gerrytools.plotting.data.seatsvotes import SeatsVotesPlot
 from tests._image_snapshots import assert_image_snapshot
 from tests.plotting._snapshot_utils import RNG_SEED, render_plot
 
@@ -23,13 +23,13 @@ class TestSeatsVotesSnapshots:
         rng = np.random.default_rng(RNG_SEED)
         vote_shares = make_seatsvotes_data(rng)
 
-        plot = SeatsVotes(figure_size=(7, 6), dpi=100, include_legend=True)
-        plot.add_seat_votes_data(
-            pov_party_vote_shares=vote_shares,
+        plot = SeatsVotesPlot(figure_size=(7, 6), dpi=100, legend=True)
+        plot.add_election(
+            target_party_vote_shares=vote_shares,
             name="Election A",
             linecolor="denim",
         )
-        plot.add_proportionality_line(color="grey", name="Proportional")
+        plot.add_proportionality_line(linecolor="grey", name="Proportional")
         img = render_plot(plot, tmp_path)
 
         assert_image_snapshot(
@@ -43,14 +43,14 @@ class TestSeatsVotesSnapshots:
     def test_seatsvotes_multiple_elections_snapshot(self, tmp_path):
         rng = np.random.default_rng(RNG_SEED)
 
-        plot = SeatsVotes(figure_size=(7, 6), dpi=100, include_legend=True)
+        plot = SeatsVotesPlot(figure_size=(7, 6), dpi=100, legend=True)
         for i in range(3):
-            plot.add_seat_votes_data(
-                pov_party_vote_shares=make_seatsvotes_data(rng),
+            plot.add_election(
+                target_party_vote_shares=make_seatsvotes_data(rng),
                 name=f"Election {i + 1}",
             )
-        plot.add_proportionality_line(color="grey", name="Proportional")
-        plot.add_efficiency_gap_line(color="black", name="EG")
+        plot.add_proportionality_line(linecolor="grey", name="Proportional")
+        plot.add_efficiency_gap_line(linecolor="black", name="EG")
         img = render_plot(plot, tmp_path)
 
         assert_image_snapshot(

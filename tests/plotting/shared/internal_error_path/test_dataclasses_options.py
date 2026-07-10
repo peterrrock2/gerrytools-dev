@@ -69,9 +69,9 @@ class TestBandOptions:
         options = BandOptions(bandcolor="red", linecolor="blue")
         assert options.linecolor == "#0000ff"
 
-    def test_optional_linecolor_none_means_no_resolution(self):
+    def test_omitted_linecolor_inherits_the_band_fill(self):
         options = BandOptions(bandcolor="red")
-        assert options.linecolor is None
+        assert options.linecolor == "#ff0000"
 
 
 class TestHistogramOptions:
@@ -159,7 +159,7 @@ class TestSeatsVotesMarkerOptions:
         assert options.markerfacecolor is None
         assert options.marker == "o"
         assert options.markeredgewidth == 0.0
-        assert options.markerzorder == 2
+        assert options.marker_zorder == 2
 
     def test_face_alpha_out_of_range_raises(self):
         with pytest.raises(ValueError, match=r"markerfacealpha must be in \[0, 1\]"):

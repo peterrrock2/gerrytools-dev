@@ -1,15 +1,19 @@
 import logging
 import re
 import shutil
-import subprocess
 import tempfile
 import uuid
 import weakref
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Optional
 
 from gerrytools._ipython import in_jupyter_kernel as _in_jupyter_kernel
-from gerrytools.latex._colors import to_latex_xcolor_or_html_spec
+from gerrytools.latex import _render
+from gerrytools.latex._colors import (
+    _LATEX_COLOR_NAMES,
+    LatexColorSpec,
+    to_latex_xcolor_or_html_spec,
+)
 from gerrytools.logging import get_logger
 from gerrytools.typing import Color
 
@@ -17,185 +21,70 @@ logger = get_logger(__name__)
 
 _USEPACKAGE_WITH_OPTIONS_RE = re.compile(r"\\usepackage\[[^\]]*\]\{(?P<name>[^}]+)\}")
 """Matches the ``\\usepackage[options]{name}`` entries built by ``add_package_with_options``."""
-
-
-def _render_pdf_to_png(pdf_path: Path, png_path: Path, dpi: int = 250) -> None:
-    """Render the first page of a PDF to a PNG without PyMuPDF.
-
-    Preference order:
-      1) pdftocairo (poppler)
-      2) pdftoppm   (poppler)
-      3) gs         (ghostscript)
-      4) magick/convert (imagemagick)  [least preferred]
-
-    Args:
-        pdf_path (Path): Input PDF path.
-        png_path (Path): Output PNG path.
-        dpi (int, optional): Render resolution in dots-per-inch. Defaults to ``250``.
-
-    Returns:
-        None
-
-    Raises:
-        RuntimeError: If no supported renderer is available or rendering fails.
-    """
-    renderer = _which_any(["pdftocairo", "pdftoppm", "gs", "magick", "convert"])
-    if renderer is None:
-        raise RuntimeError(
-            "No PDF renderer found. Install one of:\n"
-            "  - poppler-utils (pdftocairo / pdftoppm)\n"
-            "  - ghostscript (gs)\n"
-            "  - imagemagick (magick/convert)\n"
-        )
-
-    out_base = png_path.with_suffix("")  # e.g. /tmp/xyz -> renderer appends .png
-
-    if renderer == "pdftocairo":
-        # Produces exactly <out_base>.png
-        cmd = [
-            "pdftocairo",
-            "-png",
-            "-r",
-            str(dpi),
-            "-f",
-            "1",
-            "-l",
-            "1",
-            "-singlefile",
-            str(pdf_path),
-            str(out_base),
-        ]
-
-    elif renderer == "pdftoppm":
-        # Produces exactly <out_base>.png with -singlefile
-        cmd = [
-            "pdftoppm",
-            "-png",
-            "-r",
-            str(dpi),
-            "-f",
-            "1",
-            "-singlefile",
-            str(pdf_path),
-            str(out_base),
-        ]
-
-    elif renderer == "gs":
-        # Safe-ish ghostscript invocation: first page only, transparent background
-        cmd = [
-            "gs",
-            "-dSAFER",
-            "-dBATCH",
-            "-dNOPAUSE",
-            "-sDEVICE=pngalpha",
-            f"-r{dpi}",
-            "-dFirstPage=1",
-            "-dLastPage=1",
-            f"-sOutputFile={str(png_path)}",
-            str(pdf_path),
-        ]
-
-    else:  # imagemagick convert/magick
-        # Note: some distros lock down PDF conversion in ImageMagick policy.xml
-        cmd = [
-            renderer,
-            "-density",
-            str(dpi),
-            f"{str(pdf_path)}[0]",
-            "-quality",
-            "100",
-            str(png_path),
-        ]
-
-    proc = subprocess.run(cmd, capture_output=True, text=True)
-    if proc.returncode != 0:
-        log = (proc.stdout or "") + "\n" + (proc.stderr or "")
-        raise RuntimeError(f"PDF->PNG render failed using {renderer}.\n\nLOG:\n{log}")
-
-    # Poppler outputs <out_base>.png; ensure final path exists where we expect.
-    if renderer in {"pdftocairo", "pdftoppm"}:
-        produced = out_base.with_suffix(".png")
-        if produced != png_path:
-            png_path.unlink(missing_ok=True)
-            produced.replace(png_path)
-
-    if not png_path.exists():
-        raise RuntimeError(f"PDF->PNG renderer reported success but {png_path} not found.")
-
-
-def _which_any(names: Iterable[str]) -> Optional[str]:  # pragma: no cover
-    """Checks for the first available executable in the provided list.
-
-    Args:
-        names (Iterable[str]): List of executable names to check.
-
-    Returns:
-        Optional[str]: The name of the first found executable, or None if none are found.
-    """
-    for n in names:
-        if shutil.which(n):
-            return n
-    return None
+_COLOR_NAME_RE = re.compile(r"[A-Za-z][A-Za-z0-9-]*")
 
 
 class TexDocument:
     """Class for creating and previewing LaTeX documents.
 
-    Allows adding packages, commands, and colors, and can render
-    the LaTeX content to a PNG for display in Jupyter or a Qt window.
-
-    Args:
-        tex_string (str): The LaTeX content to be previewed.
+    Allows adding packages, commands, and colors, and can render the LaTeX content to a PNG for
+    display in Jupyter or a Qt window.
 
     Attributes:
         body_string (str): The LaTeX document body content.
         package_list (list[str]): List of LaTeX packages to include.
         extra_package_commands (list[str]): Additional LaTeX package commands.
         command_list (list[str]): List of custom LaTeX commands.
-        color_dict (dict[str, tuple[str, Color]]): Dictionary of color definitions.
+        color_dict (dict[str, LatexColorSpec]): Dictionary of color definitions.
         engine_preference_order (tuple[str, ...]): Preferred order of TeX engines to use.
-
-    Methods:
-        preview(): Renders and displays the LaTeX content.
     """
 
     def __init__(self) -> None:
         self._uuid = uuid.uuid4().hex
-        self._workdir: Path = Path(tempfile.mkdtemp(prefix="latex-preview-"))
-        self._tex_path = self._workdir / f"{self._uuid}.tex"
-        self._pdf_path = self._workdir / f"{self._uuid}.pdf"
-        self._png_path = self._workdir / f"{self._uuid}.png"
+        # The on-disk workspace is created lazily by `_workdir` on first compile/preview/save:
+        # every table and plot owns a document, so construction must not touch the filesystem.
+        self._workdir_path: Optional[Path] = None
+        self._finalizer: Optional[weakref.finalize] = None
         self.body_string: str = ""
-        self.package_list: list[str] = [
-            "amsmath",
-            "amssymb",
-            "graphicx",
-            "booktabs",
-            "array",
-            "latexcolors",
-            "siunitx",
-            "xfp",
-        ]
+        # The preamble stays minimal: features register the packages they need, and `preamble`
+        # scans the body and commands for macros that imply the rest.
+        self.package_list: list[str] = []
         self.extra_package_commands: list[str] = []
         self.command_list: list[str] = []
-        self.color_dict: dict[
-            str, tuple[str, str | tuple[float, float, float] | tuple[int, int, int]]
-        ] = {
-            "snsgreen": ("rgb", (0.16, 0.51, 0.25)),
-            "snspurple": ("rgb", (0.5, 0.24, 0.55)),
-        }
-        self._auto_color_count = 0
-        self._auto_color_map: dict[str, str] = {}
+        self.color_dict: dict[str, LatexColorSpec] = {}
         self.engine_preference_order = ("tectonic", "pdflatex", "xelatex", "lualatex")
         self.compile_passes: int = 1
         """Number of LaTeX passes per compile. Packages that persist node
         positions in the aux file (e.g. nicematrix) need 2."""
-        self._finalizer = weakref.finalize(
-            self,
-            shutil.rmtree,
-            self._workdir,
-            True,  # ignore_errors
-        )
+
+    @property
+    def _workdir(self) -> Path:
+        """Temporary workspace for compile artifacts, created on first use.
+
+        The cleanup finalizer attaches when the directory is created, not when the document is
+        constructed, so documents that never compile leave nothing behind.
+        """
+        if self._workdir_path is None:
+            self._workdir_path = Path(tempfile.mkdtemp(prefix="latex-preview-"))
+            self._finalizer = weakref.finalize(
+                self,
+                shutil.rmtree,
+                self._workdir_path,
+                True,  # ignore_errors
+            )
+        return self._workdir_path
+
+    @property
+    def _tex_path(self) -> Path:
+        return self._workdir / f"{self._uuid}.tex"
+
+    @property
+    def _pdf_path(self) -> Path:
+        return self._workdir / f"{self._uuid}.pdf"
+
+    @property
+    def _png_path(self) -> Path:
+        return self._workdir / f"{self._uuid}.png"
 
     def __repr__(self) -> str:  # pragma: no cover
         return self._tex_doc_string()
@@ -305,8 +194,16 @@ class TexDocument:
             None
 
         Raises:
-            ValueError: If ``color`` is not a valid xcolor expression/HEX/RGB value.
+            ValueError: If ``color_name`` is not a safe LaTeX identifier or ``color`` is not a
+                valid xcolor expression/HEX/RGB value.
         """
+        if not isinstance(color_name, str) or _COLOR_NAME_RE.fullmatch(color_name) is None:
+            raise ValueError(
+                "Color name must start with an ASCII letter and contain only ASCII letters, "
+                "digits, and '-'."
+            )
+        if isinstance(color, str) and color.strip().lower() == "none":
+            raise ValueError("Color value 'none' cannot be registered in the document.")
         try:
             color_type, color_value = to_latex_xcolor_or_html_spec(color)
         except ValueError as exc:
@@ -316,8 +213,6 @@ class TexDocument:
             ) from exc
         if color_type == "NAME":
             assert isinstance(color_value, str)
-            if color_value.lower() == "none":
-                raise ValueError("Color value 'none' cannot be registered in the document.")
             self.color_dict[color_name] = ("NAME", color_value)
             return
         if color_type == "HTML":
@@ -337,56 +232,101 @@ class TexDocument:
             (int(color_value[0]), int(color_value[1]), int(color_value[2])),
         )
 
-    def _next_auto_color_name(self, prefix: str) -> str:
-        """Generate the next unique auto-color name.
+    # Macros whose presence in the body or custom commands implies a package. The scan keeps
+    # the default preamble minimal while making pasted `to_tex()` output compile.
+    _MACRO_PACKAGE_HINTS: tuple[tuple[str, tuple[str, ...]], ...] = (
+        (r"\\(?:top|mid|bottom)rule|\\cmidrule|\\specialrule", ("booktabs",)),
+        (r"\\rowcolor|\\cellcolor|\\arrayrulecolor", ("colortbl",)),
+        (r"\\fpeval", ("xfp",)),
+        (r"\\num[\[{]|\\tablenum", ("siunitx",)),
+        (r"\\includegraphics", ("graphicx",)),
+        (r"\\multirow", ("multirow",)),
+        (r">\{", ("array",)),
+    )
 
-        Args:
-            prefix (str): Prefix to prepend to the generated color name.
+    _COLOR_MACRO_RE = re.compile(
+        r"\\(?:rowcolor|cellcolor|arrayrulecolor|textcolor|colorbox|colorlet|definecolor|"
+        r"color(?![a-zA-Z]))"
+    )
+
+    _PACKAGE_ORDER: tuple[str, ...] = (
+        "amsmath",
+        "amssymb",
+        "graphicx",
+        "array",
+        "dcolumn",
+        "multirow",
+        "booktabs",
+        "xcolor",
+        "latexcolors",
+        "colortbl",
+        "siunitx",
+        "xfp",
+        "tikz",
+        "nicematrix",
+    )
+
+    # xcolor's base names double as latexcolors names; they never require latexcolors.
+    _XCOLOR_BASE_NAMES = frozenset(
+        "black blue brown cyan darkgray gray green lightgray lime magenta olive orange "
+        "pink purple red teal violet white yellow".split()
+    )
+    _LATEX_COLOR_TOKEN_RE = re.compile(
+        f"[{re.escape(''.join(sorted(set().union(*_LATEX_COLOR_NAMES))))}]{{2,}}"
+    )
+    _COLOR_VALUE_RE = re.compile(
+        r"\\(?:rowcolor|cellcolor|arrayrulecolor|textcolor|colorbox|color)"
+        r"\s*(?:\[[^\]]*\])?\s*\{([^{}]+)\}"
+        r"|\\colorlet\s*\{[^{}]*\}\s*\{([^{}]+)\}"
+        r"|(?:^|[,\[])\s*(?:fill|draw|color|text)\s*="
+        r"\s*(?:\{([^{}]+)\}|([^,\]\s]+))",
+        re.MULTILINE,
+    )
+
+    def _uses_latexcolors_name(self) -> bool:
+        """Whether any referenced color name needs the ``latexcolors`` package.
+
+        Body text is restricted to color-valued macro arguments and TikZ options so ordinary prose
+        cannot add a package. Registered commands are generated LaTeX code and may build color
+        expressions indirectly, so their complete source is scanned.
 
         Returns:
-            str: Unique color name within this document instance.
+            bool: Whether a latexcolors-only color name is referenced.
         """
-        self._auto_color_count += 1
-        return f"{prefix}{self._auto_color_count}"
+        known_names = _LATEX_COLOR_NAMES - self._XCOLOR_BASE_NAMES
+        candidates: set[str] = set()
+        for match in self._COLOR_VALUE_RE.finditer(self.body_string):
+            value = next(group for group in match.groups() if group is not None)
+            candidates.update(self._LATEX_COLOR_TOKEN_RE.findall(value))
+        candidates.update(self._LATEX_COLOR_TOKEN_RE.findall("\n".join(self.command_list)))
+        for _, (color_type, color_value) in self.color_dict.items():
+            if color_type == "NAME" and isinstance(color_value, str):
+                candidates.update(self._LATEX_COLOR_TOKEN_RE.findall(color_value))
+        return bool(candidates & known_names)
 
-    def resolve_color(self, color: Color, *, prefix: str) -> str:
-        """Resolve a ``Color`` value to a LaTeX-usable color name.
+    def _scanned_packages(self) -> set[str]:
+        """Packages implied by macros in the body and registered commands."""
+        haystack = "\n".join([self.body_string, *self.command_list])
+        found: set[str] = set()
+        for pattern, packages in self._MACRO_PACKAGE_HINTS:
+            if re.search(pattern, haystack):
+                found.update(packages)
+        # latexcolors names can also appear in bare TikZ options such as fill=cadmiumgreen.
+        if self._uses_latexcolors_name():
+            found.add("latexcolors")
+        elif self._COLOR_MACRO_RE.search(haystack) or self.color_dict:
+            found.add("xcolor")
+        return found
 
-        Args:
-            color (Color): Color value represented as an xcolor expression, HEX string,
-                parseable named color, or RGB tuple.
-            prefix (str): Prefix used when defining new auto-generated color names.
-
-        Returns:
-            str: Existing or newly-defined LaTeX color name.
-        """
-        color_type, color_value = to_latex_xcolor_or_html_spec(color)
-        if color_type == "NAME":
-            assert isinstance(color_value, str)
-            return color_value
-
-        if color_type == "HTML":
-            assert isinstance(color_value, str)
-            key = f"HTML:{color_value}"
-        elif color_type == "rgb":
-            assert isinstance(color_value, tuple)
-            key = f"rgb:{color_value[0]:0.6f},{color_value[1]:0.6f},{color_value[2]:0.6f}"
-        else:
-            assert isinstance(color_value, tuple)
-            key = f"RGB:{color_value[0]},{color_value[1]},{color_value[2]}"
-
-        if key in self._auto_color_map:
-            return self._auto_color_map[key]
-
-        color_name = self._next_auto_color_name(prefix)
-        if color_type == "HTML":
-            assert isinstance(color_value, str)
-            self.add_color(color_name, color_value)
-        else:
-            assert isinstance(color_value, tuple)
-            self.add_color(color_name, color_value)
-        self._auto_color_map[key] = color_name
-        return color_name
+    def _resolved_package_list(self) -> list[str]:
+        """Explicit registrations plus scanned requirements, in a stable order."""
+        wanted = set(self.package_list) | self._scanned_packages()
+        wanted -= self._optioned_package_names()
+        if "latexcolors" in wanted:
+            wanted.discard("xcolor")
+        ordered = [pkg for pkg in self._PACKAGE_ORDER if pkg in wanted]
+        ordered += [pkg for pkg in self.package_list if pkg not in ordered and pkg in wanted]
+        return ordered
 
     @property
     def preamble(self) -> str:
@@ -397,7 +337,9 @@ class TexDocument:
                 definitions.
         """
         lines = [r"\documentclass[border=2pt]{standalone}"]
-        lines += [rf"\usepackage{{{pkg}}}" for pkg in self.package_list]
+        packages = self._resolved_package_list()
+        if packages:
+            lines.append(r"\usepackage{" + ", ".join(packages) + "}")
         lines.extend(self.extra_package_commands)
         for color_name, (color_type, color_val) in self.color_dict.items():
             match color_type:
@@ -424,6 +366,17 @@ class TexDocument:
                     )
         return "\n".join(lines)
 
+    def to_tex(self) -> str:
+        """The complete, compilable LaTeX document source.
+
+        The returned string is a standalone document (preamble, commands, body) that can be pasted
+        directly into a ``.tex`` file and compiled, or copied piecewise into an existing report.
+
+        Returns:
+            str: The full document source.
+        """
+        return self._tex_doc_string()
+
     def _tex_doc_string(self) -> str:
         """Generates the complete LaTeX document string."""
         lines = [self.preamble]
@@ -446,41 +399,15 @@ class TexDocument:
         Raises:
             RuntimeError: If no TeX engine is found or LaTeX compilation fails.
         """
-        if preferred_engine is None:
-            engine = _which_any(self.engine_preference_order)
-        else:  # pragma: no cover
-            engine = _which_any([preferred_engine])
-
-        if engine is None and preferred_engine is not None:  # pragma: no cover
-            raise RuntimeError(f"TeX engine {preferred_engine} not found.")
-        elif engine is None:  # pragma: no cover
-            raise RuntimeError(
-                f"No TeX engine found. Please install one of: [{', '.join(self.engine_preference_order)}]"
-            )
-
-        self._tex_path.write_text(self._tex_doc_string(), encoding="utf-8")
-
-        if engine == "tectonic":  # pragma: no cover
-            cmd = [engine, str(self._tex_path), "--outdir", str(self._workdir)]
-        else:
-            cmd = [
-                engine,
-                "-interaction=nonstopmode",
-                "-halt-on-error",
-                "-file-line-error",
-                "-output-directory",
-                str(self._workdir),
-                str(self._tex_path),
-            ]
-
-        # tectonic reruns itself until stable; other engines need explicit
-        # extra passes for aux-file-dependent packages (e.g. nicematrix).
-        passes = 1 if engine == "tectonic" else max(1, int(self.compile_passes))
-        for _ in range(passes):
-            proc = subprocess.run(cmd, capture_output=True, text=True)
-            log = (proc.stdout or "") + "\n" + (proc.stderr or "")
-            if proc.returncode != 0 or not self._pdf_path.exists():  # pragma: no cover
-                raise RuntimeError(f"LaTeX compile failed with {engine}.\n\nLOG:\n{log}")
+        _render._compile_pdf(
+            self._tex_doc_string(),
+            tex_path=self._tex_path,
+            pdf_path=self._pdf_path,
+            workdir=self._workdir,
+            engine_preference_order=self.engine_preference_order,
+            compile_passes=self.compile_passes,
+            preferred_engine=preferred_engine,
+        )
 
     def _render_to_temp_png(self, preferred_engine: Optional[str] = None, dpi: int = 250) -> None:
         """Render the current document body to a temporary PNG file.
@@ -499,97 +426,31 @@ class TexDocument:
                 no PDF renderer is available.
         """
         self._compile_pdf(preferred_engine)
-        _render_pdf_to_png(self._pdf_path, self._png_path, dpi=dpi)
-
-    def _show_png_jupyter(self) -> None:  # pragma: no cover
-        """Displays the rendered PNG in a Jupyter notebook."""
-        from IPython.display import Image, display
-
-        display(Image(filename=str(self._png_path)))
-
-    def _show_png_qt(
-        self, *, title: str = "LaTeX Preview", max_size=(1200, 800)
-    ) -> None:  # pragma: no cover
-        """Display the rendered PNG in a Qt window.
-
-        Args:
-            title (str, optional): Window title text. Defaults to ``"LaTeX Preview"``.
-            max_size (tuple[int, int], optional): Maximum ``(width, height)`` in pixels for
-                the preview window. Defaults to ``(1200, 800)``.
-
-        Returns:
-            None
-
-        Raises:
-            RuntimeError: If ``PyQt6`` is unavailable or the PNG cannot be loaded.
-        """
-        try:
-            from PyQt6 import QtCore, QtGui, QtWidgets
-        except ImportError as exc:
-            raise RuntimeError(
-                "PyQt6 is required for non-Jupyter preview. Install PyQt6 or use save_png/save_pdf."
-            ) from exc
-
-        app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-
-        pix = QtGui.QPixmap(str(self._png_path))
-        if pix.isNull():
-            raise RuntimeError("Failed to load PNG into QPixmap.")
-
-        max_w, max_h = max_size
-        scale = min(1.0, max_w / max(1, pix.width()), max_h / max(1, pix.height()))
-        shown = (
-            pix
-            if scale >= 1.0
-            else pix.scaled(
-                int(pix.width() * scale),
-                int(pix.height() * scale),
-                QtCore.Qt.AspectRatioMode.KeepAspectRatio,
-                QtCore.Qt.TransformationMode.SmoothTransformation,
-            )
-        )
-
-        label = QtWidgets.QLabel()
-        label.setPixmap(shown)
-        label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-
-        scroll = QtWidgets.QScrollArea()
-        scroll.setWidget(label)
-        scroll.setWidgetResizable(True)
-
-        win = QtWidgets.QMainWindow()
-        win.setWindowTitle(title)
-        win.setCentralWidget(scroll)
-        win.resize(min(max_w, shown.width() + 30), min(max_h, shown.height() + 50))
-        win.show()
-
-        # In notebooks, calling app.exec() can hang; only do it when NOT in Jupyter.
-        if not _in_jupyter_kernel():
-            app.exec()
+        _render._render_pdf_to_png(self._pdf_path, self._png_path, dpi=dpi)
 
     def preview(self) -> None:  # pragma: no cover
         """Displays the rendered LaTeX document as a PNG image."""
         self._render_to_temp_png()
         if _in_jupyter_kernel():
-            self._show_png_jupyter()
+            _render._show_png_jupyter(self._png_path)
         else:
-            self._show_png_qt(title="LaTeX Preview", max_size=(1200, 800))
+            _render._show_png_qt(self._png_path, title="LaTeX Preview", max_size=(1200, 800))
 
-    def save_pdf(self, path: str | Path) -> None:  # pragma: no cover
+    def save_pdf(self, filepath: str | Path) -> None:
         """Saves the rendered LaTeX document as a PDF file.
 
         Args:
-            path (str | Path): The file path to save the PDF to.
+            filepath (str | Path): The file path to save the PDF to.
         Returns:
             None
         """
-        if not isinstance(path, (str, Path)):
+        if not isinstance(filepath, (str, Path)):
             raise TypeError("Path must be a string or Path object.")
 
-        if not str(path).endswith(".pdf"):
+        if not str(filepath).endswith(".pdf"):
             raise ValueError("File extension must be '.pdf'")
 
-        full_path = Path(path).resolve()
+        full_path = Path(filepath).resolve()
 
         if not full_path.parent.exists():
             raise FileNotFoundError(f"The directory {full_path.parent} does not exist.")
@@ -598,21 +459,21 @@ class TexDocument:
         self._compile_pdf()
         shutil.copy2(self._pdf_path, full_path)
 
-    def save_png(self, path: str | Path) -> None:  # pragma: no cover
+    def save_png(self, filepath: str | Path) -> None:
         """Saves the rendered LaTeX document as a PNG file.
 
         Args:
-            path (str | Path): The file path to save the PNG to.
+            filepath (str | Path): The file path to save the PNG to.
         Returns:
             None
         """
-        if not isinstance(path, (str, Path)):
+        if not isinstance(filepath, (str, Path)):
             raise TypeError("Path must be a string or Path object.")
 
-        if not str(path).endswith(".png"):
+        if not str(filepath).endswith(".png"):
             raise ValueError("File extension must be '.png'")
 
-        full_path = Path(path).resolve()
+        full_path = Path(filepath).resolve()
 
         if not full_path.parent.exists():
             raise FileNotFoundError(f"The directory {full_path.parent} does not exist.")

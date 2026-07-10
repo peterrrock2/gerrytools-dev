@@ -1,10 +1,10 @@
-import logging
 import math
 from dataclasses import dataclass, field
-from typing import Iterable, Literal
+from typing import Literal, TypeAlias
 
 from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
+from gerrytools.plotting.data.options import BandOptions, LineOptions
 from gerrytools.plotting.mpl.label_text_options import (
     FontFamily,
     FontStyle,
@@ -13,13 +13,30 @@ from gerrytools.plotting.mpl.label_text_options import (
     LabelFontOptions,
 )
 from gerrytools.plotting.mpl.marker_options import PointMarkerOptions
+from gerrytools.plotting.utils import (
+    _resolve_color_clamped_width,
+    _validated_finite,
+    _validated_nonneg_finite,
+)
 from gerrytools.typing import Color
 
 logger = get_logger(__name__)
 
 
+def _set_finite(instance: object, name: str, *, owner: str) -> None:
+    """Validate a frozen dataclass field as finite and write the float back."""
+    value = _validated_finite(getattr(instance, name), field=f"{owner}.{name}")
+    object.__setattr__(instance, name, value)
+
+
+def _set_nonneg_finite(instance: object, name: str, *, owner: str) -> None:
+    """Validate a frozen dataclass field as nonnegative and finite."""
+    value = _validated_nonneg_finite(getattr(instance, name), field=f"{owner}.{name}")
+    object.__setattr__(instance, name, value)
+
+
 @dataclass(frozen=True)
-class PointSetData:
+class _PointSetData:
     """A dataclass representing a set of points to be plotted on a boxplot figure.
 
     Attributes:
@@ -36,141 +53,42 @@ class PointSetData:
 
 
 @dataclass(frozen=True)
-class LineData:
-    """Data class representing a line to be drawn on a plot.
+class _LineData:
+    """One vertical/horizontal line annotation: positions plus resolved styling.
 
     Attributes:
-        values (float | Iterable[float]): The position(s) of the line on the axis.
-        linecolor (Color): The color of the line.
-        linealpha (float | None): The alpha transparency of the line color.
-            If None, uses the alpha from the color if specified.
-        linestyle (str): The style of the line (e.g., '-', '--', '-.', ':').
-        linewidth (float): The width of the line.
-        zorder (int): The z-order of the line.
+        values (tuple[float, ...]): The position(s) of the line(s) on the axis.
+        style (LineOptions): Resolved line styling.
         name (str | None): The name of the line for legend purposes.
     """
 
-    values: float | Iterable[float]
-    linecolor: Color = "#cccccc"
-    linealpha: float | None = None
-    linestyle: str = "-"
-    linewidth: float = 1.0
-    zorder: int = 3
+    values: tuple[float, ...]
+    style: LineOptions
     name: str | None = None
-
-    def __post_init__(self) -> None:
-        lw = float(self.linewidth)
-        if lw < 0:
-            raise ValueError("LineData.linewidth must be nonnegative.")
-        if not math.isfinite(lw):
-            raise ValueError("LineData.linewidth must be finite.")
-        object.__setattr__(self, "linewidth", lw)
-
-        resolved_lc, resolved_la = resolve_color_and_alpha(
-            self.linecolor,
-            self.linealpha,
-            allow_none=True,
-            field="linecolor",
-            owner="LineData",
-            logger=logger,
-        )
-        object.__setattr__(self, "linecolor", resolved_lc)
-        object.__setattr__(self, "linealpha", resolved_la)
-
-        if resolved_lc.lower() == "none" and lw > 0:
-            logger.log(
-                level=logging.DEBUG,
-                msg=(
-                    "LineData: linecolor is 'none' but "
-                    f"linewidth is {lw}>0; setting linewidth to 0."
-                ),
-            )
-            object.__setattr__(self, "linewidth", 0.0)
-
-        object.__setattr__(self, "zorder", int(self.zorder))
 
 
 @dataclass(frozen=True)
-class BandData:
-    """Data class representing a band to be drawn on a plot.
+class _BandData:
+    """One vertical/horizontal band annotation: bounds plus resolved styling.
 
     Attributes:
         lower_bound (float): The lower bound of the band.
         upper_bound (float): The upper bound of the band.
-        bandcolor (Color): The fill color of the band.
-        alpha (float | None): The alpha transparency of the band color.
-            If None, uses the alpha from the color if specified.
-        linecolor (Color | None): The color of the bounding lines of the band.
-        linealpha (float | None): The alpha transparency of the bounding lines.
-        linestyle (str): The style of the bounding lines (e.g., '-', '--', '-.', ':').
-        linewidth (float): The width of the bounding lines.
-        zorder (int): The z-order of the band.
+        style (BandOptions): Resolved band styling.
         name (str | None): The name of the band for legend purposes.
     """
 
     lower_bound: float
     upper_bound: float
-    bandcolor: Color = "#cccccc"
-    bandalpha: float | None = None
-    linecolor: Color | None = None
-    linealpha: float | None = None
-    linestyle: str = "-"
-    linewidth: float = 1.0
-    zorder: int = 3
+    style: BandOptions
     name: str | None = None
 
     def __post_init__(self) -> None:
-        lb, ub = sorted([float(self.lower_bound), float(self.upper_bound)])
-        if not (math.isfinite(lb) and math.isfinite(ub)):
-            raise ValueError("BandData: lower_bound and upper_bound must both be finite.")
-        object.__setattr__(self, "lower_bound", lb)
-        object.__setattr__(self, "upper_bound", ub)
-
-        resolved_bc, resolved_ba = resolve_color_and_alpha(
-            self.bandcolor,
-            self.bandalpha,
-            allow_none=True,
-            field="bandcolor",
-            owner="BandData",
-            logger=logger,
-        )
-        object.__setattr__(self, "bandcolor", resolved_bc)
-        object.__setattr__(self, "bandalpha", resolved_ba)
-
-        lw = float(self.linewidth)
-        if lw < 0:
-            raise ValueError("BandData.linewidth must be nonnegative.")
-        if not math.isfinite(lw):
-            raise ValueError("BandData.linewidth must be finite.")
-
-        # Default linecolor: follow bandcolor unless band is none (then fallback)
-        normalized_line_color = self.linecolor
-        if normalized_line_color is None:
-            normalized_line_color = resolved_bc
-            if isinstance(normalized_line_color, str) and normalized_line_color.lower() == "none":
-                normalized_line_color = "#cccccc"
-
-        # Line color + alpha
-        resolved_lc, resolved_la = resolve_color_and_alpha(
-            normalized_line_color,
-            self.linealpha,
-            allow_none=True,
-            field="linecolor",
-            owner="BandData",
-            logger=logger,
-        )
-        object.__setattr__(self, "linecolor", resolved_lc)
-        object.__setattr__(self, "linealpha", resolved_la)
-
-        if resolved_lc.lower() == "none" and lw > 0:
-            logger.debug(
-                "BandData: linecolor is 'none' but linewidth is %s>0; setting linewidth to 0.",
-                lw,
-            )
-            lw = 0.0
-
-        object.__setattr__(self, "linewidth", lw)
-        object.__setattr__(self, "zorder", int(self.zorder))
+        lower, upper = sorted([float(self.lower_bound), float(self.upper_bound)])
+        if not (math.isfinite(lower) and math.isfinite(upper)):
+            raise ValueError("_BandData: lower_bound and upper_bound must both be finite.")
+        object.__setattr__(self, "lower_bound", lower)
+        object.__setattr__(self, "upper_bound", upper)
 
 
 @dataclass(frozen=True)
@@ -179,7 +97,7 @@ class ArrowTextStyle:
 
     Attributes:
         fontsize (float, optional): Text size in points. Defaults to ``10.0``.
-        fontcolor (Color, optional): Text color. Defaults to ``"white"``.
+        fontcolor (Color, optional): Text color. Defaults to ``"black"``.
         fontalpha (float | None, optional): Optional alpha override for ``fontcolor``.
             Defaults to None.
         fontoutlinecolor (Color | None, optional): Optional outline color for text glyphs.
@@ -202,7 +120,7 @@ class ArrowTextStyle:
     """
 
     fontsize: float = 10.0
-    fontcolor: Color = "white"
+    fontcolor: Color = "black"
     fontalpha: float | None = None
     fontoutlinecolor: Color | None = "black"
     fontoutlinealpha: float | None = None
@@ -215,32 +133,17 @@ class ArrowTextStyle:
     verticalalignment: Literal["bottom", "center", "top"] | None = None
 
     def __post_init__(self) -> None:
-        size = float(self.fontsize)
-        if not math.isfinite(size):
-            raise ValueError("AnnotationArrowTextStyle.fontsize must be finite.")
-        if size < 0:
-            raise ValueError("AnnotationArrowTextStyle.fontsize must be nonnegative.")
-        object.__setattr__(self, "fontsize", size)
-
-        outlinewidth = float(self.fontoutlinewidth)
-        if not math.isfinite(outlinewidth):
-            raise ValueError("AnnotationArrowTextStyle.fontoutlinewidth must be finite.")
-        if outlinewidth < 0:
-            raise ValueError("AnnotationArrowTextStyle.fontoutlinewidth must be nonnegative.")
-        object.__setattr__(self, "fontoutlinewidth", outlinewidth)
-
+        _set_nonneg_finite(self, "fontsize", owner="ArrowTextStyle")
+        _set_nonneg_finite(self, "fontoutlinewidth", owner="ArrowTextStyle")
         if self.rotation is not None:
-            rotation = float(self.rotation)
-            if not math.isfinite(rotation):
-                raise ValueError("AnnotationArrowTextStyle.rotation must be finite.")
-            object.__setattr__(self, "rotation", rotation)
+            _set_finite(self, "rotation", owner="ArrowTextStyle")
 
         resolved_fc, resolved_fa = resolve_color_and_alpha(
             self.fontcolor,
             self.fontalpha,
             allow_none=False,
             field="fontcolor",
-            owner="AnnotationArrowTextStyle",
+            owner="ArrowTextStyle",
             logger=logger,
         )
         object.__setattr__(self, "fontcolor", resolved_fc)
@@ -248,30 +151,26 @@ class ArrowTextStyle:
 
         if self.fontoutlinecolor is None:
             object.__setattr__(self, "fontoutlinealpha", None)
-            if outlinewidth > 0:
+            if self.fontoutlinewidth > 0:
                 logger.debug(
-                    "AnnotationArrowTextStyle: fontoutlinewidth is %s but fontoutlinecolor is None; setting fontoutlinewidth to 0.",
-                    outlinewidth,
+                    "ArrowTextStyle: fontoutlinewidth is %s but fontoutlinecolor is None; setting fontoutlinewidth to 0.",
+                    self.fontoutlinewidth,
                 )
                 object.__setattr__(self, "fontoutlinewidth", 0.0)
             return
 
-        resolved_oc, resolved_oa = resolve_color_and_alpha(
+        resolved_oc, resolved_oa, outlinewidth = _resolve_color_clamped_width(
             self.fontoutlinecolor,
             self.fontoutlinealpha,
-            allow_none=True,
-            field="fontoutlinecolor",
-            owner="AnnotationArrowTextStyle",
-            logger=logger,
+            self.fontoutlinewidth,
+            color_field="fontoutlinecolor",
+            width_field="fontoutlinewidth",
+            owner="ArrowTextStyle",
+            log=logger,
         )
         object.__setattr__(self, "fontoutlinecolor", resolved_oc)
         object.__setattr__(self, "fontoutlinealpha", resolved_oa)
-        if resolved_oc.lower() == "none" and outlinewidth > 0:
-            logger.debug(
-                "AnnotationArrowTextStyle: fontoutlinecolor is 'none' but fontoutlinewidth is %s>0; setting fontoutlinewidth to 0.",
-                outlinewidth,
-            )
-            object.__setattr__(self, "fontoutlinewidth", 0.0)
+        object.__setattr__(self, "fontoutlinewidth", outlinewidth)
 
 
 @dataclass(frozen=True)
@@ -301,48 +200,32 @@ class TextArrowStyle:
     boxstyle: str | None = None
 
     def __post_init__(self) -> None:
-        outlinewidth = float(self.arrowedgewidth)
-        if not math.isfinite(outlinewidth):
-            raise ValueError("TextAnnotationArrowStyle.arrowedgewidth must be finite.")
-        if outlinewidth < 0:
-            raise ValueError("TextAnnotationArrowStyle.arrowedgewidth must be nonnegative.")
-        object.__setattr__(self, "arrowedgewidth", outlinewidth)
-
-        boxpad = float(self.boxpad)
-        if not math.isfinite(boxpad):
-            raise ValueError("TextAnnotationArrowStyle.boxpad must be finite.")
-        if boxpad < 0:
-            raise ValueError("TextAnnotationArrowStyle.boxpad must be nonnegative.")
-        object.__setattr__(self, "boxpad", boxpad)
+        _set_nonneg_finite(self, "arrowedgewidth", owner="TextArrowStyle")
+        _set_nonneg_finite(self, "boxpad", owner="TextArrowStyle")
 
         resolved_fc, resolved_fa = resolve_color_and_alpha(
             self.arrowfacecolor,
             self.arrowfacealpha,
             allow_none=False,
             field="arrowfacecolor",
-            owner="TextAnnotationArrowStyle",
+            owner="TextArrowStyle",
             logger=logger,
         )
         object.__setattr__(self, "arrowfacecolor", resolved_fc)
         object.__setattr__(self, "arrowfacealpha", resolved_fa)
 
-        resolved_ec, resolved_ea = resolve_color_and_alpha(
+        resolved_ec, resolved_ea, outlinewidth = _resolve_color_clamped_width(
             self.arrowedgecolor,
             self.arrowedgealpha,
-            allow_none=True,
-            field="arrowedgecolor",
-            owner="TextAnnotationArrowStyle",
-            logger=logger,
+            self.arrowedgewidth,
+            color_field="arrowedgecolor",
+            width_field="arrowedgewidth",
+            owner="TextArrowStyle",
+            log=logger,
         )
         object.__setattr__(self, "arrowedgecolor", resolved_ec)
         object.__setattr__(self, "arrowedgealpha", resolved_ea)
-
-        if resolved_ec.lower() == "none" and outlinewidth > 0:
-            logger.debug(
-                "TextAnnotationArrowStyle: arrowedgecolor is 'none' but arrowedgewidth is %s>0; setting arrowedgewidth to 0.",
-                outlinewidth,
-            )
-            object.__setattr__(self, "arrowedgewidth", 0.0)
+        object.__setattr__(self, "arrowedgewidth", outlinewidth)
 
 
 @dataclass(frozen=True)
@@ -354,7 +237,7 @@ class LabelArrowStyle:
             Defaults to ``"-|>"``.
         connectionstyle (str | None, optional): Matplotlib connectionstyle string.
             Defaults to ``"arc3"``.
-        mutation_scale (float, optional): Arrow-head scale. Defaults to ``12.0``.
+        arrowhead_scale (float, optional): Arrow-head scale. Defaults to ``12.0``.
         shrink_a (float, optional): Shrink amount at the text/tail end in points.
             Defaults to ``0.0``.
         shrink_b (float, optional): Shrink amount at the tip end in points.
@@ -385,57 +268,32 @@ class LabelArrowStyle:
     linestyle: str = "-"
 
     def __post_init__(self) -> None:
-        mutation_scale = float(self.arrowhead_scale)
-        if not math.isfinite(mutation_scale):
-            raise ValueError("LabelAnnotationArrowStyle.mutation_scale must be finite.")
-        if mutation_scale < 0:
-            raise ValueError("LabelAnnotationArrowStyle.mutation_scale must be nonnegative.")
-        object.__setattr__(self, "mutation_scale", mutation_scale)
-
-        shrink_a = float(self.shrink_a)
-        shrink_b = float(self.shrink_b)
-        if not (math.isfinite(shrink_a) and math.isfinite(shrink_b)):
-            raise ValueError("LabelAnnotationArrowStyle shrink values must be finite.")
-        if shrink_a < 0 or shrink_b < 0:
-            raise ValueError("LabelAnnotationArrowStyle shrink values must be nonnegative.")
-        object.__setattr__(self, "shrink_a", shrink_a)
-        object.__setattr__(self, "shrink_b", shrink_b)
-
-        outlinewidth = float(self.arrowedgewidth)
-        if not math.isfinite(outlinewidth):
-            raise ValueError("LabelAnnotationArrowStyle.arrowedgewidth must be finite.")
-        if outlinewidth < 0:
-            raise ValueError("LabelAnnotationArrowStyle.arrowedgewidth must be nonnegative.")
-        object.__setattr__(self, "arrowedgewidth", outlinewidth)
+        for name in ("arrowhead_scale", "shrink_a", "shrink_b", "arrowedgewidth"):
+            _set_nonneg_finite(self, name, owner="LabelArrowStyle")
 
         resolved_fc, resolved_fa = resolve_color_and_alpha(
             self.arrowfacecolor,
             self.arrowfacealpha,
             allow_none=False,
             field="arrowfacecolor",
-            owner="LabelAnnotationArrowStyle",
+            owner="LabelArrowStyle",
             logger=logger,
         )
         object.__setattr__(self, "arrowfacecolor", resolved_fc)
         object.__setattr__(self, "arrowfacealpha", resolved_fa)
 
-        resolved_ec, resolved_ea = resolve_color_and_alpha(
+        resolved_ec, resolved_ea, outlinewidth = _resolve_color_clamped_width(
             self.arrowedgecolor,
             self.arrowedgealpha,
-            allow_none=True,
-            field="arrowedgecolor",
-            owner="LabelAnnotationArrowStyle",
-            logger=logger,
+            self.arrowedgewidth,
+            color_field="arrowedgecolor",
+            width_field="arrowedgewidth",
+            owner="LabelArrowStyle",
+            log=logger,
         )
         object.__setattr__(self, "arrowedgecolor", resolved_ec)
         object.__setattr__(self, "arrowedgealpha", resolved_ea)
-
-        if resolved_ec.lower() == "none" and outlinewidth > 0:
-            logger.debug(
-                "LabelAnnotationArrowStyle: arrowedgecolor is 'none' but arrowedgewidth is %s>0; setting arrowedgewidth to 0.",
-                outlinewidth,
-            )
-            object.__setattr__(self, "arrowedgewidth", 0.0)
+        object.__setattr__(self, "arrowedgewidth", outlinewidth)
 
 
 @dataclass(frozen=True)
@@ -455,7 +313,7 @@ class ArrowPlacement:
             Defaults to None.
         tail_length (float, optional): Tail-to-tip distance used when ``arrowtail`` is None.
             Defaults to ``0.08``.
-        zorder (int, optional): Draw order. Defaults to ``20``.
+        zorder (int | float, optional): Draw order; coerced to int. Defaults to ``20``.
         clip_on (bool, optional): Whether artists should be clipped to the axes patch.
             Defaults to False.
     """
@@ -465,133 +323,161 @@ class ArrowPlacement:
     label_padding: float = 0.005
     arrowtail: tuple[float, float] | None = None
     tail_length: float = 0.08
-    zorder: int = 20
+    zorder: int | float = 20
     clip_on: bool = False
 
     def __post_init__(self) -> None:
-        tail_length = float(self.tail_length)
-        if not math.isfinite(tail_length):
-            raise ValueError("AnnotationArrowPlacement.tail_length must be finite.")
-        if tail_length < 0:
-            raise ValueError("AnnotationArrowPlacement.tail_length must be nonnegative.")
-        object.__setattr__(self, "tail_length", tail_length)
+        _set_nonneg_finite(self, "tail_length", owner="ArrowPlacement")
+        _set_nonneg_finite(self, "label_padding", owner="ArrowPlacement")
         object.__setattr__(self, "zorder", int(self.zorder))
 
-        label_padding = float(self.label_padding)
-        if not math.isfinite(label_padding):
-            raise ValueError("AnnotationArrowPlacement.label_padding must be finite.")
-        if label_padding < 0:
-            raise ValueError("AnnotationArrowPlacement.label_padding must be nonnegative.")
-        object.__setattr__(self, "label_padding", label_padding)
-
-        text_offset = (float(self.text_offset[0]), float(self.text_offset[1]))
-        if not (math.isfinite(text_offset[0]) and math.isfinite(text_offset[1])):
-            raise ValueError("AnnotationArrowPlacement.text_offset components must be finite.")
+        text_offset = tuple(
+            _validated_finite(component, field="ArrowPlacement.text_offset")
+            for component in self.text_offset
+        )
         object.__setattr__(self, "text_offset", text_offset)
 
         if self.arrowtail is not None:
             arrowtail = (float(self.arrowtail[0]), float(self.arrowtail[1]))
             if not (math.isfinite(arrowtail[0]) and math.isfinite(arrowtail[1])):
-                raise ValueError("AnnotationArrowPlacement.arrowtail components must be finite.")
+                raise ValueError("ArrowPlacement.arrowtail components must be finite.")
             object.__setattr__(self, "arrowtail", arrowtail)
 
 
 @dataclass(frozen=True)
-class ArrowData:
-    """Data container for deferred arrow annotations in ``GerryPlotBase``.
+class LabelArrowOptions:
+    """Advanced options for a label-style annotation arrow.
+
+    Attributes:
+        arrow_length (float | None, optional): Arrow length as a percentage of the axes span in
+            the arrow direction. When None, ``placement.tail_length`` is used. Defaults to None.
+        placement (ArrowPlacement, optional): Tail placement, label padding, clipping, and draw
+            order. Defaults to an arrow with a tail length of ``0.04``.
+        style (LabelArrowStyle, optional): Arrowhead, outline, and line styling. Defaults to
+            ``LabelArrowStyle()``.
+    """
+
+    arrow_length: float | None = None
+    placement: ArrowPlacement = field(default_factory=lambda: ArrowPlacement(tail_length=0.04))
+    style: LabelArrowStyle = field(default_factory=LabelArrowStyle)
+
+    def __post_init__(self) -> None:
+        if self.arrow_length is None:
+            return
+        arrow_length = float(self.arrow_length)
+        if not math.isfinite(arrow_length):
+            raise ValueError("LabelArrowOptions.arrow_length must be finite.")
+        if not 0.0 <= arrow_length <= 100.0:
+            raise ValueError("LabelArrowOptions.arrow_length must be in [0, 100].")
+        if self.placement.arrowtail is not None:
+            raise ValueError(
+                "LabelArrowOptions.arrow_length cannot be set when placement.arrowtail is set."
+            )
+        object.__setattr__(self, "arrow_length", arrow_length)
+
+
+def _validated_point(value: tuple[float, float], *, field_name: str) -> tuple[float, float]:
+    """Coerce a 2-tuple to floats and require finite components."""
+    point = (float(value[0]), float(value[1]))
+    if not (math.isfinite(point[0]) and math.isfinite(point[1])):
+        raise ValueError(f"{field_name} components must be finite.")
+    return point
+
+
+def _validate_arrow_direction(direction: object) -> None:
+    if not isinstance(direction, str) or direction not in ("right", "left", "up", "down"):
+        raise ValueError(
+            f"direction must be one of 'right', 'left', 'up', or 'down'; got {direction!r}."
+        )
+
+
+@dataclass(frozen=True)
+class _TextArrowData:
+    """A deferred text-style arrow: text rendered inside an arrow-shaped box.
 
     Attributes:
         arrowtip (tuple[float, float]): Arrow tip coordinate in ``placement.coordinate_system``.
         direction (Literal["right", "left", "up", "down"]): Arrow direction.
-        arrowtype (Literal["text", "label"]): Arrow rendering style.
-        text (str | None, optional): Optional text shown with the arrow. Defaults to None.
-        textstyle (AnnotationArrowTextStyle, optional): Text style options.
-            Defaults to ``AnnotationArrowTextStyle()``.
-        arrow_length_percentage (float | None, optional): Optional label-arrow length as a
-            percent of axes span in the arrow direction. ``0`` means zero length, and ``100``
-            means one full axes width (horizontal) or height (vertical). Defaults to None.
-        label_position (tuple[float, float] | None, optional): Optional explicit text-anchor
-            location for label arrows. If None, GerryPlot uses the computed tail
-            coordinate. Defaults to None.
-        labelfont_options (LabelFontOptions | None, optional): Optional geoplot-style font
-            options for label arrows. When set, these options override text color and
-            typography fields from ``textstyle``. Defaults to None.
-        labelbox_options (LabelBoxOptions | None, optional): Optional geoplot-style text-box
-            options for label arrows. Defaults to None.
-        placement (AnnotationArrowPlacement, optional): Placement options.
-            Defaults to ``AnnotationArrowPlacement()``.
-        textarrowstyle (TextAnnotationArrowStyle | None, optional): Style for text arrows.
-            Must be set when ``arrowtype="text"``. Defaults to None.
-        labelarrowstyle (LabelAnnotationArrowStyle | None, optional): Style for label arrows.
-            Must be set when ``arrowtype="label"``. Defaults to None.
-        name (str | None, optional): Optional identifier for callers. Defaults to None.
+        text (str): Text shown inside the arrow box.
+        textstyle (ArrowTextStyle): Text style options.
+        placement (ArrowPlacement): Placement options.
+        style (TextArrowStyle): Arrow box styling.
+        name (str | None): Optional identifier for callers.
     """
 
     arrowtip: tuple[float, float]
     direction: Literal["right", "left", "up", "down"]
-    arrowtype: Literal["text", "label"] = "text"
+    text: str = "   "
+    textstyle: ArrowTextStyle = field(default_factory=ArrowTextStyle)
+    placement: ArrowPlacement = field(default_factory=ArrowPlacement)
+    style: TextArrowStyle = field(default_factory=TextArrowStyle)
+    name: str | None = None
+
+    def __post_init__(self) -> None:
+        _validate_arrow_direction(self.direction)
+        object.__setattr__(
+            self, "arrowtip", _validated_point(self.arrowtip, field_name="_TextArrowData.arrowtip")
+        )
+
+
+@dataclass(frozen=True)
+class _LabelArrowData:
+    """A deferred label-style arrow: a true annotation arrow plus an optional text label.
+
+    Attributes:
+        arrowtip (tuple[float, float]): Arrow tip coordinate in ``placement.coordinate_system``.
+        direction (Literal["right", "left", "up", "down"]): Arrow direction.
+        text (str | None): Optional label text near the arrow tail.
+        textstyle (ArrowTextStyle): Text style options (alignment/rotation, and a fallback when
+            ``label_font_options`` is None).
+        arrow_length_percentage (float | None): Optional arrow length as a percent of axes span
+            in the arrow direction. Cannot be combined with ``placement.arrowtail``.
+        label_position (tuple[float, float] | None): Optional explicit text-anchor location.
+        label_font_options (LabelFontOptions | None): Optional geoplot-style font options; when
+            set, these override text color and typography fields from ``textstyle``.
+        label_box_options (LabelBoxOptions | None): Optional geoplot-style text-box options.
+        placement (ArrowPlacement): Placement options.
+        style (LabelArrowStyle): Arrow styling.
+        name (str | None): Optional identifier for callers.
+    """
+
+    arrowtip: tuple[float, float]
+    direction: Literal["right", "left", "up", "down"]
     text: str | None = None
     textstyle: ArrowTextStyle = field(default_factory=ArrowTextStyle)
     arrow_length_percentage: float | None = None
     label_position: tuple[float, float] | None = None
-    labelfont_options: LabelFontOptions | None = None
-    labelbox_options: LabelBoxOptions | None = None
+    label_font_options: LabelFontOptions | None = None
+    label_box_options: LabelBoxOptions | None = None
     placement: ArrowPlacement = field(default_factory=ArrowPlacement)
-    textarrowstyle: TextArrowStyle | None = None
-    labelarrowstyle: LabelArrowStyle | None = None
+    style: LabelArrowStyle = field(default_factory=LabelArrowStyle)
     name: str | None = None
 
     def __post_init__(self) -> None:
-        arrowtip = (float(self.arrowtip[0]), float(self.arrowtip[1]))
-        if not (math.isfinite(arrowtip[0]) and math.isfinite(arrowtip[1])):
-            raise ValueError("AnnotationArrowData.arrowtip components must be finite.")
-        object.__setattr__(self, "arrowtip", arrowtip)
+        _validate_arrow_direction(self.direction)
+        object.__setattr__(
+            self, "arrowtip", _validated_point(self.arrowtip, field_name="_LabelArrowData.arrowtip")
+        )
 
         if self.label_position is not None:
-            label_position = (float(self.label_position[0]), float(self.label_position[1]))
-            if not (math.isfinite(label_position[0]) and math.isfinite(label_position[1])):
-                raise ValueError("AnnotationArrowData.label_position components must be finite.")
-            object.__setattr__(self, "label_position", label_position)
+            object.__setattr__(
+                self,
+                "label_position",
+                _validated_point(self.label_position, field_name="_LabelArrowData.label_position"),
+            )
 
         if self.arrow_length_percentage is not None:
             arrow_length_percentage = float(self.arrow_length_percentage)
             if not math.isfinite(arrow_length_percentage):
-                raise ValueError("AnnotationArrowData.arrow_length_percentage must be finite.")
+                raise ValueError("_LabelArrowData.arrow_length_percentage must be finite.")
             if not (0.0 <= arrow_length_percentage <= 100.0):
-                raise ValueError("AnnotationArrowData.arrow_length_percentage must be in [0, 100].")
+                raise ValueError("_LabelArrowData.arrow_length_percentage must be in [0, 100].")
+            if self.placement.arrowtail is not None:
+                raise ValueError(
+                    "_LabelArrowData.arrow_length_percentage cannot be set when "
+                    "placement.arrowtail is set."
+                )
             object.__setattr__(self, "arrow_length_percentage", arrow_length_percentage)
 
-        if self.arrowtype == "text":
-            if self.labelarrowstyle is not None:
-                raise ValueError(
-                    "AnnotationArrowData with arrowtype='text' cannot set labelarrowstyle."
-                )
-            if self.arrow_length_percentage is not None:
-                raise ValueError(
-                    "AnnotationArrowData with arrowtype='text' cannot set arrow_length_percentage."
-                )
-            if self.label_position is not None:
-                raise ValueError(
-                    "AnnotationArrowData with arrowtype='text' cannot set label_position."
-                )
-            if self.labelfont_options is not None:
-                raise ValueError(
-                    "AnnotationArrowData with arrowtype='text' cannot set labelfont_options."
-                )
-            if self.labelbox_options is not None:
-                raise ValueError(
-                    "AnnotationArrowData with arrowtype='text' cannot set labelbox_options."
-                )
-            if self.textarrowstyle is None:
-                object.__setattr__(self, "textarrowstyle", TextArrowStyle())
-        else:
-            if self.textarrowstyle is not None:
-                raise ValueError(
-                    "AnnotationArrowData with arrowtype='label' cannot set textarrowstyle."
-                )
-            if self.arrow_length_percentage is not None and self.placement.arrowtail is not None:
-                raise ValueError(
-                    "AnnotationArrowData with arrow_length_percentage cannot set placement.arrowtail."
-                )
-            if self.labelarrowstyle is None:
-                object.__setattr__(self, "labelarrowstyle", LabelArrowStyle())
+
+_AnyArrowData: TypeAlias = "_TextArrowData | _LabelArrowData"

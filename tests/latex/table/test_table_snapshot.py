@@ -6,15 +6,17 @@ Run with: pytest -m latex
 
 from pathlib import Path
 
+import pandas as pd
 import pytest
 from PIL import Image
 
+from gerrytools.latex._render import _which_any
 from gerrytools.latex.commands import (
     tex_diverging_gradient_command,
     tex_gradient_command,
     tex_twocolor_gradient_command,
 )
-from gerrytools.latex.document import TexDocument, _which_any
+from gerrytools.latex.document import TexDocument
 from gerrytools.latex.formatters import (
     compose_formatters,
     highlight_between,
@@ -25,6 +27,7 @@ from gerrytools.latex.formatters import (
     round_decimals,
     wrap_with_tex_command,
 )
+from gerrytools.latex.tikz_table import TikzTable
 from tests._image_snapshots import assert_image_snapshot
 
 
@@ -87,8 +90,7 @@ class TestTexTableImageSnapshots:
         require_tex_engine()
 
         # Build a minimal tabular around just the body rows
-        opts = table_defaults._options  # access the internal options
-        fmt = opts.column_format  # e.g. "|c|c|c|..."
+        fmt = table_defaults._column_format()  # e.g. "|c|c|c|..."
 
         body = table_defaults._generate_body()
         tex_body = rf"\begin{{tabular}}{{{fmt}}}" + "\n" + body + "\n\\end{tabular}"
@@ -238,7 +240,7 @@ class TestTexTableImageSnapshots:
                 "Group 3": ["Column 1", "Column 2", "Column 4"],
             }
         )
-        table_defaults.set_group_tabular_format("lc||")
+        table_defaults.set_group_tabular_format("lc||c")
         table_defaults.set_tabular_format(r"cc||ccc||>{\bfseries}c")
         table_defaults.include_index(name="My Index", alignment=r">{\bfseries}c|")
         table_defaults.highlight_rows([2, 3], color="amber")
@@ -278,7 +280,7 @@ class TestTexTableImageSnapshots:
             )
         )
 
-        table_plain.document.add_command(tex_gradient_command("myheatmap"))
+        table_plain.document.add_command(tex_gradient_command("myheatmap", precision=3))
 
         doc = table_plain.document
         img = render_doc_to_image(doc)
@@ -309,7 +311,7 @@ class TestTexTableImageSnapshots:
             )
         )
 
-        table_plain.document.add_command(tex_twocolor_gradient_command("myheatmap"))
+        table_plain.document.add_command(tex_twocolor_gradient_command("myheatmap", precision=3))
 
         doc = table_plain.document
         img = render_doc_to_image(doc)
@@ -340,7 +342,7 @@ class TestTexTableImageSnapshots:
             )
         )
 
-        table_plain.document.add_command(tex_diverging_gradient_command("myheatmap"))
+        table_plain.document.add_command(tex_diverging_gradient_command("myheatmap", precision=3))
 
         doc = table_plain.document
         img = render_doc_to_image(doc)
@@ -467,8 +469,8 @@ class TestTexTableImageSnapshots:
 
         table_defaults.set_tabular_format("cccccc")
         table_defaults.add_hrule_above([1, 5, 7])
-        table_defaults.add_vrule_left_of([2, 4])
-        table_defaults.add_vrule_right_of([-1, 0])
+        table_defaults.add_vrule_left_of([0, 2, 4])
+        table_defaults.add_vrule_right_of(0)
         table_defaults.set_toprule_command()
         table_defaults.set_bottomrule_command()
 
@@ -478,6 +480,25 @@ class TestTexTableImageSnapshots:
         assert_image_snapshot(
             img=img,
             name="table_defaults_with_extra_h_and_v_rules",
+            snapshots_dir=Path("tests/latex/table_image_snapshots"),
+            artifacts_dir=tmp_path / "snapshot_artifacts",
+        )
+
+
+class TestTikzTableImageSnapshots:
+    @pytest.mark.latex
+    def test_group_header_rule_parity_image_snapshot(self, tmp_path):
+        require_tex_engine()
+        table = TikzTable(pd.DataFrame({"A": [1], "B": [2], "C": [3]}), use_defaults=False)
+        table.set_tabular_format("c|c|c")
+        table.set_header_groups({"G1": ["A", "B"], "G2": ["C"]})
+        table.set_group_tabular_format("cc")
+
+        img = render_doc_to_image(table.document)
+
+        assert_image_snapshot(
+            img=img,
+            name="tikz_table_group_header_rule_parity",
             snapshots_dir=Path("tests/latex/table_image_snapshots"),
             artifacts_dir=tmp_path / "snapshot_artifacts",
         )

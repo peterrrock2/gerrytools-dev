@@ -1,14 +1,14 @@
 import pytest
 
-from gerrytools.plotting.data.paintball import PaintBall
+from gerrytools.plotting.data.paintball import PaintballPlot
 
 
 def test_paintball_builds_point_and_hull_views():
-    plot = PaintBall(include_legend=True)
-    plot.add_voteshare_seatshare_data(
+    plot = PaintballPlot(legend=True)
+    plot.add_seats_votes_data(
         [0.4925, 0.5233, 0.4960, 0.5259],
         [5, 10, 9, 9],
-        maximum_seats=18,
+        total_seats=18,
     )
     plot.set_marker_options(
         size=9.0,
@@ -29,33 +29,36 @@ def test_paintball_builds_point_and_hull_views():
     plot.add_lines_with_slope(slopes=[0.75], linealpha=0.5, zorder=-5, name="Custom")
 
     ax = plot.ax
-    assert len(ax.lines) >= 3
+    # Crosshairs are now span patches (matching SeatsVotesPlot); guide line + points are lines.
+    assert len(ax.lines) >= 2
+    assert len(ax.patches) >= 2
     assert any(line.get_marker() == "s" for line in ax.lines)
     assert any(line.get_zorder() == -5 for line in ax.lines)
 
-    hull_ax = plot.hull_ax
+    plot.display_hull(True)
+    hull_ax = plot.ax
     assert len(hull_ax.patches) >= 1
 
 
 def test_paintball_validates_data_shapes_and_ranges():
     with pytest.raises(ValueError, match="same length"):
-        _pb = PaintBall()
-        _pb.add_voteshare_seatshare_data([0.5], [0.5, 0.6])
+        _pb = PaintballPlot()
+        _pb.add_seats_votes_data([0.5], [0.5, 0.6])
     with pytest.raises(ValueError, match="vote-share values must be in \\[0, 1\\]"):
-        _pb = PaintBall()
-        _pb.add_voteshare_seatshare_data([1.2], [0.5])
-    with pytest.raises(ValueError, match="maximum_seats must be a positive integer"):
-        _pb = PaintBall()
-        _pb.add_voteshare_seatshare_data([0.5], [2], maximum_seats=0)
+        _pb = PaintballPlot()
+        _pb.add_seats_votes_data([1.2], [0.5])
+    with pytest.raises(ValueError, match="total_seats must be a positive integer"):
+        _pb = PaintballPlot()
+        _pb.add_seats_votes_data([0.5], [2], total_seats=0)
 
 
-def test_paintball_set_crosshair_options_supports_partial_updates():
-    plot = PaintBall()
-    plot.add_voteshare_seatshare_data([0.5], [0.5])
-    original_width = plot.crosshair_width
-    original_alpha = plot.crosshair_alpha
+def test_paintball_crosshair_options_match_seatsvotes_semantics():
+    plot = PaintballPlot()
+    plot.add_seats_votes_data([0.5], [0.5])
 
     plot.set_crosshair_options(color="black")
-    assert plot.crosshair_color == "black"
-    assert plot.crosshair_width == original_width
-    assert plot.crosshair_alpha == original_alpha
+    style = plot._crosshair_style
+    assert style is not None
+    assert style.color == "black"
+    assert style.x_width == 0.007
+    assert style.alpha == 1.0

@@ -6,27 +6,27 @@ from typing import Protocol, runtime_checkable
 import matplotlib.pyplot as plt
 import pandas as pd
 from geopandas import GeoDataFrame
-from matplotlib.axes import Axes
 from matplotlib.cm import ScalarMappable
 from matplotlib.colors import BoundaryNorm, Colormap, ListedColormap, Normalize, to_hex
 from matplotlib.pyplot import get_cmap
-from numpy import linspace
+from numpy import linspace, searchsorted
 
 from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.plotting.geometry._layers._base import _GeoLayer
-from gerrytools.typing import CategoryKey, CRSLike, MplKwargs, ResolvedColor
+from gerrytools.plotting.utils import _validated_finite
+from gerrytools.typing import MplKwargs, ResolvedColor
 
 
 @runtime_checkable
 class ColormapLayer(Protocol):
     """Public protocol for layers that can produce a standalone colorbar.
 
-    Any object implementing ``datacolumn`` and ``mappable()`` satisfies this
+    Any object implementing ``column`` and ``mappable()`` satisfies this
     protocol and can be passed to ``GeoPlot.save_colorbar()``.
     """
 
     @property
-    def datacolumn(self) -> str | None: ...
+    def column(self) -> str | None: ...
 
     def mappable(self) -> tuple[ScalarMappable, MplKwargs]: ...
 
@@ -36,20 +36,18 @@ class _ContinuousColorLayer(_GeoLayer):
     """A geographic layer with continuous color mapping based on a data column.
 
     Attributes:
-        geosource (GeoSource): The source of geometries for this layer.
+        geometry_source (GeoSource): The source of geometries for this layer.
         geometry_mask (pd.Series | None): Optional boolean mask to filter geometries.
             Default is None (no mask).
-        datacolumn (str | None): Optional data column for color mapping. Default is None.
-        colormap (GeoColorMap | None): Color mapping
-            specification. Can be a single color, a named colormap, a Colormap object, or
-            a mapping from data values to colors. Defaults to "Purples".
+        column (str | None): Optional data column for color mapping. Default is None.
+        colormap (str | Colormap): The colormap to use for continuous color mapping.
+            Defaults to "Purples".
         missing_color (MplCompatibleColor | None): Color to use for missing data.
         facealpha (float | None): Alpha transparency for face colors. Default is None.
         edgecolor (Color): Color for geometry edges. Default is "none".
         edgealpha (float | None): Alpha transparency for edge colors. Default is None.
         edgewidth (float): Width of geometry edges. Default is 0.5.
         zorder (int): Z-order for rendering. Default is 1.
-        colormap (str | Colormap): The colormap to use for continuous color mapping.
         vmin (float | None): Lower bound value for color mapping.
         vmax (float | None): Upper bound value for color mapping.
         bins (int | list[float] | None): Optional binning specification for discrete intervals.
@@ -64,8 +62,8 @@ class _ContinuousColorLayer(_GeoLayer):
         super(_ContinuousColorLayer, self).__post_init__()
         if not isinstance(self.geometry_source, GeoDataFrame):
             raise TypeError(
-                "Tried to create a continuous color layer using geosource of type "
-                f"{type(self.geometry_source).__name__!r}; geosource must be a GeoDataFrame",
+                "Tried to create a continuous color layer using geo_source of type "
+                f"{type(self.geometry_source).__name__!r}; geo_source must be a GeoDataFrame",
             )
 
         if not isinstance(self.colormap, (str, Colormap)):
@@ -78,12 +76,39 @@ class _ContinuousColorLayer(_GeoLayer):
                 f"Colormap name {self.colormap!r} not found in matplotlib colormaps. "
                 f"Available colormaps are: {plt.colormaps()}",
             )
-        if self.datacolumn is None:
-            raise TypeError("'datacolumn' must be set for color-mapped layers")
+        if self.column is None:
+            raise TypeError("'column' must be set for color-mapped layers")
 
-    def _data_series(self) -> pd.Series:
-        """Get the data series (used in color mapping)."""
-        return self.geometry_source[self.datacolumn]
+        for field in ("vmin", "vmax"):
+            value = getattr(self, field)
+            if value is not None:
+                object.__setattr__(self, field, _validated_finite(value, field=field))
+        if self.vmin is not None and self.vmax is not None and self.vmin >= self.vmax:
+            raise ValueError("'vmin' must be less than 'vmax'.")
+
+        if isinstance(self.bins, bool) or (
+            self.bins is not None and not isinstance(self.bins, (int, list))
+        ):
+            raise TypeError(
+                f"'bins' must be an int, a list of breakpoints, or None; got "
+                f"{type(self.bins).__name__!r}"
+            )
+        if isinstance(self.bins, int) and self.bins < 1:
+            raise ValueError(f"'bins' must be at least 1; got {self.bins}.")
+        if isinstance(self.bins, list):
+            if len(self.bins) < 2:
+                raise ValueError(
+                    f"'bins' given as breakpoints needs at least 2 edges to form one "
+                    f"interval; got {len(self.bins)}."
+                )
+            breaks = [_validated_finite(value, field="'bins' breakpoint") for value in self.bins]
+            if self.vmin is not None:
+                breaks[0] = self.vmin
+            if self.vmax is not None:
+                breaks[-1] = self.vmax
+            if any(later <= earlier for earlier, later in zip(breaks, breaks[1:], strict=False)):
+                raise ValueError("'bins' breakpoints must be strictly increasing.")
+            object.__setattr__(self, "bins", breaks)
 
     def _effective_bounds(self, dataseries: pd.Series) -> tuple[float, float]:
         """Determine the effective data bounds for color mapping.
@@ -99,6 +124,8 @@ class _ContinuousColorLayer(_GeoLayer):
 
         lo = float(non_na.min() if self.vmin is None else self.vmin)
         hi = float(non_na.max() if self.vmax is None else self.vmax)
+        if (self.vmin is not None or self.vmax is not None) and lo >= hi:
+            raise ValueError("'vmin' must be less than 'vmax' after applying the data bounds.")
         return lo, hi
 
     def _bin_boundaries(self, lower: float, upper: float) -> pd.IntervalIndex:
@@ -112,6 +139,11 @@ class _ContinuousColorLayer(_GeoLayer):
             raise RuntimeError("Called _bin_boundaries but bins is None")
 
         if isinstance(self.bins, int):
+            if lower == upper:
+                # A constant column collapses the range; widen it so interval_range still
+                # produces distinct bins (and the colorbar distinct boundaries).
+                lower -= 0.5
+                upper += 0.5
             return pd.interval_range(
                 start=lower,
                 end=upper,
@@ -132,7 +164,7 @@ class _ContinuousColorLayer(_GeoLayer):
         Returns:
             tuple[list[float], list[str]]: The edges and corresponding hex colors for the bins.
         """
-        cmap = get_cmap(self.colormap, lut=len(boundaries))
+        cmap = get_cmap(self.colormap).resampled(len(boundaries))
         colors = []
         for i in range(len(boundaries)):
             rgba = cmap(i)
@@ -158,7 +190,7 @@ class _ContinuousColorLayer(_GeoLayer):
         rgba[:, 3] = float(alpha)
         return ListedColormap(rgba, name=f"{cmap.name}_a{alpha:g}")
 
-    def _mappable(self) -> tuple[ScalarMappable, MplKwargs]:
+    def mappable(self) -> tuple[ScalarMappable, MplKwargs]:
         """Get a ScalarMappable and the colorbar kwargs for this layer.
 
         Returns:
@@ -173,16 +205,12 @@ class _ContinuousColorLayer(_GeoLayer):
 
             listed = ListedColormap(interval_hex_colors)
 
-            norm = BoundaryNorm(edges, ncolors=listed.N, clip=False)
+            norm = BoundaryNorm(edges, ncolors=listed.N, clip=True)
 
             m = ScalarMappable(norm=norm, cmap=listed)
             m.set_array([])
 
-            cbar_kwargs: MplKwargs = {
-                "ticks": edges,
-                "spacing": "uniform",
-                "boundaries": edges,
-            }
+            cbar_kwargs: MplKwargs = {"ticks": edges}
         else:
             norm = Normalize(vmin=lower, vmax=upper)
 
@@ -195,13 +223,13 @@ class _ContinuousColorLayer(_GeoLayer):
 
         return m, cbar_kwargs
 
-    def mappable(self) -> tuple[ScalarMappable, MplKwargs]:
-        """Public wrapper around ``_mappable()`` for use via ``ColormapLayer``."""
-        return self._mappable()
-
     @property
     def color_series(self) -> pd.Series:
         """Get a series of colors indexed the same as the geometries.
+
+        Colors are built positionally so rows sharing a duplicate index label each keep the
+        color of their own value; any ``geometry_mask`` is applied positionally for the same
+        reason (label-based reindexing raises on duplicate labels).
 
         Returns:
             pd.Series: A series of colors for each geometry.
@@ -210,100 +238,48 @@ class _ContinuousColorLayer(_GeoLayer):
         lower_bound, upper_bound = self._effective_bounds(data_series)
         missing_color = resolve_color_and_alpha(self.missing_color, alpha=self.facealpha)
 
-        colors: dict[CategoryKey, ResolvedColor] = {}
+        colors: list[ResolvedColor] = []
 
         if self.bins is not None:
             boundaries = self._bin_boundaries(lower_bound, upper_bound)
             edges, interval_hex_colors = self._color_mapping_for_bins(boundaries)
 
-            interval_to_hex = {
-                interval: interval_hex_colors[i] for i, interval in enumerate(boundaries)
-            }
-
-            for idx, value in data_series.items():
+            for value in data_series:
                 if pd.isna(value):
-                    colors[idx] = missing_color
+                    colors.append(missing_color)
                     continue
 
-                # ensure upper bound gets last bin
-                if value == upper_bound:
-                    interval_i = len(boundaries) - 1
-                else:
-                    try:
-                        loc = boundaries.get_loc(value)
-                        interval_i = int(loc) if not isinstance(loc, slice) else loc.start
-                    except KeyError:
-                        if value < boundaries.left[0]:
-                            interval_i = 0
-                        elif value > boundaries.right[-1]:
-                            interval_i = len(boundaries) - 1
+                # Bins are closed="left", so side="right" assigns interior breaks to the bin on
+                # their right; clamping keeps below-range values in the first bin and the terminal
+                # edge (and beyond) in the last.
+                interval_i = int(searchsorted(edges, value, side="right")) - 1
+                interval_i = min(max(interval_i, 0), len(boundaries) - 1)
 
-                colors[idx] = resolve_color_and_alpha(
-                    interval_to_hex[boundaries[interval_i]],
-                    alpha=self.facealpha,
+                colors.append(
+                    resolve_color_and_alpha(
+                        interval_hex_colors[interval_i],
+                        alpha=self.facealpha,
+                    )
                 )
 
         else:
             norm = Normalize(vmin=lower_bound, vmax=upper_bound)
-
             cmap = get_cmap(self.colormap)
 
-            for idx, value in data_series.items():
+            # One vectorized cmap(norm(...)) pass instead of a per-value loop.
+            values = data_series.to_numpy(dtype=float)
+            rgba_rows = cmap(norm(values))
+            for value, rgba in zip(values, rgba_rows):
                 if pd.isna(value):
-                    color = missing_color
+                    colors.append(missing_color)
                 else:
-                    normalized_value = norm(value)
-                    color = resolve_color_and_alpha(
-                        to_hex(cmap(normalized_value), keep_alpha=True),
-                        alpha=self.facealpha,
+                    colors.append(
+                        resolve_color_and_alpha(
+                            to_hex(tuple(rgba), keep_alpha=True), alpha=self.facealpha
+                        )
                     )
-                colors[idx] = color
 
-        return pd.Series(colors).reindex(self.geometries.index)
-
-    def render(
-        self,
-        ax: Axes,
-        *,
-        target_crs: CRSLike | None = None,
-        **kwargs: object,
-    ) -> list:
-        """Render this layer onto the given Axes.
-
-        Args:
-            ax (Axes): The Axes to render onto.
-            target_crs (CRSLike | None, optional): The target CRS to reproject geometries to.
-                Defaults to None.
-            **kwargs (object): Additional keyword arguments (not used).
-
-        Returns:
-            list[Artist]: The matplotlib artists added to ``ax`` by this layer.
-        """
-        if kwargs:
-            unknown = ", ".join(kwargs.keys())
-            raise TypeError(f"Unknown keyword argument(s) passed to render: {unknown}")
-
-        if self.datacolumn not in self.geometry_source.columns:
-            raise KeyError(
-                f"Column {self.datacolumn!r} not found in GeoDataFrame."
-                f" Available columns: {list(self.geometry_source.columns)}"
-            )
-
-        edge_color_tup = resolve_color_and_alpha(
-            self.edgecolor,
-            alpha=self.edgealpha,
-        )
-
-        geoseries = self._geometries_in_crs(target_crs)
-        from gerrytools.plotting.geometry._layers._base import _capture_geopandas_artists
-
-        return _capture_geopandas_artists(
-            ax,
-            plot_call=lambda: geoseries.plot(
-                ax=ax,
-                color=self.color_series,
-                edgecolor=edge_color_tup,
-                linewidth=self.edgewidth,
-                zorder=self.zorder,
-            ),
-        )
+        colors_series = pd.Series(colors, index=self.geometry_source.index)
+        if self.geometry_mask is None:
+            return colors_series
+        return colors_series.iloc[self.geometry_mask.to_numpy(dtype=bool)]

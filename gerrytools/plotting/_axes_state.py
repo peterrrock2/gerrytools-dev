@@ -15,53 +15,43 @@ user) touched a given unit last owns it on the next rebuild.
 
 from __future__ import annotations
 
+import dataclasses
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal, cast
 
 import matplotlib.colors as mcolors
-import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.axes import Axes
+from matplotlib.axis import Axis
 from matplotlib.figure import Figure
 from matplotlib.legend import Legend
+from matplotlib.text import Text
 from matplotlib.ticker import AutoLocator, MaxNLocator, NullLocator
 from matplotlib.typing import ColorType
 
-# Public unit identifiers used throughout the rebuild flow.
-UNIT_X_LIMITS = "x_limits"
-UNIT_Y_LIMITS = "y_limits"
-UNIT_X_TICKS = "x_ticks"
-UNIT_Y_TICKS = "y_ticks"
-UNIT_X_TICK_STYLE = "x_tick_style"
-UNIT_Y_TICK_STYLE = "y_tick_style"
-UNIT_X_LABEL = "x_label"
-UNIT_Y_LABEL = "y_label"
-UNIT_TITLE = "title"
-UNIT_X_SCALE = "x_scale"
-UNIT_Y_SCALE = "y_scale"
-UNIT_FRAME = "frame"
-UNIT_LEGEND = "legend"
-UNIT_AXIS_VISIBILITY = "axis_visibility"
-UNIT_ASPECT = "aspect"
+from gerrytools.typing import TickType
 
-_ALL_UNITS: tuple[str, ...] = (
-    UNIT_X_LIMITS,
-    UNIT_Y_LIMITS,
-    UNIT_X_TICKS,
-    UNIT_Y_TICKS,
-    UNIT_X_TICK_STYLE,
-    UNIT_Y_TICK_STYLE,
-    UNIT_X_LABEL,
-    UNIT_Y_LABEL,
-    UNIT_TITLE,
-    UNIT_X_SCALE,
-    UNIT_Y_SCALE,
-    UNIT_FRAME,
-    UNIT_LEGEND,
-    UNIT_AXIS_VISIBILITY,
-    UNIT_ASPECT,
-)
+# The managed-unit vocabulary. Values are exactly the field names of
+# ``_AxesSnapshot``, which is what lets per-unit snapshot access be a getattr.
+Unit = Literal[
+    "x_limits",
+    "y_limits",
+    "x_ticks",
+    "y_ticks",
+    "x_tick_style",
+    "y_tick_style",
+    "x_label",
+    "y_label",
+    "title",
+    "x_scale",
+    "y_scale",
+    "frame",
+    "legend",
+    "axis_visibility",
+    "aspect",
+]
 
 # Internal sentinel marking "gerrytools claimed the unit but has not yet
 # recorded a concrete applied value." Never escapes to user code; never
@@ -71,14 +61,10 @@ _NO_LAST_APPLIED = object()
 
 OwnershipState = Literal["external", "gerrytools_explicit", "gerrytools_default", "unclaimed"]
 
-# Tolerances for autoscale-protected limit comparisons, compared via
-# ``math.isclose(..., rel_tol=1e-9, abs_tol=1e-12)``.
-_LIMIT_REL_TOL = 1e-9
-_LIMIT_ABS_TOL = 1e-12
-
-# Float tolerance for tick locations and RGBA components.
-_VALUE_REL_TOL = 1e-9
-_VALUE_ABS_TOL = 1e-12
+# Float tolerance for limit, tick-location, and RGBA comparisons, via
+# ``math.isclose`` / ``np.allclose``.
+_REL_TOL = 1e-9
+_ABS_TOL = 1e-12
 
 
 # ---------------------------------------------------------------------------
@@ -102,14 +88,26 @@ class _LabelSnapshot:
     color: tuple[float, float, float, float]
     labelpad: float | None
 
+    def approx_equals(self, other: object) -> bool:
+        if not isinstance(other, _LabelSnapshot):
+            return False
+        return (
+            self.text == other.text
+            and self.fontsize == other.fontsize
+            and self.fontweight == other.fontweight
+            and self.fontstyle == other.fontstyle
+            and self.fontfamily == other.fontfamily
+            and self.labelpad == other.labelpad
+            and _rgba_equal(self.color, other.color)
+        )
+
 
 @dataclass(frozen=True)
-class _TitleSnapshot:
-    """Atomic text+style snapshot for a title.
+class _TitleArtistSnapshot:
+    """Text and style for one of Matplotlib's three title artists.
 
-    ``pad`` has no stable public getter in matplotlib 3.10.6; the snapshot
-    field is always populated from the last applied value, not from
-    matplotlib. External direct changes to title pad are therefore not
+    Title pad has no stable public getter in matplotlib 3.10.6, so it is not
+    part of the snapshot; external direct changes to title pad are not
     detected — a known limitation of matplotlib's title API.
     """
 
@@ -119,8 +117,37 @@ class _TitleSnapshot:
     fontstyle: str | None
     fontfamily: tuple[str, ...] | None
     color: tuple[float, float, float, float]
-    loc: str | None
-    pad: float | None
+
+    def approx_equals(self, other: object) -> bool:
+        if not isinstance(other, _TitleArtistSnapshot):
+            return False
+        return (
+            self.text == other.text
+            and self.fontsize == other.fontsize
+            and self.fontweight == other.fontweight
+            and self.fontstyle == other.fontstyle
+            and self.fontfamily == other.fontfamily
+            and _rgba_equal(self.color, other.color)
+        )
+
+
+@dataclass(frozen=True)
+class _TitleSnapshot:
+    """Atomic snapshot of Matplotlib's left, center, and right title artists."""
+
+    left: _TitleArtistSnapshot
+    center: _TitleArtistSnapshot
+    right: _TitleArtistSnapshot
+
+    def approx_equals(self, other: object) -> bool:
+        return isinstance(other, _TitleSnapshot) and all(
+            current.approx_equals(previous)
+            for current, previous in zip(
+                (self.left, self.center, self.right),
+                (other.left, other.center, other.right),
+                strict=True,
+            )
+        )
 
 
 @dataclass(frozen=True)
@@ -131,15 +158,26 @@ class _TickSnapshot:
     labels: tuple[str, ...]
     labels_visible: bool
 
+    def approx_equals(self, other: object) -> bool:
+        if not isinstance(other, _TickSnapshot):
+            return False
+        return (
+            _tick_locations_equal(self.locations, other.locations)
+            and list(self.labels) == list(other.labels)
+            and self.labels_visible == other.labels_visible
+        )
+
 
 @dataclass(frozen=True)
-class _TickStyleSnapshot:
-    """Snapshot of tick label and tick mark styling.
+class _TickSetStyleSnapshot:
+    """Styling of one tick set (major or minor): label and tick-mark style fields.
 
-    Read from major ticks only at this layer; callers that opt into minor or
-    "both" must compare with the matching ticktype on the gerrytools side.
     Tick-mark colors come from ``Tick.tick1line.get_color()`` which encodes
     alpha in the RGBA tuple.
+
+    Only the first tick's label and mark are sampled, so a direct external change to a
+    single non-first tick is not detected — a known limitation, like title pad on
+    ``_TitleSnapshot``.
     """
 
     label_size: float | str | None
@@ -149,6 +187,44 @@ class _TickStyleSnapshot:
     label_style: str | None
     label_family: tuple[str, ...] | None
     tick_color: tuple[float, float, float, float]
+
+    def approx_equals(self, other: object) -> bool:
+        if not isinstance(other, _TickSetStyleSnapshot):
+            return False
+        return (
+            self.label_size == other.label_size
+            and math.isclose(self.label_rotation, other.label_rotation, abs_tol=1e-9)
+            and self.label_weight == other.label_weight
+            and self.label_style == other.label_style
+            and self.label_family == other.label_family
+            and _rgba_equal(self.label_color, other.label_color)
+            and _rgba_equal(self.tick_color, other.tick_color)
+        )
+
+
+@dataclass(frozen=True)
+class _TickStyleSnapshot:
+    """Snapshot of tick styling for the tick set(s) a caller selected.
+
+    ``None`` for a set means the snapshot carries no opinion about it; comparisons skip
+    any set that either side omits. The full-axes snapshot captures both sets, while the
+    tick-style reconcile captures only the set(s) named by the stored
+    ``TickStyle.ticktype``, so external changes to the styled set are detected without
+    pinning the other.
+    """
+
+    major: _TickSetStyleSnapshot | None
+    minor: _TickSetStyleSnapshot | None
+
+    def approx_equals(self, other: object) -> bool:
+        if not isinstance(other, _TickStyleSnapshot):
+            return False
+        for mine, theirs in ((self.major, other.major), (self.minor, other.minor)):
+            if mine is None or theirs is None:
+                continue
+            if not mine.approx_equals(theirs):
+                return False
+        return True
 
 
 @dataclass(frozen=True)
@@ -170,6 +246,12 @@ class _AxesSnapshot:
     legend: Legend | None
     axis_visibility: bool
     aspect: str | float  # matplotlib's "auto" default or a numeric ratio
+
+
+# Every managed unit, derived from the snapshot fields the vocabulary mirrors.
+_ALL_UNITS = cast(
+    "tuple[Unit, ...]", tuple(field.name for field in dataclasses.fields(_AxesSnapshot))
+)
 
 
 # ---------------------------------------------------------------------------
@@ -208,17 +290,21 @@ def _label_snapshot(ax: Axes, which: Literal["x", "y"]) -> _LabelSnapshot:
     )
 
 
-def _title_snapshot(ax: Axes, pad: float | None = None) -> _TitleSnapshot:
-    text_artist = ax.title
+def _title_snapshot(ax: Axes) -> _TitleSnapshot:
+    def snapshot(text_artist: Text) -> _TitleArtistSnapshot:
+        return _TitleArtistSnapshot(
+            text=text_artist.get_text(),
+            fontsize=text_artist.get_fontsize(),
+            fontweight=text_artist.get_fontweight(),
+            fontstyle=text_artist.get_fontstyle(),
+            fontfamily=_fontfamily_to_tuple(text_artist.get_fontfamily()),
+            color=_rgba(text_artist.get_color()),
+        )
+
     return _TitleSnapshot(
-        text=text_artist.get_text(),
-        fontsize=text_artist.get_fontsize(),
-        fontweight=text_artist.get_fontweight(),
-        fontstyle=text_artist.get_fontstyle(),
-        fontfamily=_fontfamily_to_tuple(text_artist.get_fontfamily()),
-        color=_rgba(text_artist.get_color()),
-        loc=None,
-        pad=pad,
+        left=snapshot(cast(Text, getattr(ax, "_left_title"))),
+        center=snapshot(ax.title),
+        right=snapshot(cast(Text, getattr(ax, "_right_title"))),
     )
 
 
@@ -240,11 +326,13 @@ def _tick_snapshot(ax: Axes, which: Literal["x", "y"]) -> _TickSnapshot:
     )
 
 
-def _tick_style_snapshot(ax: Axes, which: Literal["x", "y"]) -> _TickStyleSnapshot:
+def _tick_set_style_snapshot(
+    ax: Axes, which: Literal["x", "y"], *, minor: bool
+) -> _TickSetStyleSnapshot:
     axis = ax.xaxis if which == "x" else ax.yaxis
-    major_ticks = axis.get_major_ticks()
+    ticks = axis.get_minor_ticks() if minor else axis.get_major_ticks()
     label_texts = (
-        ax.get_xticklabels(minor=False) if which == "x" else ax.get_yticklabels(minor=False)
+        ax.get_xticklabels(minor=minor) if which == "x" else ax.get_yticklabels(minor=minor)
     )
     if label_texts:
         first = label_texts[0]
@@ -261,11 +349,11 @@ def _tick_style_snapshot(ax: Axes, which: Literal["x", "y"]) -> _TickStyleSnapsh
         label_weight = None
         label_style = None
         label_family = None
-    if major_ticks:
-        tick_color = _rgba(major_ticks[0].tick1line.get_color())
+    if ticks:
+        tick_color = _rgba(ticks[0].tick1line.get_color())
     else:
         tick_color = (0.0, 0.0, 0.0, 1.0)
-    return _TickStyleSnapshot(
+    return _TickSetStyleSnapshot(
         label_size=label_size,
         label_rotation=label_rotation,
         label_color=label_color,
@@ -273,6 +361,24 @@ def _tick_style_snapshot(ax: Axes, which: Literal["x", "y"]) -> _TickStyleSnapsh
         label_style=label_style,
         label_family=label_family,
         tick_color=tick_color,
+    )
+
+
+def _tick_style_snapshot(
+    ax: Axes, which: Literal["x", "y"], ticktype: TickType = "major"
+) -> _TickStyleSnapshot:
+    """Snapshot the styling of the selected tick set(s) for one axis."""
+    return _TickStyleSnapshot(
+        major=(
+            _tick_set_style_snapshot(ax, which, minor=False)
+            if ticktype in ("major", "both")
+            else None
+        ),
+        minor=(
+            _tick_set_style_snapshot(ax, which, minor=True)
+            if ticktype in ("minor", "both")
+            else None
+        ),
     )
 
 
@@ -285,42 +391,42 @@ def _frame_snapshot(ax: Axes) -> tuple[bool, bool, bool, bool]:
     )
 
 
-def _is_default_locator(axis_obj: object) -> bool:
+def _is_default_locator(axis_obj: Axis) -> bool:
     """Heuristic: AutoLocator / MaxNLocator / NullLocator mean default-ish.
 
     FixedLocator and other concrete locators are taken as evidence that the
     user (or another library) set tick positions explicitly.
     """
-    locator = axis_obj.get_major_locator()  # type: ignore[attr-defined]
-    return isinstance(locator, (AutoLocator, MaxNLocator, NullLocator))
+    return isinstance(axis_obj.get_major_locator(), (AutoLocator, MaxNLocator, NullLocator))
 
 
 def _fresh_axes_snapshot() -> _AxesSnapshot:
     """Snapshot the matplotlib default state of an untouched axes.
 
     Uses ``matplotlib.figure.Figure()`` (not ``plt.subplots()``) so the
-    temporary figure does not register with pyplot's global figure manager,
-    avoiding Jupyter inline display side effects.
+    temporary figure never registers with pyplot's global figure manager:
+    no Jupyter inline display side effects, and nothing to close afterwards.
     """
     fig = Figure()
     ax = fig.add_subplot(111)
-    try:
-        return _read_snapshot(ax, title_pad=None)
-    finally:
-        plt.close(fig)
+    return _read_snapshot(ax)
 
 
-def _read_snapshot(ax: Axes, *, title_pad: float | None) -> _AxesSnapshot:
+def _read_snapshot(ax: Axes) -> _AxesSnapshot:
+    x_left, x_right = ax.get_xlim()
+    y_bottom, y_top = ax.get_ylim()
     return _AxesSnapshot(
-        x_limits=tuple(float(v) for v in ax.get_xlim()),  # type: ignore[arg-type]
-        y_limits=tuple(float(v) for v in ax.get_ylim()),  # type: ignore[arg-type]
+        x_limits=(float(x_left), float(x_right)),
+        y_limits=(float(y_bottom), float(y_top)),
         x_ticks=_tick_snapshot(ax, "x"),
         y_ticks=_tick_snapshot(ax, "y"),
-        x_tick_style=_tick_style_snapshot(ax, "x"),
-        y_tick_style=_tick_style_snapshot(ax, "y"),
+        # Both tick sets: the baseline must be comparable against last-applied values
+        # recorded for any stored ``TickStyle.ticktype`` (major, minor, or both).
+        x_tick_style=_tick_style_snapshot(ax, "x", "both"),
+        y_tick_style=_tick_style_snapshot(ax, "y", "both"),
         x_label=_label_snapshot(ax, "x"),
         y_label=_label_snapshot(ax, "y"),
-        title=_title_snapshot(ax, pad=title_pad),
+        title=_title_snapshot(ax),
         x_scale=ax.get_xscale(),
         y_scale=ax.get_yscale(),
         frame=_frame_snapshot(ax),
@@ -336,14 +442,12 @@ def _read_snapshot(ax: Axes, *, title_pad: float | None) -> _AxesSnapshot:
 
 
 def _rgba_equal(a: tuple[float, float, float, float], b: tuple[float, float, float, float]) -> bool:
-    return all(
-        math.isclose(x, y, rel_tol=_VALUE_REL_TOL, abs_tol=_VALUE_ABS_TOL) for x, y in zip(a, b)
-    )
+    return all(math.isclose(x, y, rel_tol=_REL_TOL, abs_tol=_ABS_TOL) for x, y in zip(a, b))
 
 
-def _limits_equal(a: tuple[float, float], b: tuple[float, float]) -> bool:
-    return all(
-        math.isclose(x, y, rel_tol=_LIMIT_REL_TOL, abs_tol=_LIMIT_ABS_TOL) for x, y in zip(a, b)
+def _limits_equal(a: tuple[float, ...], b: tuple[float, ...]) -> bool:
+    return len(a) == len(b) and all(
+        math.isclose(x, y, rel_tol=_REL_TOL, abs_tol=_ABS_TOL) for x, y in zip(a, b)
     )
 
 
@@ -352,58 +456,10 @@ def _tick_locations_equal(a: tuple[float, ...], b: tuple[float, ...]) -> bool:
         return False
     if not a:
         return True
-    return bool(np.allclose(np.asarray(a), np.asarray(b), rtol=_VALUE_REL_TOL, atol=_VALUE_ABS_TOL))
+    return bool(np.allclose(np.asarray(a), np.asarray(b), rtol=_REL_TOL, atol=_ABS_TOL))
 
 
-def _label_equal(a: _LabelSnapshot, b: _LabelSnapshot) -> bool:
-    return (
-        a.text == b.text
-        and a.fontsize == b.fontsize
-        and a.fontweight == b.fontweight
-        and a.fontstyle == b.fontstyle
-        and a.fontfamily == b.fontfamily
-        and a.labelpad == b.labelpad
-        and _rgba_equal(a.color, b.color)
-    )
-
-
-def _title_equal(a: _TitleSnapshot, b: _TitleSnapshot) -> bool:
-    # ``pad`` is intentionally compared (both sides are sourced from the same
-    # provenance — the last-applied value — so equality just means "no recorded
-    # gerrytools change since last apply"). ``loc`` is similarly best-effort.
-    return (
-        a.text == b.text
-        and a.fontsize == b.fontsize
-        and a.fontweight == b.fontweight
-        and a.fontstyle == b.fontstyle
-        and a.fontfamily == b.fontfamily
-        and a.loc == b.loc
-        and a.pad == b.pad
-        and _rgba_equal(a.color, b.color)
-    )
-
-
-def _tick_equal(a: _TickSnapshot, b: _TickSnapshot) -> bool:
-    return (
-        _tick_locations_equal(a.locations, b.locations)
-        and list(a.labels) == list(b.labels)
-        and a.labels_visible == b.labels_visible
-    )
-
-
-def _tick_style_equal(a: _TickStyleSnapshot, b: _TickStyleSnapshot) -> bool:
-    return (
-        a.label_size == b.label_size
-        and math.isclose(a.label_rotation, b.label_rotation, abs_tol=1e-9)
-        and a.label_weight == b.label_weight
-        and a.label_style == b.label_style
-        and a.label_family == b.label_family
-        and _rgba_equal(a.label_color, b.label_color)
-        and _rgba_equal(a.tick_color, b.tick_color)
-    )
-
-
-def _aspect_equal(a: object, b: object) -> bool:
+def _aspect_equal(a: str | float, b: str | float) -> bool:
     """Compare matplotlib aspect values.
 
     ``ax.get_aspect()`` returns either the string ``"auto"`` or a float
@@ -412,51 +468,23 @@ def _aspect_equal(a: object, b: object) -> bool:
     """
     if isinstance(a, str) or isinstance(b, str):
         return a == b
-    return math.isclose(
-        float(a),  # type: ignore[arg-type]
-        float(b),  # type: ignore[arg-type]
-        rel_tol=_VALUE_REL_TOL,
-        abs_tol=_VALUE_ABS_TOL,
-    )
+    return math.isclose(float(a), float(b), rel_tol=_REL_TOL, abs_tol=_ABS_TOL)
 
 
-# Dispatch: (unit -> snapshot-field-accessor, equality-fn).
-def _snapshot_field(snapshot: _AxesSnapshot, unit: str) -> object:
-    return {
-        UNIT_X_LIMITS: snapshot.x_limits,
-        UNIT_Y_LIMITS: snapshot.y_limits,
-        UNIT_X_TICKS: snapshot.x_ticks,
-        UNIT_Y_TICKS: snapshot.y_ticks,
-        UNIT_X_TICK_STYLE: snapshot.x_tick_style,
-        UNIT_Y_TICK_STYLE: snapshot.y_tick_style,
-        UNIT_X_LABEL: snapshot.x_label,
-        UNIT_Y_LABEL: snapshot.y_label,
-        UNIT_TITLE: snapshot.title,
-        UNIT_X_SCALE: snapshot.x_scale,
-        UNIT_Y_SCALE: snapshot.y_scale,
-        UNIT_FRAME: snapshot.frame,
-        UNIT_LEGEND: snapshot.legend,
-        UNIT_AXIS_VISIBILITY: snapshot.axis_visibility,
-        UNIT_ASPECT: snapshot.aspect,
-    }[unit]
+_SNAPSHOT_VALUE_TYPES = (_LabelSnapshot, _TitleSnapshot, _TickSnapshot, _TickStyleSnapshot)
 
 
-def _unit_equal(unit: str, a: object, b: object) -> bool:
-    if unit in (UNIT_X_LIMITS, UNIT_Y_LIMITS):
-        return _limits_equal(a, b)  # type: ignore[arg-type]
-    if unit in (UNIT_X_TICKS, UNIT_Y_TICKS):
-        return _tick_equal(a, b)  # type: ignore[arg-type]
-    if unit in (UNIT_X_TICK_STYLE, UNIT_Y_TICK_STYLE):
-        return _tick_style_equal(a, b)  # type: ignore[arg-type]
-    if unit in (UNIT_X_LABEL, UNIT_Y_LABEL):
-        return _label_equal(a, b)  # type: ignore[arg-type]
-    if unit == UNIT_TITLE:
-        return _title_equal(a, b)  # type: ignore[arg-type]
-    if unit == UNIT_LEGEND:
+def _unit_equal(unit: Unit, a: object, b: object) -> bool:
+    if unit == "legend":
         # Identity comparison: an external legend placed after last apply is a
         # different object than the one gerrytools tracked.
         return a is b
-    if unit == UNIT_ASPECT:
+    if isinstance(a, _SNAPSHOT_VALUE_TYPES):
+        return a.approx_equals(b)
+    if unit in ("x_limits", "y_limits") and isinstance(a, tuple) and isinstance(b, tuple):
+        # Limits values are always (low, high) float pairs by construction.
+        return _limits_equal(cast("tuple[float, ...]", a), cast("tuple[float, ...]", b))
+    if unit == "aspect" and isinstance(a, (str, int, float)) and isinstance(b, (str, int, float)):
         return _aspect_equal(a, b)
     # Frame, scales, axis_visibility: exact equality.
     return a == b
@@ -486,14 +514,14 @@ class _ManagedAxesState:
     """Per-axes managed-unit ownership and last-applied history.
 
     One instance lives on each gerrytools plot. Plot configuration (e.g.
-    ``self._x_limits``) stays on the plot object; this class only knows about
+    the axis-state objects) stays on the plot; this class only knows about
     "who applied what to which axes most recently" at the matplotlib level.
 
     See the module docstring for the full contract.
     """
 
     def __init__(self) -> None:
-        self._units: dict[str, _UnitState] = {unit: _UnitState() for unit in _ALL_UNITS}
+        self._units: dict[Unit, _UnitState] = {unit: _UnitState() for unit in _ALL_UNITS}
 
     # -- initialization & rebind ------------------------------------------------
 
@@ -504,74 +532,32 @@ class _ManagedAxesState:
         reclaimed by explicit plot configuration (e.g. across a
         ``bind_to_ax`` call) are left alone so the explicit gerrytools state
         wins over pre-existing axes state on the new axes.
+
+        Limits and ticks are classified by intent signals rather than value
+        comparison: autoscale-off means someone set limits, and a non-default
+        locator means someone set tick positions. Every other unit compares
+        the current snapshot against a fresh-axes default snapshot.
         """
         default = _fresh_axes_snapshot()
+        current = _read_snapshot(ax)
 
-        if self._units[UNIT_X_LIMITS].ownership == "unclaimed":
-            if not ax.get_autoscalex_on():
-                self._mark_external(UNIT_X_LIMITS, tuple(float(v) for v in ax.get_xlim()))
-        if self._units[UNIT_Y_LIMITS].ownership == "unclaimed":
-            if not ax.get_autoscaley_on():
-                self._mark_external(UNIT_Y_LIMITS, tuple(float(v) for v in ax.get_ylim()))
+        if self._units["x_limits"].ownership == "unclaimed" and not ax.get_autoscalex_on():
+            self._mark_external("x_limits", current.x_limits)
+        if self._units["y_limits"].ownership == "unclaimed" and not ax.get_autoscaley_on():
+            self._mark_external("y_limits", current.y_limits)
 
-        label_axis_pairs: tuple[tuple[str, Literal["x", "y"]], ...] = (
-            (UNIT_X_LABEL, "x"),
-            (UNIT_Y_LABEL, "y"),
-        )
-        for unit, which in label_axis_pairs:
-            if self._units[unit].ownership == "unclaimed":
-                current = _label_snapshot(ax, which)
-                default_label = default.x_label if which == "x" else default.y_label
-                if not _label_equal(current, default_label):
-                    self._mark_external(unit, current)
+        if self._units["x_ticks"].ownership == "unclaimed" and not _is_default_locator(ax.xaxis):
+            self._mark_external("x_ticks", current.x_ticks)
+        if self._units["y_ticks"].ownership == "unclaimed" and not _is_default_locator(ax.yaxis):
+            self._mark_external("y_ticks", current.y_ticks)
 
-        if self._units[UNIT_TITLE].ownership == "unclaimed":
-            current_title = _title_snapshot(ax, pad=None)
-            if not _title_equal(current_title, default.title):
-                self._mark_external(UNIT_TITLE, current_title)
-
-        for unit, axis_obj in ((UNIT_X_TICKS, ax.xaxis), (UNIT_Y_TICKS, ax.yaxis)):
-            if self._units[unit].ownership == "unclaimed":
-                if not _is_default_locator(axis_obj):
-                    current_ticks = _tick_snapshot(ax, "x" if unit == UNIT_X_TICKS else "y")
-                    self._mark_external(unit, current_ticks)
-
-        tick_style_axis_pairs: tuple[tuple[str, Literal["x", "y"]], ...] = (
-            (UNIT_X_TICK_STYLE, "x"),
-            (UNIT_Y_TICK_STYLE, "y"),
-        )
-        for unit, which in tick_style_axis_pairs:
-            if self._units[unit].ownership == "unclaimed":
-                current_style = _tick_style_snapshot(ax, which)
-                default_style = default.x_tick_style if which == "x" else default.y_tick_style
-                if not _tick_style_equal(current_style, default_style):
-                    self._mark_external(unit, current_style)
-
-        if self._units[UNIT_X_SCALE].ownership == "unclaimed":
-            if ax.get_xscale() != default.x_scale:
-                self._mark_external(UNIT_X_SCALE, ax.get_xscale())
-        if self._units[UNIT_Y_SCALE].ownership == "unclaimed":
-            if ax.get_yscale() != default.y_scale:
-                self._mark_external(UNIT_Y_SCALE, ax.get_yscale())
-
-        if self._units[UNIT_FRAME].ownership == "unclaimed":
-            current_frame = _frame_snapshot(ax)
-            if current_frame != default.frame:
-                self._mark_external(UNIT_FRAME, current_frame)
-
-        if self._units[UNIT_LEGEND].ownership == "unclaimed":
-            legend = ax.get_legend()
-            if legend is not None:
-                self._mark_external(UNIT_LEGEND, legend)
-
-        if self._units[UNIT_AXIS_VISIBILITY].ownership == "unclaimed":
-            if not bool(ax.axison):
-                self._mark_external(UNIT_AXIS_VISIBILITY, False)
-
-        if self._units[UNIT_ASPECT].ownership == "unclaimed":
-            current_aspect = ax.get_aspect()
-            if not _aspect_equal(current_aspect, default.aspect):
-                self._mark_external(UNIT_ASPECT, current_aspect)
+        special_cases: set[Unit] = {"x_limits", "y_limits", "x_ticks", "y_ticks"}
+        for unit in _ALL_UNITS:
+            if unit in special_cases or self._units[unit].ownership != "unclaimed":
+                continue
+            current_value = getattr(current, unit)
+            if not _unit_equal(unit, current_value, getattr(default, unit)):
+                self._mark_external(unit, current_value)
 
     def reset_history(self) -> None:
         """Clear per-axes last-applied history and external classifications.
@@ -580,32 +566,24 @@ class _ManagedAxesState:
         per-axes history. After ``reset_history``, ``initialize_from_ax``
         classifies only currently-unclaimed units against the new axes.
         """
-        for unit, state in self._units.items():
-            if state.ownership == "external":
+        for state in self._units.values():
+            if state.ownership in ("external", "gerrytools_default"):
                 state.ownership = "unclaimed"
-                state.last_applied = _NO_LAST_APPLIED
-            elif state.ownership == "gerrytools_default":
-                state.ownership = "unclaimed"
-                state.last_applied = _NO_LAST_APPLIED
-            else:
-                # gerrytools_explicit: keep ownership, drop the per-axes value.
-                state.last_applied = _NO_LAST_APPLIED
+            state.last_applied = _NO_LAST_APPLIED
 
     # -- snapshot & external detection ------------------------------------------
 
-    def snapshot(self, ax: Axes) -> _AxesSnapshot:
-        """Read all observable axes-level state in one pass.
+    def begin_rebuild(self, ax: Axes) -> tuple[_AxesSnapshot, set[Unit]]:
+        """Open a rebuild pass: snapshot the axes and classify external ownership.
 
-        ``title.pad`` is sourced from the last-applied value, not from
-        matplotlib, because matplotlib 3.10.6 exposes no public getter.
+        Returns the pre-rebuild snapshot (needed later by
+        :meth:`restore_autoscale_protected`) and the set of externally owned units.
         """
-        last_title = self._units[UNIT_TITLE].last_applied
-        title_pad = None
-        if isinstance(last_title, _TitleSnapshot):
-            title_pad = last_title.pad
-        return _read_snapshot(ax, title_pad=title_pad)
+        before = _read_snapshot(ax)
+        external = self.detect_external_changes(before)
+        return before, external
 
-    def detect_external_changes(self, snapshot: _AxesSnapshot) -> set[str]:
+    def detect_external_changes(self, snapshot: _AxesSnapshot) -> set[Unit]:
         """Return units that should be treated as externally owned this rebuild.
 
         Per-unit dispatch by current ownership state:
@@ -622,7 +600,7 @@ class _ManagedAxesState:
         - ``unclaimed`` (no last-applied history yet): never added; the
           next apply records the resulting ownership.
         """
-        external: set[str] = set()
+        external: set[Unit] = set()
         for unit, state in self._units.items():
             if state.ownership == "external":
                 external.add(unit)
@@ -632,7 +610,7 @@ class _ManagedAxesState:
             if state.last_applied is _NO_LAST_APPLIED:
                 # gerrytools_explicit with no recorded value yet — store-and-claim.
                 continue
-            current = _snapshot_field(snapshot, unit)
+            current = getattr(snapshot, unit)
             if not _unit_equal(unit, current, state.last_applied):
                 external.add(unit)
                 state.ownership = "external"
@@ -641,19 +619,19 @@ class _ManagedAxesState:
 
     # -- write paths ------------------------------------------------------------
 
-    def reclaim_and_mark(self, unit: str, value: object) -> None:
+    def reclaim_and_mark(self, unit: Unit, value: object) -> None:
         """Apply-now public setter path. Claim ownership and record value."""
         state = self._units[unit]
         state.ownership = "gerrytools_explicit"
         state.last_applied = value
 
-    def reclaim_without_value(self, unit: str) -> None:
+    def reclaim_without_value(self, unit: Unit) -> None:
         """Store-and-claim public setter path. Claim without recording yet."""
         state = self._units[unit]
         state.ownership = "gerrytools_explicit"
         state.last_applied = _NO_LAST_APPLIED
 
-    def record_default(self, unit: str, value: object) -> None:
+    def record_default(self, unit: Unit, value: object) -> None:
         """Internal default applier path. Record value without claiming."""
         state = self._units[unit]
         # An already-explicit unit stays explicit; defaults never demote.
@@ -661,9 +639,43 @@ class _ManagedAxesState:
             state.ownership = "gerrytools_default"
         state.last_applied = value
 
+    def release(self, unit: Unit, value: object) -> None:
+        """Public clear path. Drop any explicit or external claim back to a default.
+
+        Records ``value`` as last-applied so the next rebuild still detects external
+        changes, while gerrytools stops asserting explicit ownership of the unit.
+        """
+        state = self._units[unit]
+        state.ownership = "gerrytools_default"
+        state.last_applied = value
+
+    def reconcile(
+        self,
+        unit: Unit,
+        external: set[Unit],
+        apply_fn: Callable[[], None],
+        read_current: Callable[[], object],
+    ) -> None:
+        """Reconcile one managed unit during a rebuild pass.
+
+        The shared skeleton for the mechanical apply helpers: skip externally owned units
+        entirely; otherwise run ``apply_fn`` (the unit's write-to-axes step, which may be a
+        no-op) and record ``read_current()``. A unit a public setter has reclaimed keeps
+        explicit ownership via :meth:`reclaim_and_mark`; anything else is recorded as a
+        gerrytools default via :meth:`record_default`.
+        """
+        if unit in external:
+            return
+        apply_fn()
+        value = read_current()
+        if self.is_reclaimed(unit):
+            self.reclaim_and_mark(unit, value)
+        else:
+            self.record_default(unit, value)
+
     # -- queries -----------------------------------------------------------------
 
-    def is_reclaimed(self, unit: str) -> bool:
+    def is_reclaimed(self, unit: Unit) -> bool:
         """True iff the unit is currently ``gerrytools_explicit``.
 
         Default-owned and externally-owned units return False. Used by apply
@@ -672,21 +684,13 @@ class _ManagedAxesState:
         """
         return self._units[unit].ownership == "gerrytools_explicit"
 
-    def last_applied(self, unit: str) -> object:
-        """Return the last-applied value or ``_NO_LAST_APPLIED``.
-
-        Mostly useful for debugging and for the title-pad path that needs to
-        round-trip the only-stored-locally value.
-        """
-        return self._units[unit].last_applied
-
     # -- restore -----------------------------------------------------------------
 
     def restore_autoscale_protected(
         self,
         ax: Axes,
         pre_redraw: _AxesSnapshot,
-        external_units: set[str],
+        external_units: set[Unit],
     ) -> None:
         """Restore externally-set xlim/ylim that artist drawing may have clobbered.
 
@@ -694,14 +698,14 @@ class _ManagedAxesState:
         units never need this because matplotlib's autoscale only affects
         limits during artist drawing.
         """
-        if UNIT_X_LIMITS in external_units:
+        if "x_limits" in external_units:
             ax.set_xlim(*pre_redraw.x_limits)
-        if UNIT_Y_LIMITS in external_units:
+        if "y_limits" in external_units:
             ax.set_ylim(*pre_redraw.y_limits)
 
     # -- internal ---------------------------------------------------------------
 
-    def _mark_external(self, unit: str, value: object) -> None:
+    def _mark_external(self, unit: Unit, value: object) -> None:
         state = self._units[unit]
         state.ownership = "external"
         state.last_applied = value

@@ -1,14 +1,13 @@
 """Named color source registry.
 
-Each public color name (e.g. ``"red"``, ``"tombblue"``, ``"cc:applegreen"``,
-``"ensemble:smc"``) belongs to exactly one *source* — gerrytools' own aliases,
-the color-blind-friendly cc: palette, the districtr palette, the LaTeX/CSS
-table, or matplotlib's named-color mapping. Resolution iterates these sources
-in precedence order; a single missing concept ("the source that owns this
-name") is what the registry names.
+Each public color name (e.g. ``"red"``, ``"tombblue"``, ``"cc:applegreen"``, ``"ensemble:smc"``)
+belongs to exactly one *source* — gerrytools' own aliases, the color-blind-friendly cc: palette, the
+districtr palette, the LaTeX/CSS table, or matplotlib's named-color mapping. Resolution iterates
+these sources in precedence order; a single missing concept ("the source that owns this name") is
+what the registry names.
 
-This module is internal. The only public surface is `which_color_source`,
-re-exported via `gerrytools.colors`.
+This module is internal; its public functions (`get_named_color`, `which_color_source`,
+`get_all_supported_colors_dict`) are re-exported via `gerrytools.colors`.
 """
 
 from __future__ import annotations
@@ -18,8 +17,8 @@ from typing import Mapping
 
 import matplotlib.colors as mcolors
 
+from gerrytools.colors._latex_table import LATEX_COLOR_DICT
 from gerrytools.colors.districtr import DISTRICTR_COLOR_DICT
-from gerrytools.colors.latex_full import LATEX_COLOR_DICT
 from gerrytools.typing import Color, HexColor
 
 # ---------------------------------------------------------------------------
@@ -30,7 +29,7 @@ DEFAULT_GREY = "#5c676f"
 """Default grey plotting color; used in histograms, violin plots, and arrows."""
 
 CITIZEN_BLUE = "#4693b3"
-"""Citizen ensemble blue color; used in histograms, violin plots, and arrows."""
+"""Citizen-ensemble blue from the gerrytools palette; resolvable by name as ``"citizen_blue"``."""
 
 OVERLAYS = ("gainsboro", "silver", "darkgray", "gray", "dimgrey")
 """Overlay colors for choropleth maps."""
@@ -68,15 +67,14 @@ COLOR_CORRECTED_BASESET = {
 """A small set of colors color-corrected for visibility by color-blind users."""
 
 
-GERRYTOOLS_EXTRA_COLORS_DICT = (
-    {
-        "default_grey": DEFAULT_GREY,
-        "default_gray": DEFAULT_GREY,
-        "citizen_blue": CITIZEN_BLUE,
-    }
-    | {overlay_name: mcolors.to_hex(overlay_name) for overlay_name in OVERLAYS}
-    | ENSEMBLE_COLORS
-)
+# The OVERLAYS names resolve through the registry (latexcolors owns all but "dimgrey", which
+# falls through to matplotlib) with values identical to matplotlib's; they are deliberately not
+# duplicated here.
+GERRYTOOLS_EXTRA_COLORS_DICT = {
+    "default_grey": DEFAULT_GREY,
+    "default_gray": DEFAULT_GREY,
+    "citizen_blue": CITIZEN_BLUE,
+} | ENSEMBLE_COLORS
 
 
 # ---------------------------------------------------------------------------
@@ -88,11 +86,10 @@ GERRYTOOLS_EXTRA_COLORS_DICT = (
 class NamedColorSource:
     """A labelled name → hex color mapping.
 
-    The ``name`` is for diagnostic provenance (e.g. ``"districtr"``) and is
-    surfaced via ``which_color_source``. The ``mapping`` is a dict from color
-    names to hex strings (already normalized — no matplotlib named-color
-    references). A lowercased index is built once at construction so per-call
-    case-insensitive lookup is free.
+    The ``name`` is for diagnostic provenance (e.g. ``"districtr"``) and is surfaced via
+    ``which_color_source``. The ``mapping`` is a dict from color names to hex strings (already
+    normalized — no matplotlib named-color references). A lowercased index is built once at
+    construction so per-call case-insensitive lookup is free.
     """
 
     name: str
@@ -110,9 +107,9 @@ class NamedColorSource:
     def lookup(self, query: str) -> str | None:
         """Return the hex string for ``query`` if this source defines it.
 
-        Tries the exact form first, then the lowercased form. Returns ``None``
-        when the source does not define ``query`` (which the resolver
-        interprets as "ask the next source in precedence order").
+        Tries the exact form first, then the lowercased form. Returns ``None`` when the source does
+        not define ``query`` (which the resolver interprets as "ask the next source in precedence
+        order").
         """
         exact_match = self.mapping.get(query)
         if exact_match is not None:
@@ -134,10 +131,9 @@ _MATPLOTLIB_NAMED_AS_HEX: dict[str, str] = {
 # Registry. Order is precedence: earlier sources win.
 # ---------------------------------------------------------------------------
 
-# Deliberate: gerrytools resolves "green" to bright #00ff00 (CSS/X11 "lime")
-# instead of matplotlib's dark #008000, which reads as forest green in plots.
-# This entry is also the canonical regression case for the overrides source
-# outranking matplotlib (see tests/colors/test_sources.py).
+# Deliberate: gerrytools resolves "green" to bright #00ff00 (CSS/X11 "lime") instead of matplotlib's
+# dark #008000, which reads as forest green in plots. This entry is also the canonical regression
+# case for the overrides source outranking matplotlib (see tests/colors/test_sources.py).
 _OVERRIDES_SOURCE = NamedColorSource(name="overrides", mapping={"green": "#00ff00"})
 _GERRYTOOLS_SOURCE = NamedColorSource(name="gerrytools", mapping=GERRYTOOLS_EXTRA_COLORS_DICT)
 _COLOR_CORRECTED_SOURCE = NamedColorSource(name="color-corrected", mapping=COLOR_CORRECTED_BASESET)
@@ -145,6 +141,9 @@ _DISTRICTR_SOURCE = NamedColorSource(name="districtr", mapping=DISTRICTR_COLOR_D
 _LATEX_SOURCE = NamedColorSource(name="latex", mapping=LATEX_COLOR_DICT)
 _MATPLOTLIB_SOURCE = NamedColorSource(name="matplotlib", mapping=_MATPLOTLIB_NAMED_AS_HEX)
 
+# The latex source outranks matplotlib, so a few names both define (e.g. salmon, aquamarine,
+# moccasin, lightskyblue) resolve to the latexcolors values. tests/colors/test_sources.py pins
+# this precedence; a reorder must be deliberate.
 _REGISTRY: tuple[NamedColorSource, ...] = (
     _OVERRIDES_SOURCE,
     _GERRYTOOLS_SOURCE,
@@ -160,14 +159,20 @@ _REGISTRY: tuple[NamedColorSource, ...] = (
 # ---------------------------------------------------------------------------
 
 
-def _resolve_named_color(query: str) -> HexColor:
+def get_named_color(query: str) -> HexColor:
     """Resolve a color name through the registry in precedence order.
 
-    Every registry source maps names to hex strings, so the resolved value is
-    always a hex color string.
+    Every registry source maps names to hex strings, so the resolved value is always a hex color
+    string.
 
-    Raises ``KeyError`` when no source defines ``query`` (matching the legacy
-    ``get_named_color`` contract).
+    Args:
+        query (str): The name of the color.
+
+    Returns:
+        HexColor: The corresponding hex color value.
+
+    Raises:
+        KeyError: If no source defines ``query``.
     """
     for source in _REGISTRY:
         hex_value = source.lookup(query)
@@ -176,11 +181,21 @@ def _resolve_named_color(query: str) -> HexColor:
     raise KeyError(f"Unknown color name: {query!r}")
 
 
-def _which_color_source(query: str) -> str:
+def which_color_source(query: str) -> str:
     """Return the name of the registry source that owns ``query``.
 
-    Useful for debugging precedence — answers "where did this color come from?"
-    Raises ``KeyError`` for unknown names, matching the resolver's contract.
+    Useful for diagnosing precedence: when two palettes both define a name, this answers which one
+    the resolver actually returns. Source names currently include ``"overrides"``, ``"gerrytools"``,
+    ``"color-corrected"``, ``"districtr"``, ``"latex"``, and ``"matplotlib"``.
+
+    Args:
+        query (str): The name of the color.
+
+    Returns:
+        str: The name of the source that resolves the color name.
+
+    Raises:
+        KeyError: If no source defines ``query``.
     """
     for source in _REGISTRY:
         if source.lookup(query) is not None:
@@ -191,10 +206,9 @@ def _which_color_source(query: str) -> str:
 def get_all_supported_colors_dict() -> dict[str, Color]:
     """Get a dictionary of every supported color name mapping to its hex value.
 
-    Composed by walking the registry in *reverse* precedence order so that
-    higher-precedence sources overwrite lower-precedence ones — the resulting
-    dict's value for any key matches what ``_resolve_named_color`` would
-    return for that key.
+    Composed by walking the registry in *reverse* precedence order so that higher-precedence sources
+    overwrite lower-precedence ones — the resulting dict's value for any key matches what
+    ``get_named_color`` would return for that key.
     """
     composed: dict[str, Color] = {}
     for source in reversed(_REGISTRY):

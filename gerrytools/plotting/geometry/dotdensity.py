@@ -1,165 +1,81 @@
-import atexit
-import os
+import dataclasses
+import math
 import tempfile
+import zlib
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
 from warnings import warn
 
 import numpy as np
-import shapely
 from geopandas import GeoDataFrame
-from joblib import Parallel, delayed
-from matplotlib.axes import Axes
-from matplotlib.colors import to_hex
+from matplotlib.colors import to_hex, to_rgba
 from matplotlib.lines import Line2D
 from numpy.random import Generator
-from numpy.typing import NDArray
-from shapely.geometry import Point
+from pandas.api.types import is_numeric_dtype
 
 from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
-from gerrytools.plotting._legend_utils import build_legend_options, save_legend_handles
-from gerrytools.plotting._rng import resolve_numpy_rng, spawn_child_seeds
+from gerrytools.plotting._axes_backed import deferred_axis_update
+from gerrytools.plotting._axes_state import Unit
+from gerrytools.plotting._legend_mixin import _LegendMixin
+from gerrytools.plotting._rng import resolve_numpy_rng
+from gerrytools.plotting.geometry._dot_sampling import _make_random_points
+from gerrytools.plotting.geometry._labels import LabelOptions
+from gerrytools.plotting.geometry._layers._base import _to_target_crs
 from gerrytools.plotting.geometry.geoplotbase import GeoPlotBase
 from gerrytools.plotting.mpl.label_text_options import LabelBoxOptions, LabelFontOptions
+from gerrytools.plotting.mpl.legend_options import LegendOptions
 from gerrytools.plotting.mpl.marker_options import PointMarkerOptions
-from gerrytools.typing import Color, CRSLike, MplCompatibleColor, ScatterMarkerKwargs
+from gerrytools.plotting.utils import _replace_non_none, _resolve_alpha_override
+from gerrytools.typing import Color, CRSLike, LegendHandle
 
 logger = get_logger(__name__)
 
-MAX_CORES = max(int(os.cpu_count() or 1) - 2, 1)
+_SCATTER_BLOCK = 200_000
+
+# Default label styling for the district outlines: bold numbers in wheat circles.
+_DEFAULT_DD_LABEL_FONT = LabelFontOptions(
+    fontfamily="sans-serif",
+    fontsize=4,
+    fontweight="bold",
+    fontcolor="black",
+    outlinecolor="none",
+)
+_DEFAULT_DD_LABEL_BOX = LabelBoxOptions(
+    enabled=True,
+    boxstyle="circle",
+    pad=0.5,
+    facecolor="#f1deb8",
+    facealpha=1.0,
+    edgecolor="black",
+    edgealpha=1.0,
+    edgewidth=0.5,
+)
 
 
-def _random_xy_in_poly(
-    poly: shapely.Geometry, n_points: int, *, rng: Generator
-) -> tuple[NDArray, NDArray]:
-    """Generate random x, y coordinates within a polygon.
+@dataclass(frozen=True, slots=True)
+class _DensityLayerRecord:
+    """One dot-density layer: data column, dot color, cache location, and sampling identity.
 
-    Args:
-        poly (shapely.Geometry): The polygon within which to generate points.
-        n_points (int): The number of random points to generate.
-        rng (Generator): NumPy random generator used for coordinate sampling.
-        batch_size (int, optional): The number of candidate points to generate in each batch.
-            Defaults to 4096.
+    ``people_per_dot`` (also embedded in the cache path) is the value in effect when the
+    layer was added, so it is captured exactly once here rather than re-derived at draw
+    time. ``insertion_index`` pins the layer's sampling stream: each layer samples from a
+    generator derived from the plot's seed root plus (column, people_per_dot,
+    insertion_index), so draws for other layers or rebuilds cannot shift its dots.
+    ``n_jobs`` / ``n_chunks`` are kept so an invalidated cache regenerates with the same
+    parallelization the caller asked for (they never affect dot positions).
     """
-    minx, miny, maxx, maxy = poly.bounds
-    xs_out = []
-    ys_out = []
-    n_points_so_far = 0
 
-    # Each point needs to be checked for inclusion and since we generate the points
-    # randomly withing the bounding box, the probabilty of inclusion is area(poly) / area(bbox)
-    # we are expected to need roughly n_points / probability_of_inclusion points to get n_points
-    # inside of the provided polygon
-
-    probability_of_inclusion = poly.area / ((maxx - minx) * (maxy - miny))
-    if probability_of_inclusion <= 0:
-        raise ValueError("Polygon has zero area, cannot generate points within it.")
-    elif probability_of_inclusion > 0.9:
-        # If the polygon is very close to a rectangle, just use a fixed fraction
-        # to avoid unnecessarily small batches
-        batch_size = min(10_000, (n_points // 5) + 1)
-    else:
-        estimated_needed_points = int(n_points / probability_of_inclusion) + 1
-        batch_size = min(10_000, estimated_needed_points - n_points)
-
-    while n_points_so_far < n_points:
-        k = max(batch_size, (n_points - n_points_so_far) * 2)
-        xs = rng.uniform(minx, maxx, size=k)
-        ys = rng.uniform(miny, maxy, size=k)
-
-        cand = shapely.points(xs, ys)
-        mask = shapely.contains(poly, cand)
-
-        xs_out.append(xs[mask])
-        ys_out.append(ys[mask])
-        n_points_so_far += int(mask.sum())
-
-    x = np.concatenate(xs_out)[:n_points]
-    y = np.concatenate(ys_out)[:n_points]
-    return x, y
+    column: str
+    color: str
+    cache_path: Path
+    people_per_dot: int | float
+    insertion_index: int
+    n_jobs: int
+    n_chunks: int | np.integer
 
 
-def _make_random_points(
-    gdf: GeoDataFrame,
-    people_per_dot: int,
-    datacolumn_name: str,
-    color: Color,
-    rng: Generator,
-    n_jobs: int = -1,
-    n_chunks: int = 10,
-) -> tuple[NDArray, NDArray, NDArray]:
-    """Generates random points within polygons in a GeoDataFrame.
-
-    Args:
-        gdf (GeoDataFrame): A GeoDataFrame containing polygons.
-        people_per_dot (int): Number of people represented by each dot.
-        datacolumn_name (str): The name of the data column to use for dot density.
-        color (Color): The color of the dots.
-        rng (Generator): NumPy random generator used to derive per-chunk generators.
-        n_jobs (int): Number of CPU cores to use for parallel processing. Defaults to -1 (all
-            available cores minus two).
-        n_chunks (int): Number of chunks to split the GeoDataFrame into for parallel processing.
-    """
-    use_cores: int = min(MAX_CORES, n_jobs) if n_jobs > 0 else MAX_CORES
-
-    chunk_size = max(1, (len(gdf) + n_chunks - 1) // n_chunks)  # ceil
-    chunked_gdfs = [
-        gdf.iloc[i : min(len(gdf), i + chunk_size)] for i in range(0, len(gdf), chunk_size)
-    ]
-
-    def process_chunk(chunk: GeoDataFrame, chunk_seed: int) -> tuple[NDArray, NDArray, NDArray]:
-        """Generate random dot coordinates for one GeoDataFrame chunk.
-
-        Args:
-            chunk (GeoDataFrame): Subset of polygons with density values.
-
-        Returns:
-            tuple[NDArray, NDArray, NDArray]: X coordinates, Y coordinates, and polygon ids
-                for generated dots.
-        """
-        chunk_rng = np.random.default_rng(chunk_seed)
-        x_parts = []
-        y_parts = []
-        pid_parts = []
-
-        for polyid, (geom, val) in zip(
-            chunk.index.to_numpy(), zip(chunk.geometry.values, chunk[datacolumn_name].values)
-        ):
-            n_dots = int(round(val / people_per_dot))
-            if n_dots <= 0:
-                continue
-
-            x, y = _random_xy_in_poly(geom, n_dots, rng=chunk_rng)
-            x_parts.append(x)
-            y_parts.append(y)
-            pid_parts.append(np.full(n_dots, polyid, dtype=np.int64))
-
-        if not x_parts:
-            return (
-                np.empty(0, dtype=np.float64),
-                np.empty(0, dtype=np.float64),
-                np.empty(0, dtype=np.int64),
-            )
-
-        return (
-            np.concatenate(x_parts),
-            np.concatenate(y_parts),
-            np.concatenate(pid_parts),
-        )
-
-    chunk_seeds = spawn_child_seeds(rng, len(chunked_gdfs))
-    results = Parallel(n_jobs=use_cores)(
-        delayed(process_chunk)(chunk, seed) for chunk, seed in zip(chunked_gdfs, chunk_seeds)
-    )
-
-    xs = np.concatenate([r[0] for r in results])
-    ys = np.concatenate([r[1] for r in results])
-    pids = np.concatenate([r[2] for r in results])
-    return xs, ys, pids
-
-
-class DotDensityPlot(GeoPlotBase):
+class DotDensityPlot(_LegendMixin, GeoPlotBase):
     """Class for creating dot density plots from GeoDataFrames.
 
     Each dot represents a specified number of people, and dots are randomly placed
@@ -181,16 +97,14 @@ class DotDensityPlot(GeoPlotBase):
         *,
         outline_column: str,
         dpi: int | None = None,
-        ax: Axes | None = None,
+        title: str | None = None,
         show_axis: bool = False,
         target_crs: CRSLike | None = None,
         default_outline: bool = False,
         silent: bool = False,
         people_per_dot: int = 100,
         show_labels: bool = True,
-        exclude_labels: list[str] | None = None,
-        labelfont_options: LabelFontOptions | None = None,
-        labelbox_options: LabelBoxOptions | None = None,
+        label_options: LabelOptions | None = None,
         show_legend: bool = False,
         edgecolor: Color = "black",
         edgealpha: float | None = None,
@@ -212,17 +126,17 @@ class DotDensityPlot(GeoPlotBase):
                 Defaults to 100.
             show_labels (bool, optional): Whether to show labels for the outlined areas.
                 Defaults to True.
-            exclude_labels (list[str] | None, optional): List of labels to exclude from
-                being shown. Defaults to None.
-            labelfont_options (LabelFontOptions | None, optional): Font options for labels.
-                Defaults to None.
-            labelbox_options (LabelBoxOptions | None, optional): Box options for labels.
-                Defaults to None.
+            label_options (LabelOptions | None, optional): Bundled label styling and
+                placement options (style or font/box options, per-label adjustments and font
+                sizes, and excluded labels). Unset ``font_options`` / ``box_options`` (with no
+                style) fall back to the dot-density defaults: bold sans-serif numbers in wheat
+                circles. Defaults to None.
             edgecolor (Color, optional): Color of the outline edges. Defaults to 'black'.
             edgealpha (float | None, optional): Alpha transparency for the outline edges.
                 Defaults to None.
             edgewidth (float, optional): Width of the outline edges. Defaults to 0.6.
             dpi (int, optional): Dots per inch for the plot. Defaults to 300.
+            title (str | None, optional): The title of the plot. Defaults to None.
             show_axis (bool, optional): Whether to show the axis. Defaults to False.
             target_crs (CRSLike | None, optional): Target CRS for reprojecting geometries.
                 Defaults to None.
@@ -231,22 +145,43 @@ class DotDensityPlot(GeoPlotBase):
             silent (bool, optional): Whether to suppress informational output throughout
                 the rendering process. Defaults to False.
             show_legend (bool, optional): Whether to show the legend. Defaults to False.
-            rng_seed (int | None, optional): Seed for reproducible NumPy randomness used when
-                generating and interleaving dots. Defaults to None.
-            rng (Generator | None, optional): Explicit NumPy generator to use instead of
-                constructing one from ``rng_seed``. Defaults to None.
+            rng_seed (int | None, optional): Seed for reproducible dot placement. Each density
+                layer and the rebuild-time interleaving draw from generators derived from this
+                seed, so layers are independent of each other and rebuilds are stable.
+                Defaults to None.
+            rng (Generator | None, optional): Explicit NumPy generator used (once) to derive
+                the seed root instead of constructing one from ``rng_seed``. Defaults to None.
         """
+        if target_crs is not None and gdf.crs is not None:
+            gdf = gdf.to_crs(target_crs)
+
         super().__init__(
             gdf=gdf,
             dpi=dpi,
-            ax=ax,
+            title=title,
             show_axis=show_axis,
             target_crs=target_crs,
             default_outline=default_outline,
             silent=silent,
         )
-        self._rng, self._rng_seed = resolve_numpy_rng(seed=rng_seed, rng=rng, field_name="rng_seed")
+        resolved_rng, self._rng_seed = resolve_numpy_rng(
+            seed=rng_seed, rng=rng, field_name="rng_seed"
+        )
+        self._seed_root: int = self._derive_seed_root(resolved_rng)
         self.people_per_dot = people_per_dot
+
+        # Unset font/box pieces (without a style) fall back to the dot-density defaults.
+        if label_options is None:
+            label_options = LabelOptions(
+                font_options=_DEFAULT_DD_LABEL_FONT,
+                box_options=_DEFAULT_DD_LABEL_BOX,
+            )
+        elif label_options.style is None:
+            label_options = dataclasses.replace(
+                label_options,
+                font_options=label_options.font_options or _DEFAULT_DD_LABEL_FONT,
+                box_options=label_options.box_options or _DEFAULT_DD_LABEL_BOX,
+            )
 
         # outlines for districts
         self.add_outline_layer(
@@ -255,30 +190,11 @@ class DotDensityPlot(GeoPlotBase):
             edgealpha=edgealpha,
             edgewidth=edgewidth,
             show_labels=show_labels,
-            exclude_labels=exclude_labels,
-            labelfont_options=labelfont_options
-            or LabelFontOptions(
-                fontfamily="sans-serif",
-                fontsize=4,
-                fontweight="bold",
-                fontcolor="black",
-                outlinecolor="none",
-            ),
-            labelbox_options=labelbox_options
-            or LabelBoxOptions(
-                enabled=True,
-                boxstyle="circle",
-                pad=0.5,
-                facecolor="#f1deb8",
-                facealpha=1.0,
-                edgecolor="black",
-                edgealpha=1.0,
-                edgewidth=0.5,
-            ),
+            label_options=label_options,
             zorder=100,
         )
 
-        marker_options = PointMarkerOptions(
+        self._marker_options = PointMarkerOptions(
             marker="o",
             markersize=1.0,
             markerfacecolor="none",
@@ -286,39 +202,112 @@ class DotDensityPlot(GeoPlotBase):
             markeredgecolor="none",
             markeredgealpha=None,
             markeredgewidth=0.0,
-        ).to_mpl_scatter_settings_dict()
-        self.__global_marker_settings_dict: ScatterMarkerKwargs = marker_options
+        )
 
         # Used for caching the dots so that you can iterate quickly when adjusting styles
-        self.__temp_dir: tempfile.TemporaryDirectory | None = tempfile.TemporaryDirectory()
+        # TemporaryDirectory's own finalizer removes the directory when the plot is collected.
+        self._temp_dir = tempfile.TemporaryDirectory()
 
-        logger.debug(f"Created temporary directory for dot density plot: {self.__temp_dir.name}")
-        self.__temp_dir_name = str(self.__temp_dir.name)
-        self.__column_to_color_dict: dict[str, Color] = {}
-        atexit.register(self._close)
+        logger.debug(f"Created temporary directory for dot density plot: {self._temp_dir.name}")
+        self._temp_dir_name = str(self._temp_dir.name)
+        self._density_layers: dict[str, _DensityLayerRecord] = {}
 
-        self._legend_options = build_legend_options()
-        self.show_legend = show_legend
+        self._legend_options = LegendOptions()
+        # Constructor default (False) is "no opinion"; only a truthy request claims the
+        # legend unit, mirroring the data family's constructor-arg reclaim semantics.
+        self._show_legend: bool = False
+        if show_legend:
+            self.show_legend = True
+
+    @property
+    def show_legend(self) -> bool:
+        """Whether to render the dot-density legend on rebuild."""
+        return self._show_legend
+
+    @show_legend.setter
+    @deferred_axis_update
+    def show_legend(self, value: bool) -> None:
+        self._show_legend = bool(value)
+        # Legend identity is recorded by ``_apply_legend`` at the next rebuild.
+        self._axes_state.reclaim_without_value("legend")
+
+    def _derive_seed_root(self, resolved_rng: Generator) -> int:
+        """Fixed root for every derived generator; drawn once when no seed was given.
+
+        A fixed root keeps seedless plots stable too: dots do not move across rebuilds.
+        """
+        if self._rng_seed is not None:
+            return self._rng_seed
+        return int(resolved_rng.integers(0, np.iinfo(np.uint64).max, dtype=np.uint64))
+
+    def _layer_rng(self, record: _DensityLayerRecord) -> Generator:
+        """Sampling generator for one density layer.
+
+        Derived from the seed root plus the layer's identity, so no other draw (other
+        layers, rebuilds) can shift its dots.
+        """
+        layer_key = f"{record.column}|{record.people_per_dot!r}|{record.insertion_index}"
+        return np.random.default_rng([zlib.crc32(layer_key.encode("utf-8")), self._seed_root])
+
+    def _invalidate_dot_caches(self) -> None:
+        """Delete cached dot files so the next build resamples every density layer."""
+        for record in self._density_layers.values():
+            record.cache_path.unlink(missing_ok=True)
 
     @property
     def rng_seed(self) -> int | None:
-        """Get the RNG seed used for deterministic dot placement."""
+        """The configured seed, or None for a random root stable across rebuilds."""
         return self._rng_seed
 
     @rng_seed.setter
+    @deferred_axis_update
     def rng_seed(self, seed: int | None) -> None:
-        """Set the RNG seed used for deterministic dot placement."""
-        self._rng, self._rng_seed = resolve_numpy_rng(seed=seed, field_name="rng_seed")
+        """Set the seed; assigning the current value is idempotent."""
+        if seed is None and self._rng_seed is None:
+            return
+        resolved_rng, self._rng_seed = resolve_numpy_rng(seed=seed, field_name="rng_seed")
+        self._seed_root = self._derive_seed_root(resolved_rng)
+        self._invalidate_dot_caches()
 
-    def _close(self) -> None:
-        """Clean up temporary directory used for caching dot density points."""
-        # Safe to call multiple times
-        if getattr(self, "_DotDensityPlot__temp_dir", None) is not None:
-            logger.debug(f"Cleaning up temporary directory: {self.__temp_dir_name}")
-            assert self.__temp_dir is not None
-            self.__temp_dir.cleanup()
-            self.__temp_dir = None
+    @property
+    def target_crs(self) -> CRSLike | None:
+        """Coordinate reference system used to render geometry layers."""
+        return self._target_crs
 
+    @target_crs.setter
+    @deferred_axis_update
+    def target_crs(self, value: CRSLike | None) -> None:
+        """Set the render CRS, invalidating cached dots so they are resampled in it.
+
+        Outline layers reproject at render time, but dots are cached in the CRS they were
+        sampled in; without invalidation a CRS change would draw the stale coordinates.
+        """
+        self._set_target_crs(value)
+        self._invalidate_dot_caches()
+
+    @property
+    def people_per_dot(self) -> int | float:
+        """Number of people represented by each dot.
+
+        Applies to density layers added after the change; already-added layers keep the
+        value captured when they were added.
+        """
+        return self._people_per_dot
+
+    @people_per_dot.setter
+    def people_per_dot(self, value: int | float) -> None:
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+            or value <= 0
+        ):
+            raise ValueError(
+                f"people_per_dot must be a positive finite number, but found {value!r}."
+            )
+        self._people_per_dot = value
+
+    @deferred_axis_update
     def set_marker_options(
         self,
         marker_options: PointMarkerOptions | None = None,
@@ -350,7 +339,7 @@ class DotDensityPlot(GeoPlotBase):
             markeredgealpha (float | None, optional): Alpha transparency of the edges.
             markeredgewidth (float, optional): The width of the marker edges.
         """
-        # The dot-density global default: tiny black-edged dot.
+        # The dot-density global default: tiny edgeless dot.
         base = (
             marker_options
             if marker_options is not None
@@ -361,30 +350,34 @@ class DotDensityPlot(GeoPlotBase):
                 markeredgewidth=0.0,
             )
         )
-        resolved = PointMarkerOptions(
-            marker=marker if marker is not None else base.marker,
-            markersize=markersize if markersize is not None else base.markersize,
-            markeredgecolor=(
-                markeredgecolor if markeredgecolor is not None else base.markeredgecolor
-            ),
-            markeredgealpha=(
-                markeredgealpha if markeredgealpha is not None else base.markeredgealpha
-            ),
-            markeredgewidth=(
-                markeredgewidth if markeredgewidth is not None else base.markeredgewidth
+        merged = _replace_non_none(
+            base,
+            marker=marker,
+            markersize=markersize,
+            markeredgecolor=markeredgecolor,
+            markeredgewidth=markeredgewidth,
+        )
+        # An edge-color override without an alpha must not inherit the fully transparent
+        # alpha resolved from a base color of "none".
+        self._marker_options = dataclasses.replace(
+            merged,
+            markeredgealpha=_resolve_alpha_override(
+                markeredgecolor is not None,
+                markeredgealpha,
+                base.markeredgecolor,
+                base.markeredgealpha,
             ),
         )
-        # NOTE: The size of the markers is adjusted to work with ax.scatter in the
-        # `to_mpl_scatter_settings_dict` method of PointMarkerOptions.
-        self.__global_marker_settings_dict.update(resolved.to_mpl_scatter_settings_dict())
 
-    def add_dot_density(
+    @deferred_axis_update
+    def add_density_layer(
         self,
-        column_name: str,
+        column: str,
         color: Color,
-        force_new_dots: bool = False,
-        n_cores: int = -1,
-        n_chunks: int = 10,
+        *,
+        refresh_cache: bool = False,
+        n_jobs: int = -1,
+        n_chunks: int | np.integer = 10,
     ) -> None:
         """Add a dot density layer for a specific data column.
 
@@ -395,86 +388,113 @@ class DotDensityPlot(GeoPlotBase):
 
         The Point objects generated are cached in a temporary directory to speed up
         subsequent renderings. If the same column and color are requested again, the
-        cached dots will be used unless `force_new_dots` is set to True.
+        cached dots will be used unless `refresh_cache` is set to True.
 
         Args:
-            column_name (str): The name of the data column to visualize.
+            column (str): The name of the data column to visualize.
             color (Color): The color of the dots.
-            force_new_dots (bool, optional): If True, forces regeneration of dots even if cached.
+            refresh_cache (bool, optional): If True, forces regeneration of cached dots.
                 Defaults to False.
-            n_cores (int, optional): Number of CPU cores to use for processing when
+            n_jobs (int, optional): Number of parallel jobs to use for processing when
                 generating dots. Defaults to -1 which will use all available cores minus two.
             n_chunks (int, optional): Number of chunks used to split polygon processing work.
                 Defaults to ``10``.
         """
-        if column_name not in self.gdf.columns:
-            raise ValueError(f"Column '{column_name}' not found in GeoDataFrame.")
+        if column not in self.gdf.columns:
+            raise ValueError(f"Column '{column}' not found in GeoDataFrame.")
 
-        if any(self.gdf[column_name] < 0):
-            raise ValueError(f"Column '{column_name}' contains negative values.")
+        values = self.gdf[column]
+        if not is_numeric_dtype(values):
+            raise ValueError(f"Column '{column}' must be numeric to compute dot counts.")
 
-        if any(self.gdf[column_name].isna()):
-            raise ValueError(f"Column '{column_name}' contains NaN values.")
+        if any(values.isna()):
+            raise ValueError(f"Column '{column}' contains NaN values.")
 
-        color = to_hex(resolve_color_and_alpha(color)[0])
-        if self.__column_to_color_dict.get(column_name) == color and not force_new_dots:
+        if not np.isfinite(values).all():
+            raise ValueError(f"Column '{column}' contains infinite values.")
+
+        if any(values < 0):
+            raise ValueError(f"Column '{column}' contains negative values.")
+
+        resolved_color, resolved_alpha = resolve_color_and_alpha(color)
+        color = (
+            "none"
+            if resolved_color == "none"
+            else to_hex(
+                to_rgba(resolved_color, resolved_alpha),
+                keep_alpha=not math.isclose(resolved_alpha, 1.0),
+            )
+        )
+        existing = self._density_layers.get(column)
+        if existing is not None and existing.color == color and not refresh_cache:
             warn(
-                f"Dots for column '{column_name}' with the same color already exist. "
-                "Use 'force_new_dots=True' to recreate them.",
+                f"Dots for column '{column}' with the same color already exist. "
+                "Use 'refresh_cache=True' to recreate them.",
                 UserWarning,
                 stacklevel=1,
             )
             return
 
-        if (
-            column_name in self.__column_to_color_dict
-            and self.__column_to_color_dict[column_name] != color
-            and not force_new_dots
-        ):
-            warn(
-                f"Overwriting existing dots for column '{column_name}' with new color.",
-                UserWarning,
-                stacklevel=1,
+        insertion_index = (
+            existing.insertion_index if existing is not None else len(self._density_layers)
+        )
+        # Dots are positional and color-independent, so a new color just recolors the cached
+        # dots; the cache path is fixed when the layer is added.
+        if existing is not None and not refresh_cache:
+            cache_filepath = existing.cache_path
+            layer_people_per_dot = existing.people_per_dot
+        else:
+            cache_filepath = (
+                Path(self._temp_dir_name) / f"dots_{insertion_index}_ppd{self.people_per_dot}.npz"
             )
-            return
+            layer_people_per_dot = self.people_per_dot
+        record = _DensityLayerRecord(
+            column=column,
+            color=color,
+            cache_path=cache_filepath,
+            people_per_dot=layer_people_per_dot,
+            # Re-adding a column keeps its slot, so its sampling stream is unchanged.
+            insertion_index=insertion_index,
+            n_jobs=n_jobs,
+            n_chunks=n_chunks,
+        )
+        self._density_layers[column] = record
 
-        self.__column_to_color_dict[column_name] = color
+        if not cache_filepath.exists() or refresh_cache:
+            self._generate_layer_dots(record)
 
-        # now to create the dots and cache them
-        cache_filepath = (
-            Path(self.__temp_dir_name) / f"dots_{column_name}_ppd{self.people_per_dot}.npz"
+    def _generate_layer_dots(self, record: _DensityLayerRecord) -> None:
+        """Sample and cache dots for one density layer, in the current target CRS."""
+        if not self.silent:
+            print(f"Generating dots for column '{record.column}'.")
+
+        sample_gdf = _to_target_crs(self.gdf, self.target_crs)
+        xs, ys, polyids = _make_random_points(
+            gdf=sample_gdf.loc[:, [record.column, sample_gdf.geometry.name]],
+            people_per_dot=record.people_per_dot,
+            datacolumn_name=record.column,
+            rng=self._layer_rng(record),
+            n_jobs=record.n_jobs,
+            n_chunks=record.n_chunks,
         )
 
-        if not cache_filepath.exists() or force_new_dots:
-            if not self.silent:
-                print(f"Generating dots for column '{column_name}'.")
+        np.savez(record.cache_path, x=xs, y=ys, polyids=polyids)
 
-            xs, ys, polyids = _make_random_points(
-                gdf=self.gdf.loc[:, [column_name, "geometry"]],
-                people_per_dot=self.people_per_dot,
-                datacolumn_name=column_name,
-                color=color,
-                rng=self._rng,
-                n_jobs=n_cores,
-                n_chunks=n_chunks,
-            )
-
-            np.savez(cache_filepath, x=xs, y=ys, polyids=polyids)
-
-    def __draw_interleaved_scatter_blocks(
+    def _draw_interleaved_scatter_blocks(
         self,
         *,
-        layers_xy_polyid: list[tuple[NDArray, NDArray, NDArray]],
-        layer_colors: list[MplCompatibleColor],
-        block: int = 200_000,
+        layers_xy_polyid: list[tuple[np.ndarray, np.ndarray, np.ndarray]],
+        layer_colors: list[str],
     ) -> None:
         """Draw dots from all layers in interleaved blocks for visual mixing.
 
+        Consumes ``layers_xy_polyid``: the list is cleared once the arrays are concatenated
+        so the per-layer copies can be freed.
+
         Args:
-            layers_xy_polyid (list[tuple[NDArray, NDArray, NDArray]]): Per-layer dot data as
-                ``(x, y, polygon_id)`` arrays.
-            layer_colors (list[MplCompatibleColor]): Per-layer marker colors.
-            block (int, optional): Number of points per ``scatter`` call. Defaults to ``200_000``.
+            layers_xy_polyid (list[tuple[np.ndarray, np.ndarray, np.ndarray]]): Per-layer dot
+                data as ``(x, y, polygon_id)`` arrays.
+            layer_colors (list[str]): Per-layer marker colors.
 
         Returns:
             None
@@ -488,24 +508,33 @@ class DotDensityPlot(GeoPlotBase):
         layer_ids = np.concatenate(
             [np.full(len(x), i, dtype=np.int32) for i, (x, _, _) in enumerate(layers_xy_polyid)]
         )
+        # The concatenated arrays are the working set now; free the per-layer copies.
+        layers_xy_polyid.clear()
 
         palette = np.asarray(layer_colors, dtype=object)
-        random_priority = self._rng.random(size=len(xs_all))
+        # Reseeded from the seed root on every call, so a rebuild never reshuffles the
+        # visual interleaving (and never perturbs any other random stream).
+        interleave_rng = np.random.default_rng([zlib.crc32(b"interleave"), self._seed_root])
+        random_priority = interleave_rng.random(size=len(xs_all))
 
         # Randomize within each polygon: sort by (polyid, rnd)
         # Lexsort uses last key as primary sort key and avoids copying data
         order = np.lexsort((random_priority, polyid_all))
+        del random_priority, polyid_all
 
+        # Apply the permutation one array at a time so at most one extra full-length copy
+        # is live; each reassignment frees the unsorted original.
         xs_all = xs_all[order]
         ys_all = ys_all[order]
         layer_ids = layer_ids[order]
+        del order
 
         # Draw in blocks (keeps memory + scatter call size reasonable)
         n = len(xs_all)
-        marker_settings = self.__global_marker_settings_dict
+        marker_settings = self._marker_options.to_mpl_scatter_settings_dict()
 
-        for start in range(0, n, block):
-            end = min(n, start + block)
+        for start in range(0, n, _SCATTER_BLOCK):
+            end = min(n, start + _SCATTER_BLOCK)
             scatter_collection = self._ax.scatter(
                 xs_all[start:end],
                 ys_all[start:end],
@@ -519,155 +548,88 @@ class DotDensityPlot(GeoPlotBase):
             self._artists.track(scatter_collection)
 
     def _draw_all_dots(self) -> None:
-        """Draw all dot density layers on the plot."""
-        if len(self.__column_to_color_dict) == 0:
+        """Draw all dot density layers on the plot, regenerating any invalidated caches."""
+        if len(self._density_layers) == 0:
             return
         layers_xy_polyid = []
         colors = []
 
-        for column_name, color in self.__column_to_color_dict.items():
-            cache_filepath = (
-                Path(self.__temp_dir_name) / f"dots_{column_name}_ppd{self.people_per_dot}.npz"
-            )
-            np_data = np.load(cache_filepath)
-            x = np_data["x"]
-            y = np_data["y"]
-            polyids = np_data["polyids"]
-            layers_xy_polyid.append((x, y, polyids))
-            colors.append(color)
+        for record in self._density_layers.values():
+            if not record.cache_path.exists():
+                self._generate_layer_dots(record)
+            with np.load(record.cache_path) as np_data:
+                layers_xy_polyid.append((np_data["x"], np_data["y"], np_data["polyids"]))
+            colors.append(record.color)
 
         if not self.silent:
-            n_cols = len(self.__column_to_color_dict)
-            cols = list(self.__column_to_color_dict.keys())
+            columns = list(self._density_layers)
+            plural = "s" if len(columns) > 1 else ""
             print(
                 f"Rendering {sum(len(x) for x, _, _ in layers_xy_polyid):,} dots for "
-                f"column{'s' if n_cols > 1 else ''} '{cols}'..."
+                f"column{plural} '{', '.join(columns)}'..."
             )
-        self.__draw_interleaved_scatter_blocks(
-            layers_xy_polyid=layers_xy_polyid, layer_colors=colors, block=200_000
+        self._draw_interleaved_scatter_blocks(
+            layers_xy_polyid=layers_xy_polyid, layer_colors=colors
         )
 
-    def _draw_legend(self, **legend_kwargs: object) -> None:
-        """Draw the in-axes legend for currently configured dot-density layers.
+    def _dot_legend_handles(
+        self,
+        *,
+        display_names: dict[str, str] | None = None,
+        min_markersize: float | None = 6.0,
+    ) -> list[LegendHandle]:
+        """Build one legend handle per density layer.
 
         Args:
-            **legend_kwargs (object): Extra keyword arguments forwarded to
-                ``matplotlib.axes.Axes.legend``.
+            display_names (dict[str, str] | None, optional): Mapping from column names to
+                display names. Defaults to None.
+            min_markersize (float | None, optional): Lower bound for the legend glyph size in
+                points. Map dots are often well under a point wide, and a legend glyph that
+                small is invisible. Defaults to None.
 
         Returns:
-            None
+            list[LegendHandle]: One handle per density layer.
         """
-        if not self.show_legend or not self.__column_to_color_dict:
-            return
+        marker_settings = self._marker_options.to_mpl_scatter_settings_dict()
+        legend_marker_size = float(np.sqrt(marker_settings["s"]))
+        if min_markersize is not None:
+            legend_marker_size = max(legend_marker_size, min_markersize)
 
-        marker_settings = self.__global_marker_settings_dict
-
-        handles = [
+        return [
             Line2D(
                 [0],
                 [0],
-                label=label,
+                label=display_names.get(record.column, record.column)
+                if display_names is not None
+                else record.column,
                 linestyle="",
-                markerfacecolor=color,
+                markerfacecolor=record.color,
                 marker=marker_settings["marker"],
-                markersize=float(np.sqrt(marker_settings["s"])),
+                markersize=legend_marker_size,
                 markeredgecolor=marker_settings["edgecolor"],
                 markeredgewidth=marker_settings["linewidths"],
             )
-            for label, color in self.__column_to_color_dict.items()
+            for record in self._density_layers.values()
         ]
 
-        # Remove any prior gerrytools legend so we don't stack legend instances.
-        prior_legend = self._ax.get_legend()
-        if prior_legend is not None:
-            prior_legend.remove()
-        legend_options = self._legend_options.to_dict() | legend_kwargs
-        self._ax.legend(handles=handles, **legend_options)
-        new_legend = self._ax.get_legend()
-        if new_legend is not None:
-            self._artists.track(new_legend)
+    @property
+    def _legend_handles(self) -> list[LegendHandle]:
+        """One handle per density layer, with a readable minimum glyph size."""
+        return self._dot_legend_handles()
+
+    @property
+    def _legend_enabled(self) -> bool:
+        """Whether ``_apply_legend`` should place a legend; the mixin's enabled hook."""
+        return self._show_legend
+
+    def _apply_extra_units(self, external: set[Unit]) -> None:
+        super()._apply_extra_units(external)
+        self._apply_legend(external)
 
     def _build_plot(self) -> None:
         """Build the plot by rendering all layers and applying settings."""
         super()._build_plot()
         self._draw_all_dots()
-        self._draw_legend()
-
-    def _build_and_apply_settings(self) -> dict[str, Point]:
-        """Snapshot → remove gerrytools artists → rebuild → apply settings."""
-        before = self._axes_state.snapshot(self._ax)
-        external = self._axes_state.detect_external_changes(before)
-        self._artists.remove_all()
-        self._build_plot()
-        self._axes_state.restore_autoscale_protected(self._ax, before, external)
-        self._apply_axis_visibility(external)
-        self._apply_limits(external)
-        label_points = self._draw_deferred_labels()
-        return label_points
-
-    def set_legend_options(
-        self,
-        *,
-        loc: str | int = "center left",
-        bbox_to_anchor: tuple[float, float] | tuple[float, float, float, float] | None = (
-            1.01,
-            0.5,
-        ),
-        ncols: int = 1,
-        fontsize: float | str | None = None,
-        frameon: bool = True,
-        fancybox: bool = False,
-        shadow: bool = False,
-        framealpha: float | None = None,
-        facecolor: Color | None = None,
-        edgecolor: Color | None = None,
-        title: str | None = None,
-        alignment: Literal["center", "left", "right"] = "center",
-        labelspacing: float = 0.5,
-        columnspacing: float = 2.0,
-    ) -> None:
-        """Set legend options used by ``Axes.legend`` during plot build.
-
-        Args:
-            loc (str | int, optional): Matplotlib legend location. Defaults to
-                ``"center left"``.
-            bbox_to_anchor (tuple[float, float] | tuple[float, float, float, float] | None,
-                optional): Legend anchor box. Defaults to ``(1.01, 0.5)``.
-            ncols (int, optional): Number of legend columns. Defaults to ``1``.
-            fontsize (float | str | None, optional): Legend text size. Defaults to None.
-            frameon (bool, optional): Whether to draw the legend frame. Defaults to True.
-            fancybox (bool, optional): Whether to use a rounded frame. Defaults to False.
-            shadow (bool, optional): Whether to draw a shadow. Defaults to False.
-            framealpha (float | None, optional): Frame alpha override. Defaults to None.
-            facecolor (Color | None, optional): Frame face color. Defaults to None.
-            edgecolor (Color | None, optional): Frame edge color. Defaults to None.
-            title (str | None, optional): Legend title. Defaults to None.
-            alignment (Literal["center", "left", "right"], optional): Legend content
-                alignment. Defaults to ``"center"``.
-            labelspacing (float, optional): Vertical spacing between entries.
-                Defaults to ``0.5``.
-            columnspacing (float, optional): Horizontal spacing between columns.
-                Defaults to ``2.0``.
-
-        Returns:
-            None
-        """
-        self._legend_options = build_legend_options(
-            loc=loc,
-            bbox_to_anchor=bbox_to_anchor,
-            ncols=ncols,
-            fontsize=fontsize,
-            frameon=frameon,
-            fancybox=fancybox,
-            shadow=shadow,
-            framealpha=framealpha,
-            facecolor=facecolor,
-            edgecolor=edgecolor,
-            title=title,
-            alignment=alignment,
-            labelspacing=labelspacing,
-            columnspacing=columnspacing,
-        )
 
     def save_legend(
         self,
@@ -695,40 +657,14 @@ class DotDensityPlot(GeoPlotBase):
         Returns:
             None
         """
-
-        if not self.__column_to_color_dict:
-            print("No legend to save.")
+        if not self._density_layers:
+            logger.warning("No density layers have been added, so there is no legend to save.")
             return
 
-        marker_settings = self.__global_marker_settings_dict
-
-        column_to_color_dict = self.__column_to_color_dict
-        if display_names is not None:
-            column_to_color_dict = {
-                display_names.get(label, label): color
-                for label, color in self.__column_to_color_dict.items()
-            }
-
-        handles = [
-            Line2D(
-                [0],
-                [0],
-                label=label,
-                linestyle="",
-                markerfacecolor=color,
-                marker=marker_settings["marker"],
-                markersize=float(np.sqrt(marker_settings["s"])),
-                markeredgecolor=marker_settings["edgecolor"],
-                markeredgewidth=marker_settings["linewidths"],
-            )
-            for label, color in column_to_color_dict.items()
-        ]
-
-        save_legend_handles(
-            handles=handles,
-            legend_options=self._legend_options,
-            filepath=filepath,
+        self._save_legend_handles(
+            self._dot_legend_handles(display_names=display_names),
+            filepath,
             outer_padding=outer_padding,
-            dpi=dpi or self.fig.dpi,
+            dpi=dpi,
             **legend_kwargs,
         )

@@ -1,28 +1,24 @@
-"""Shared test helpers for the PaintBall test suite.
-
-Replaces per-file ``_simple_paintball`` helpers that previously lived
-duplicated across five test modules.
-"""
+"""Shared test helpers for the PaintballPlot test suite."""
 
 from __future__ import annotations
 
 from collections.abc import Iterable
 
-from gerrytools.plotting.data.paintball import PaintBall
+from gerrytools.plotting.data.paintball import PaintballPlot
 
 
 def simple_paintball(
-    voteshare_data: Iterable[float] | None = None,
+    vote_share_data: Iterable[float] | None = None,
     seats_data: Iterable[float] | None = None,
     *,
     add_efficiency_gap_line: bool = True,
     add_proportionality_line: bool = True,
     **constructor_kwargs,
-) -> PaintBall:
-    """Build a ``PaintBall`` with sensible defaults for tests.
+) -> PaintballPlot:
+    """Build a ``PaintballPlot`` with sensible defaults for tests.
 
     Args:
-        voteshare_data: Override the default vote-share values
+        vote_share_data: Override the default vote-share values
             (``[0.4, 0.5, 0.6]`` if omitted).
         seats_data: Override the default seat-share values
             (``[0.3, 0.5, 0.7]`` if omitted).
@@ -30,17 +26,17 @@ def simple_paintball(
             line after construction. Defaults to True.
         add_proportionality_line: Whether to add the proportionality guide
             line after construction. Defaults to True.
-        **constructor_kwargs: Forwarded to ``PaintBall(...)``.
+        **constructor_kwargs: Forwarded to ``PaintballPlot(...)``.
 
     Returns:
-        A configured ``PaintBall`` instance ready for further test setup.
+        A configured ``PaintballPlot`` instance ready for further test setup.
     """
-    if voteshare_data is None:
-        voteshare_data = [0.4, 0.5, 0.6]
+    if vote_share_data is None:
+        vote_share_data = [0.4, 0.5, 0.6]
     if seats_data is None:
         seats_data = [0.3, 0.5, 0.7]
-    plot = PaintBall(**constructor_kwargs)
-    plot.add_voteshare_seatshare_data(voteshare_data, seats_data)
+    plot = PaintballPlot(**constructor_kwargs)
+    plot.add_seats_votes_data(vote_share_data, seats_data)
     if add_efficiency_gap_line:
         plot.add_efficiency_gap_line()
     if add_proportionality_line:

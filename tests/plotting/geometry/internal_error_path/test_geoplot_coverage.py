@@ -4,25 +4,13 @@ matplotlib.use("Agg")
 
 import numpy as np
 import pytest
-from geopandas import GeoDataFrame
-from shapely.geometry import box
 
-from gerrytools.plotting.geometry.geoplot import GeoPlot, _ContinuousColorLayer
+from gerrytools.colors import resolve_color_and_alpha
+from gerrytools.plotting.geometry._labels import LabelOptions
+from gerrytools.plotting.geometry._layers import _ContinuousColorLayer
+from gerrytools.plotting.geometry.geoplot import GeoPlot
 from gerrytools.plotting.mpl.geoplot_options import ColorbarOptions
-
-
-def _rect_gdf_with_crs(crs="EPSG:4326"):
-    """Return a tiny 3-row GeoDataFrame of rectangles with the given CRS."""
-    geoms = [
-        box(0, 0, 1, 1),
-        box(1, 0, 2, 1),
-        box(0, 1, 1, 2),
-    ]
-    return GeoDataFrame(
-        {"value": [10.0, 20.0, 30.0], "category": ["A", "B", "A"]},
-        geometry=geoms,
-        crs=crs,
-    )
+from tests.plotting._typing_utils import as_any
 
 
 # ===========================
@@ -34,16 +22,16 @@ class TestContinuousColorLayerPostInit:
         with pytest.raises(TypeError, match="colormap.*must be a str or Colormap"):
             _ContinuousColorLayer(
                 geometry_source=testing_gdf,
-                datacolumn="tot_pop",
-                colormap={"A": "red"},  # ty: ignore [invalid-argument-type]
+                column="tot_pop",
+                colormap=as_any({"A": "red"}),
             )
 
     def test_missing_datacolumn_raises(self, testing_gdf):
-        """Missing datacolumn raises TypeError."""
-        with pytest.raises(TypeError, match="datacolumn.*must be set"):
+        """Missing column raises TypeError."""
+        with pytest.raises(TypeError, match="column.*must be set"):
             _ContinuousColorLayer(
                 geometry_source=testing_gdf,
-                datacolumn=None,
+                column=None,
                 colormap="viridis",
             )
 
@@ -58,7 +46,7 @@ class TestBinBoundariesError:
         """Calling _bin_boundaries with bins=None raises RuntimeError."""
         layer = _ContinuousColorLayer(
             geometry_source=testing_gdf,
-            datacolumn="tot_pop",
+            column="tot_pop",
             bins=None,
         )
         with pytest.raises(RuntimeError, match="_bin_boundaries"):
@@ -77,7 +65,7 @@ class TestContinuousLayerColormapObject:
 
         cmap = plt.get_cmap("viridis")
         plot = GeoPlot(testing_gdf, dpi=50, silent=True)
-        plot.add_choropleth_layer(datacolumn="tot_pop", colormap=cmap)
+        plot.add_choropleth_layer(column="tot_pop", colormap=cmap)
         plot.save(str(tmp_path / "colormap_obj.png"))
         assert (tmp_path / "colormap_obj.png").exists()
 
@@ -87,7 +75,7 @@ class TestColorMappingForBinsAlpha:
         """bins + facealpha triggers _color_mapping_for_bins alpha path."""
         plot = GeoPlot(testing_gdf, dpi=50, silent=True)
         plot.add_choropleth_layer(
-            datacolumn="tot_pop",
+            column="tot_pop",
             bins=4,
             facealpha=0.6,
             show_colorbar=True,
@@ -99,7 +87,7 @@ class TestColorMappingForBinsAlpha:
         """facealpha without bins and with colorbar triggers _with_alpha in _mappable."""
         plot = GeoPlot(testing_gdf, dpi=50, silent=True)
         plot.add_choropleth_layer(
-            datacolumn="tot_pop",
+            column="tot_pop",
             facealpha=0.5,
             bins=None,
             show_colorbar=True,
@@ -120,19 +108,9 @@ class TestContinuousColorSeriesBinPaths:
         gdf["pop_with_nan"] = gdf["tot_pop"].astype(float)
         gdf.loc[gdf.index[0], "pop_with_nan"] = np.nan
         plot = GeoPlot(gdf, dpi=50, silent=True)
-        plot.add_choropleth_layer(datacolumn="pop_with_nan", bins=4)
+        plot.add_choropleth_layer(column="pop_with_nan", bins=4)
         plot.save(str(tmp_path / "bins_nan.png"))
         assert (tmp_path / "bins_nan.png").exists()
-
-    def test_value_equals_upper_bound_gets_last_bin(self, testing_gdf):
-        """Value equal to upper_bound is assigned to the last bin."""
-        layer = _ContinuousColorLayer(
-            geometry_source=testing_gdf,
-            datacolumn="tot_pop",
-            bins=4,
-        )
-        cs = layer.color_series
-        assert len(cs) == len(testing_gdf)
 
     def test_value_below_lower_bound_gets_first_bin(self, testing_gdf):
         """Value below the bin lower bound gets index 0."""
@@ -141,22 +119,26 @@ class TestContinuousColorSeriesBinPaths:
         # Set vmin higher so values are below the first bin
         layer = _ContinuousColorLayer(
             geometry_source=gdf,
-            datacolumn="tot_pop",
+            column="tot_pop",
             bins=[min_val + 10000, min_val + 20000, min_val + 30000],
         )
         cs = layer.color_series
-        assert len(cs) == len(gdf)
+        boundaries = layer._bin_boundaries(*layer._effective_bounds(layer._data_series()))
+        _, colors = layer._color_mapping_for_bins(boundaries)
+        assert set(cs) == {resolve_color_and_alpha(colors[0])}
 
     def test_value_above_upper_bound_gets_last_bin(self, testing_gdf):
         """Value above the bin upper bound gets last bin index."""
         gdf = testing_gdf.copy()
         layer = _ContinuousColorLayer(
             geometry_source=gdf,
-            datacolumn="tot_pop",
+            column="tot_pop",
             bins=[0.0, 1.0, 2.0],  # All values above the last bin
         )
         cs = layer.color_series
-        assert len(cs) == len(gdf)
+        boundaries = layer._bin_boundaries(*layer._effective_bounds(layer._data_series()))
+        _, colors = layer._color_mapping_for_bins(boundaries)
+        assert set(cs) == {resolve_color_and_alpha(colors[-1])}
 
 
 # ===================
@@ -171,35 +153,30 @@ class TestContinuousLayerRender:
 
         layer = _ContinuousColorLayer(
             geometry_source=testing_gdf,
-            datacolumn="tot_pop",
+            column="tot_pop",
         )
         fig, ax = plt.subplots()
-        with pytest.raises(TypeError, match="Unknown keyword argument"):
-            layer.render(ax, bad_kwarg="oops")
+        with pytest.raises(TypeError, match="unexpected keyword argument"):
+            layer.render(ax, **as_any({"bad_kwarg": "oops"}))
         plt.close(fig)
 
     def test_render_missing_column_keyerror(self, testing_gdf):
         """Rendering with a column absent from geometry_source raises KeyError.
 
-        _ContinuousColorLayer.__post_init__ only checks datacolumn is not None,
-        not that the column actually exists in the GDF. So we can create a layer
-        with a nonexistent column and get a KeyError at render time.
+        _ContinuousColorLayer.__post_init__ only checks column is not None,
+        not that the column actually exists in the GDF, so the failure surfaces
+        as a KeyError at render time.
         """
         import matplotlib.pyplot as plt
 
-        try:
-            # init doesn't check column existence, only that it's not None
-            fake_layer = _ContinuousColorLayer(
-                geometry_source=testing_gdf,
-                datacolumn="__nonexistent_col__",
-            )
-            fig, ax = plt.subplots()
-            with pytest.raises(KeyError):
-                fake_layer.render(ax)
-            plt.close(fig)
-        except TypeError:
-            # If __post_init__ raised TypeError, that is also acceptable
-            pass
+        fake_layer = _ContinuousColorLayer(
+            geometry_source=testing_gdf,
+            column="__nonexistent_col__",
+        )
+        fig, ax = plt.subplots()
+        with pytest.raises(KeyError):
+            fake_layer.render(ax)
+        plt.close(fig)
 
 
 # ============================
@@ -209,12 +186,12 @@ class TestContinuousLayerRender:
 
 class TestAddDistrictingPlanLayerExtras:
     def test_add_plan_layer_with_geosource(self, testing_gdf, tmp_path):
-        """add_districting_plan_layer with explicit geosource uses that."""
+        """add_districting_plan_layer with explicit geo_source uses that."""
         plot = GeoPlot(testing_gdf, dpi=50, silent=True)
         subset = testing_gdf[testing_gdf["district"].isin([0, 1])].copy()
         plot.add_districting_plan_layer(
-            geosource=subset,
-            plancolumn="district",
+            geo_source=subset,
+            plan_column="district",
         )
         plot.save(str(tmp_path / "plan_geosource.png"))
         assert (tmp_path / "plan_geosource.png").exists()
@@ -223,9 +200,9 @@ class TestAddDistrictingPlanLayerExtras:
         """show_labels=True with exclude_labels excludes them."""
         plot = GeoPlot(testing_gdf, dpi=50, silent=True)
         plot.add_districting_plan_layer(
-            plancolumn="district",
+            plan_column="district",
             show_labels=True,
-            exclude_labels=[0, 1],
+            label_options=LabelOptions(exclude=[0, 1]),
         )
         plot.save(str(tmp_path / "plan_exclude_labels.png"))
         assert (tmp_path / "plan_exclude_labels.png").exists()
@@ -240,7 +217,7 @@ class TestClearColorbarsAndResetLayout:
     def test_clear_colorbars_called_on_rebuild(self, testing_gdf, tmp_path):
         """Building twice exercises cax.remove() in _clear_colorbars_and_reset_layout."""
         plot = GeoPlot(testing_gdf, dpi=50, silent=True)
-        plot.add_choropleth_layer(datacolumn="tot_pop", show_colorbar=True)
+        plot.add_choropleth_layer(column="tot_pop", show_colorbar=True)
         # First build creates the colorbar axes
         plot.save(str(tmp_path / "build1.png"))
         # Second build triggers _clear_colorbars_and_reset_layout with non-empty _colorbar_axes
@@ -252,7 +229,7 @@ class TestSetColorbarLayoutAllParams:
     def test_set_colorbar_layout_all_params(self, testing_gdf, tmp_path):
         """set_colorbar_layout with all params updates _colorbar_layout_options."""
         plot = GeoPlot(testing_gdf, dpi=50, silent=True)
-        plot.add_choropleth_layer(datacolumn="tot_pop", show_colorbar=True)
+        plot.add_choropleth_layer(column="tot_pop", show_colorbar=True)
         plot.set_colorbar_layout(
             outer_pad=0.01,
             inner_pad=0.01,
@@ -269,11 +246,19 @@ class TestSetColorbarLayoutAllParams:
 
 
 class TestColorbarOptions:
+    def test_force_ticklabels_require_force_ticks(self):
+        with pytest.raises(ValueError, match="requires force_ticks"):
+            ColorbarOptions(force_ticklabels=["low", "high"])
+
+    def test_force_ticks_and_labels_must_have_matching_lengths(self):
+        with pytest.raises(ValueError, match="same length"):
+            ColorbarOptions(force_ticks=[0, 1], force_ticklabels=["low"])
+
     def test_colorbar_with_custom_label(self, testing_gdf, tmp_path):
-        """colorbar_label override is used instead of datacolumn."""
+        """colorbar_label override is used instead of column."""
         plot = GeoPlot(testing_gdf, dpi=50, silent=True)
         plot.add_choropleth_layer(
-            datacolumn="tot_pop",
+            column="tot_pop",
             show_colorbar=True,
             colorbar_label="Population",
         )
@@ -285,7 +270,7 @@ class TestColorbarOptions:
         cb_options = ColorbarOptions(label_fontsize=10, label_rotation=90, label_pad=5.0)
         plot = GeoPlot(testing_gdf, dpi=50, silent=True)
         plot.add_choropleth_layer(
-            datacolumn="tot_pop",
+            column="tot_pop",
             show_colorbar=True,
             colorbar_options=cb_options,
         )
@@ -297,7 +282,7 @@ class TestColorbarOptions:
         cb_options = ColorbarOptions(force_ticks=[1000, 3000, 5000])
         plot = GeoPlot(testing_gdf, dpi=50, silent=True)
         plot.add_choropleth_layer(
-            datacolumn="tot_pop",
+            column="tot_pop",
             show_colorbar=True,
             colorbar_options=cb_options,
         )
@@ -312,7 +297,7 @@ class TestColorbarOptions:
         )
         plot = GeoPlot(testing_gdf, dpi=50, silent=True)
         plot.add_choropleth_layer(
-            datacolumn="tot_pop",
+            column="tot_pop",
             show_colorbar=True,
             colorbar_options=cb_options,
         )
@@ -324,25 +309,53 @@ class TestColorbarOptions:
         cb_options = ColorbarOptions(max_n_ticks=3)
         plot = GeoPlot(testing_gdf, dpi=50, silent=True)
         plot.add_choropleth_layer(
-            datacolumn="tot_pop",
+            column="tot_pop",
             show_colorbar=True,
             colorbar_options=cb_options,
         )
         plot.save(str(tmp_path / "colorbar_max_ticks.png"))
         assert (tmp_path / "colorbar_max_ticks.png").exists()
 
+    def test_max_n_ticks_never_exceeded(self, testing_gdf):
+        """The kept tick count must never exceed max_n_ticks (floor-step regression)."""
+        cb_options = ColorbarOptions(max_n_ticks=4)
+        plot = GeoPlot(testing_gdf, dpi=50, silent=True)
+        # bins=8 yields 9 edge ticks; the old floor step kept 5 of them.
+        plot.add_choropleth_layer(
+            column="tot_pop",
+            bins=8,
+            show_colorbar=True,
+            colorbar_options=cb_options,
+        )
+        plot.ax.figure.canvas.draw()
+        assert len(plot._colorbar_axes[0].get_yticks()) <= 4
+
+    @pytest.mark.parametrize("max_n_ticks", [0, -1, 1.5, True])
+    def test_max_n_ticks_must_be_a_positive_integer(self, max_n_ticks):
+        with pytest.raises(ValueError, match="max_n_ticks must be a positive integer"):
+            ColorbarOptions(max_n_ticks=as_any(max_n_ticks))
+
+    def test_partial_label_options_preserve_vertical_rotation(self, testing_gdf):
+        """Setting only label_fontsize must not reset the vertical label's rotation to 0."""
+        cb_options = ColorbarOptions(label_fontsize=10)
+        plot = GeoPlot(testing_gdf, dpi=50, silent=True)
+        plot.add_choropleth_layer(
+            column="tot_pop",
+            show_colorbar=True,
+            colorbar_options=cb_options,
+        )
+        plot.ax.figure.canvas.draw()
+        colorbar_label = plot._colorbar_axes[0].yaxis.label
+        assert colorbar_label.get_fontsize() == 10
+        assert colorbar_label.get_rotation() == 90.0
+
     def test_colorbar_bins_with_ticks(self, testing_gdf, tmp_path):
         """Bins path with colorbar uses ticks from layer_defaults."""
         plot = GeoPlot(testing_gdf, dpi=50, silent=True)
         plot.add_choropleth_layer(
-            datacolumn="tot_pop",
+            column="tot_pop",
             bins=4,
             show_colorbar=True,
         )
         plot.save(str(tmp_path / "colorbar_bins_ticks.png"))
         assert (tmp_path / "colorbar_bins_ticks.png").exists()
-
-
-# ===========================
-# == RANDOM POINTS IN POLY ==
-# ===========================

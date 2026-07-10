@@ -1,10 +1,20 @@
 import seaborn as sns
 
 
+def _seaborn_palette(
+    name: str, n: int, *, reverse: bool = False
+) -> list[tuple[float, float, float]]:
+    """One validated core for the seaborn palette wrappers below."""
+    if n <= 0:
+        raise ValueError("n must be a positive integer")
+    colors = list(sns.color_palette(name, n_colors=n))
+    return list(reversed(colors)) if reverse else colors
+
+
 def redbluecmap(n: int) -> list[tuple[float, float, float]]:
     """
-    Generates a red/white/blue color palette in `n` colors, using the
-    `bwr` diverging colormap (reversed, so red comes first) from seaborn.
+    Generates a red/white/blue color palette in `n` colors, using the `bwr` diverging colormap
+    (reversed, so red comes first) from seaborn.
 
     Args:
         n (int): The number of colors to generate.
@@ -12,16 +22,13 @@ def redbluecmap(n: int) -> list[tuple[float, float, float]]:
     Returns:
         List of RGB triples (each in [0, 1]).
     """
-    if n <= 0:
-        raise ValueError("n must be a positive integer")
-    colors = list(reversed(sns.color_palette("bwr", n_colors=n)))
-    return colors
+    return _seaborn_palette("bwr", n, reverse=True)
 
 
 def greenpurplecmap(n: int) -> list[tuple[float, float, float]]:
     """
-    Generates a green/white/purple color palette in `n` colors, using the
-    `PRGn` diverging colormap (reversed, so green comes first) from seaborn.
+    Generates a green/white/purple color palette in `n` colors, using the `PRGn` diverging colormap
+    (reversed, so green comes first) from seaborn.
 
     Args:
         n (int): The number of colors to generate.
@@ -29,23 +36,18 @@ def greenpurplecmap(n: int) -> list[tuple[float, float, float]]:
     Returns:
         List of RGB triples (each in [0, 1]).
     """
-    if n <= 0:
-        raise ValueError("n must be a positive integer")
-    colors = list(reversed(sns.color_palette("PRGn", n_colors=n)))
+    colors = _seaborn_palette("PRGn", n, reverse=True)
 
-    # Make the grey color in the middle more white.
+    # Use a consistent light neutral midpoint.
     if n % 2 == 1:
-        mid = n // 2
-        colors = list(colors)
-        colors[mid] = (240 / 255, 240 / 255, 240 / 255)
+        colors[n // 2] = (240 / 255, 240 / 255, 240 / 255)
 
     return colors
 
 
 def flare(n: int) -> list[tuple[float, float, float]]:
     """
-    Generates a red-to-purple color palette in `n` colors, using the
-    `flare` colormap from seaborn.
+    Generates a red-to-purple color palette in `n` colors, using the `flare` colormap from seaborn.
 
     Args:
         n (int): Number of colors to generate.
@@ -53,13 +55,12 @@ def flare(n: int) -> list[tuple[float, float, float]]:
     Returns:
         List of RGB triples (each in [0, 1]).
     """
-    return list(sns.color_palette("flare", as_cmap=False, n_colors=n))
+    return _seaborn_palette("flare", n)
 
 
 def purples(n: int) -> list[tuple[float, float, float]]:
     """
-    Generates a list of `n` shades of purple based on the `Purples`
-    Matplotlib/seaborn colormap.
+    Generates a list of `n` shades of purple based on the `Purples` Matplotlib/seaborn colormap.
 
     Args:
         n (int): Number of colors to generate.
@@ -67,13 +68,12 @@ def purples(n: int) -> list[tuple[float, float, float]]:
     Returns:
         List of RGB triples (each in [0, 1]).
     """
-    return list(sns.color_palette("Purples", as_cmap=False, n_colors=n))
+    return _seaborn_palette("Purples", n)
 
 
 def greens(n: int) -> list[tuple[float, float, float]]:
     """
-    Generates a list of `n` shades of green based on the `Greens`
-    Matplotlib/seaborn colormap.
+    Generates a list of `n` shades of green based on the `Greens` Matplotlib/seaborn colormap.
 
     Args:
         n (int): Number of colors to generate.
@@ -81,4 +81,4 @@ def greens(n: int) -> list[tuple[float, float, float]]:
     Returns:
         List of RGB triples (each in [0, 1]).
     """
-    return list(sns.color_palette("Greens", as_cmap=False, n_colors=n))
+    return _seaborn_palette("Greens", n)

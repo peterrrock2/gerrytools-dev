@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from numbers import Integral
 from typing import Literal
 
 
@@ -31,7 +32,6 @@ class ColorbarOptions:
         orientation (Literal["vertical", "horizontal"]): Orientation of the colorbar.
         extend (Literal["neither", "both", "min", "max"]): Extension style for the colorbar.
         format (str | None): Format string for colorbar tick labels.
-        fraction (float | None): Fraction of original size for colorbar.
         shrink (float | None): Shrink factor for colorbar.
         aspect (float | None): Aspect ratio for colorbar.
         force_ticks (list[float] | None): Explicit tick locations for the colorbar.
@@ -52,7 +52,6 @@ class ColorbarOptions:
     orientation: Literal["vertical", "horizontal"] = "vertical"
     extend: Literal["neither", "both", "min", "max"] = "neither"
     format: str | None = None  # e.g. ".2f"
-    fraction: float | None = None  # rarely needed when using cax
     shrink: float | None = None  # rarely needed when using cax
     aspect: float | None = None  # rarely needed when using cax
 
@@ -60,3 +59,21 @@ class ColorbarOptions:
     force_ticks: list[float] | None = None
     force_ticklabels: list[str] | None = None
     max_n_ticks: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.max_n_ticks is not None:
+            if (
+                isinstance(self.max_n_ticks, bool)
+                or not isinstance(self.max_n_ticks, Integral)
+                or self.max_n_ticks < 1
+            ):
+                raise ValueError("max_n_ticks must be a positive integer.")
+            self.max_n_ticks = int(self.max_n_ticks)
+        if self.force_ticklabels is not None and self.force_ticks is None:
+            raise ValueError("force_ticklabels requires force_ticks.")
+        if (
+            self.force_ticklabels is not None
+            and self.force_ticks is not None
+            and len(self.force_ticklabels) != len(self.force_ticks)
+        ):
+            raise ValueError("force_ticklabels and force_ticks must have the same length.")

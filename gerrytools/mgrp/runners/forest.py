@@ -1,55 +1,111 @@
-import os
-from dataclasses import dataclass, field
+from collections.abc import Callable
+from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Callable, Dict, Optional
+from typing import ClassVar, Literal, get_args
 
-from .. import RunnerConfig
+from ..constraints import ConstraintsLike, ConstraintSpec, constraint_specs
+from ..run_config import (
+    NOT_ENGINE_CONFIG,
+    EngineRunConfig,
+    build_run_config,
+    check_boolean,
+    check_finite_nonnegative,
+    check_finite_number,
+    check_integer,
+    check_nonempty_string,
+    check_positive_int,
+    check_string_list,
+    dataclass_config,
+)
+from ..run_container import RunInfo, RunnerConfig
+
+ForestWriter = Literal["jsonl", "ben", "raw"]
+"""A forest output writer: standard JSONL, BEN, or the engine's raw atlas output."""
 
 
 @dataclass
-class ForestRunInfo:
+class ForestRunInfo(RunInfo):
     """
     Represents all of the settings that can be passed to the Multi Scale
     Map Sampler (MSMS) Julia code.
     """
 
-    region_name: str
-    """The name of the greater region to be used in the MSMS algorithm"""
-    subregion_name: str
-    """The name of the subregion to be used in the MSMS algorithm."""
+    levels: list[str]
+    """The hierarchy level column names, coarsest first (e.g. ``["county", "precinct"]``).
+        MSMS accepts any number of levels; a single-entry list runs a flat (one-level)
+        chain."""
     pop_col: str
     """The name of the column in the dual graph JSON file that contains the population data."""
     num_dists: int = 2
     """The number of districts that the dual graph should be partitioned into."""
     pop_dev: float = 0.1
     """The maximum allowable population deviation between the districts."""
+    constraints: ConstraintsLike = field(default=None, metadata=NOT_ENGINE_CONFIG)
+    """Constraints for the run, as a Constraints builder (see
+        gerrytools.mgrp.Constraints). The forest runner supports pack_nodes,
+        max_coarse_node_splits, allowed_excess_dists_in_coarse_nodes, and
+        max_discontinuous_traversal_segments."""
     gamma: float = 0.0
     """The gamma value to be used in the MSMS code."""
     n_steps: int = 10
     """The number of steps that the MSMS code should run for."""
     rng_seed: int = 42
     """The random seed to be used in the MSMS code."""
-    output_file_name: Optional[str] = None
+    output_file_name: str | None = field(default=None, metadata=NOT_ENGINE_CONFIG)
     """The name of the output file that the MSMS code should write to. If None, then the
         output file name will be determined according to a set of heuristics."""
-    standard_jsonl: bool = True
-    """Whether or not the output should be in the standard JSONL format."""
-    ben: bool = False
-    """Whether or not the output should be in the BEN format. Overrides standard_jsonl."""
-    force_print: bool = False
+    writer: ForestWriter = field(default="jsonl", metadata=NOT_ENGINE_CONFIG)
+    """The output writer: standard ``"jsonl"``, ``"ben"``, or the engine's ``"raw"``
+        atlas output (which skips the parser stage)."""
+    force_print: bool = field(default=False, metadata=NOT_ENGINE_CONFIG)
     """Whether or not the output should be printed to the console. This will overwrite the
         output_file_name attribute."""
-    updaters: Dict[str, Callable] = field(default_factory=dict)
+    updaters: dict[str, Callable] = field(default_factory=dict, metadata=NOT_ENGINE_CONFIG)
     """A dictionary of updaters that should be used when running the chain using the
         mcmc_run_with_updaters method."""
 
+    @property
+    def resolved_constraints(self) -> list[ConstraintSpec]:
+        """The normalized constraint specs derived from the current ``constraints``."""
+        return constraint_specs(self.constraints, "forest")
 
-class ForestRunnerConfig(RunnerConfig):
+    def __post_init__(self):
+        self.validate()
+
+    def validate(self) -> None:
+        """Validate current settings before construction or config emission."""
+        check_string_list("levels", self.levels)
+        if not self.levels:
+            raise ValueError(
+                "levels must be a non-empty list of column names, coarsest first, "
+                f"e.g. ['county', 'precinct']; got {self.levels!r}."
+            )
+        check_nonempty_string("pop_col", self.pop_col)
+        if self.writer not in get_args(ForestWriter):
+            raise ValueError(
+                f"Unknown writer {self.writer!r}. Choose one of: "
+                f"{', '.join(get_args(ForestWriter))}."
+            )
+        check_positive_int("num_dists", self.num_dists)
+        check_positive_int("n_steps", self.n_steps)
+        check_finite_nonnegative("pop_dev", self.pop_dev)
+        check_finite_number("gamma", self.gamma)
+        check_integer("rng_seed", self.rng_seed)
+        check_boolean("force_print", self.force_print)
+        self.validate_force_print(self.writer, self.force_print)
+        # Eager validation; the property recomputes from the live ``constraints`` on access.
+        _ = self.resolved_constraints
+
+
+class ForestRunnerConfig(RunnerConfig[ForestRunInfo]):
     """
-    Represents the configuration for a ForestReplicator which is used to
+    Represents the configuration for a RunContainer which is used to
     run the Multi-Scale Map Sampler (MSMS) algorithm on a dual graph
-    within the docker contianer.
+    within the docker container.
     """
+
+    parser_name: ClassVar[str | None] = "msms_parser"
+    run_info_type = ForestRunInfo
 
     def __init__(
         self,
@@ -68,100 +124,90 @@ class ForestRunnerConfig(RunnerConfig):
             log_folder (str): The directory where the log files should be written
                     to. Defaults to "./logs".
         """
-        self.json_dir = Path(json_file_path).parent
-        self.json_name = Path(json_file_path).name
-        json_name_without_extension = os.path.splitext(self.json_name)[0]
-        self.output_folder = os.path.join(output_folder, json_name_without_extension)
-        self.log_folder = os.path.abspath(log_folder)
+        super().__init__("forest", json_file_path, output_folder, log_folder)
 
-    def configure_vols_and_name(self):
+    def run_command(self, run_info: ForestRunInfo) -> list:
+        """Return the command for a Forest run.
+
+        The template is a code constant (see ``RunnerConfig._shell_command`` for the
+        config-as-``$1`` transport); the jsonl and ben writers pipe the engine's raw
+        atlas output through the parser stage.
+
+        Raises:
+            TypeError: If ``run_info`` is not exactly a ForestRunInfo.
         """
-        Configures the volumes and name for the docker container that will be
-        used to run the MSMS algorithm.
-        """
-
-        current_directory = os.getcwd()
-
-        volumes = {
-            current_directory: {"bind": "/home/forest/runner", "mode": "rw"},
-            os.path.abspath(self.json_dir): {
-                "bind": "/home/forest/shapefiles",
-                "mode": "rw",
-            },
-            os.path.abspath(self.output_folder): {
-                "bind": f"/home/forest/output/{self.json_name[:-5]}",
-                "mode": "rw",
-            },
-        }
-
-        return {
-            "name": f"forest_runner",
-            "volumes": volumes,
-        }
-
-    def run_command(self, run_info: ForestRunInfo):
-        """
-        Constructs the command that will be used to run the MSMS algorithm in the
-        docker container.
-
-        Args:
-            run_info (ForestRunInfo): The settings that should be passed to the
-                MSMS algorithm.
-
-        Returns:
-            List[str]: The command that will be passed to docker.exec_create to run the
-                MSMS algorithm.
-        """
-
-        # Make sure that the julia project is set before running any of the julia stuff
-        julia_cmd = 'export JULIA_PROJECT="/home/forest"; /usr/bin/time -v julia /home/forest/cli/multi_cli.jl'
-
-        # Process the output and log data
-        julia_cmd += " --input-file-name /home/forest/shapefiles/" + str(self.json_name)
-
-        # Process the Run data
-        julia_cmd += " --rng-seed " + str(run_info.rng_seed)
-        julia_cmd += " --region-name " + str(run_info.region_name)
-        julia_cmd += " --subregion-name " + str(run_info.subregion_name)
-        julia_cmd += " --pop-name " + str(run_info.pop_col)
-        julia_cmd += " --num-dists " + str(run_info.num_dists)
-        julia_cmd += " --pop-dev " + str(run_info.pop_dev)
-        julia_cmd += " --gamma " + str(run_info.gamma)
-        julia_cmd += " --steps " + str(run_info.n_steps)
-
-        if run_info.output_file_name is not None:
-            output_file_name = run_info.output_file_name
-        else:
-            output_file_name = (
-                f"{run_info.rng_seed}_atlas_gamma{run_info.gamma}_{run_info.n_steps}.jsonl"
-            )
-
-        if run_info.ben:
-            julia_cmd += f" | msms_parser -g /home/forest/shapefiles/{self.json_name} -r {run_info.region_name} -s {run_info.subregion_name} --ben"
-            if not run_info.force_print:
-                julia_cmd += (
-                    " -o /home/forest/output/{self.json_name[:-5]}/{output_file_name}.ben -w"
-                )
-        elif run_info.standard_jsonl:
-            julia_cmd += f" | msms_parser -g /home/forest/shapefiles/{self.json_name} -r {run_info.region_name} -s {run_info.subregion_name}"
-            if not run_info.force_print:
-                julia_cmd += f" -o /home/forest/output/{self.json_name[:-5]}/{output_file_name} -w"
-        elif not run_info.force_print:
-            julia_cmd += f" --output-file-name /home/forest/output/{output_file_name}"
-
-        return ["sh", "-c", julia_cmd]
-
-    def log_file(self, run_info: ForestRunInfo):
-        """
-        Constructs the name of the log file that will be written to when the MSMS
-        algorithm is run. This is used to store the output of stderr in the event
-        that the MSMS algorithm fails.
-        """
-        log_file_dir = self.log_folder + f"/{self.json_name[:-5]}"
-        log_file_name = (
-            f"Forest_{run_info.rng_seed}_atlas_gamma{run_info.gamma}_{run_info.n_steps}.log"
+        self._check_run_info(run_info)
+        template = (
+            'export JULIA_PROJECT="/home/forest"; '
+            '/usr/bin/time -v julia /home/forest/cli/multi_cli.jl --config "$1"'
+        )
+        return self._shell_command(
+            template,
+            self.run_config(run_info),
+            with_parser=run_info.writer in ("jsonl", "ben"),
         )
 
-        os.makedirs(log_file_dir, exist_ok=True)
+    def run_config(self, run_info: ForestRunInfo) -> EngineRunConfig:
+        """Return the complete effective configuration for a Forest run.
 
-        return f"{log_file_dir}/{log_file_name}"
+        Raises:
+            TypeError: If ``run_info`` is not exactly a ForestRunInfo.
+        """
+        self._check_run_info(run_info)
+        return self._config_document(run_info, self._output_name(run_info))
+
+    def _base_config(self, run_info: ForestRunInfo) -> EngineRunConfig:
+        """The config document with hash-free names, hashed into ``file_stem``."""
+        output_name = self._writer_output_name(
+            self._stem(run_info),
+            run_info.writer,
+            run_info.output_file_name,
+            force_print=run_info.force_print,
+        )
+        return self._config_document(run_info, output_name)
+
+    def _config_document(self, run_info: ForestRunInfo, output_name: str | None) -> EngineRunConfig:
+        """The effective config, naming the container-side output ``output_name``."""
+        run = dataclass_config(run_info)
+        run.update(edge_weights="connections", output_freq=1)
+
+        output = None if output_name is None else f"{self.container_output_dir}/{output_name}"
+        return build_run_config(
+            "forest",
+            io={
+                "graph": self.container_graph_path,
+                "output": output,
+                "writer": run_info.writer,
+            },
+            run=run,
+            constraints=run_info.resolved_constraints,
+        )
+
+    def canonical_stdout_command(self, run_info: ForestRunInfo) -> list:
+        """The run command with standard JSONL assignment output forced to stdout."""
+        self._check_run_info(run_info)
+        return self.run_command(replace(run_info, writer="jsonl", force_print=True))
+
+    def _stem(self, run_info: ForestRunInfo) -> str:
+        """The human-readable stem derived from the run's headline settings."""
+        return f"Forest_{run_info.rng_seed}_atlas_gamma{run_info.gamma}_{run_info.n_steps}"
+
+    def _output_name(self, run_info: ForestRunInfo) -> str | None:
+        """
+        The name of the file the run will produce, or None when the output is
+        printed to stdout instead.
+        """
+        return self._writer_output_name(
+            self.file_stem(run_info),
+            run_info.writer,
+            run_info.output_file_name,
+            force_print=run_info.force_print,
+        )
+
+    def expected_files(self, run_info: ForestRunInfo) -> list[str]:
+        """Include provenance alongside every file output."""
+        expected = super().expected_files(run_info)
+        if expected:
+            output = Path(expected[0])
+            expected.append(str(output.with_name(f"{output.stem}_metadata.jsonl")))
+        return expected

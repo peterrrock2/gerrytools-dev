@@ -1,13 +1,21 @@
 from __future__ import annotations
 
+import re
 from warnings import warn
 
-from gerrytools.colors._regex import VALID_COLOR_HEX_RE
-from gerrytools.colors._sources import _resolve_named_color
+from gerrytools.colors._sources import get_named_color
+
+VALID_COLOR_HEX_RE = re.compile(
+    r"^#?(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+)
+"""Matches 3/4/6/8-digit hex color strings, with or without a leading ``#``."""
 
 
-def _norm_hex(s: str) -> str:
+def normalize_hex_color(s: str) -> str:
     """Normalize a hex color string to 6-digit lowercase form "#rrggbb".
+
+    Canonical hex normalizer: accepts 3/4/6/8-digit forms (with or without a leading ``#``),
+    expanding shorthand and warning when an alpha channel is dropped.
 
     Args:
         s (str): A hex color string.
@@ -34,15 +42,16 @@ def _norm_hex(s: str) -> str:
     return s.lower()
 
 
-def _hex_to_rgb(hex6: str) -> tuple[int, int, int]:
-    """Convert a 6-digit hex color string to an RGB tuple.
+def hex_to_rgb(hex6: str) -> tuple[int, int, int]:
+    """Convert a 6-digit hex color string to an RGB tuple of 0-255 integers.
 
     Args:
-        hex6 (str): A hex color string in the form "#RRGGBB
+        hex6 (str): A hex color string in the form "#RRGGBB" (the leading ``#`` is optional).
+
     Returns:
         tuple[int, int, int]: A tuple of (R, G, B) values.
     """
-    hex6 = _norm_hex(hex6)
+    hex6 = normalize_hex_color(hex6)
     return (int(hex6[1:3], 16), int(hex6[3:5], 16), int(hex6[5:7], 16))
 
 
@@ -65,7 +74,6 @@ def _rgb_to_hex(rgb: tuple[int | float, int | float, int | float]) -> str:
 def _xcolor_mix_hex(hex_colors_list: list[str], percentages_list: list[float | int]) -> str:
     """Allows for mixing of two hex colors according to xcolor semantics.
 
-
     See page 44 of the xcolor manual for details:
         https://ctan.math.washington.edu/tex-archive/macros/latex/contrib/xcolor/xcolor.pdf
 
@@ -83,26 +91,65 @@ def _xcolor_mix_hex(hex_colors_list: list[str], percentages_list: list[float | i
             f"{len(percentages_list)} percentages."
         )
 
-    r, g, b = _hex_to_rgb(hex_colors_list[0])
+    r, g, b = hex_to_rgb(hex_colors_list[0])
 
     for color, percent in zip(hex_colors_list[1:], percentages_list):
         p = percent / 100.0
-        r_mix, g_mix, b_mix = _hex_to_rgb(color)
+        r_mix, g_mix, b_mix = hex_to_rgb(color)
         r = p * r + (1 - p) * r_mix
         g = p * g + (1 - p) * g_mix
         b = p * b + (1 - p) * b_mix
     return _rgb_to_hex((r, g, b))
 
 
+def tokenize_xcolor_expression(expression: str) -> tuple[list[str], list[float]]:
+    """Split an xcolor mix expression into its color-name and percentage tokens.
+
+    The grammar is names at even positions and percentages at odd positions:
+    ``"name"``, ``"name!p"``, ``"name!p!other"``, and longer left-folded expressions such as
+    ``"name!p!other!q!third"``. An even token count means the expression ends on a percentage,
+    which xcolor treats as shorthand for mixing toward white; callers detect that case via
+    ``len(names) == len(percents)``.
+
+    Args:
+        expression (str): The xcolor expression (e.g., ``"amber!10!denim"``).
+
+    Returns:
+        tuple[list[str], list[float]]: The color-name tokens and the percentage values, in order.
+
+    Raises:
+        ValueError: If the expression is empty, has an empty segment between ``!`` separators
+            (e.g. ``"red!!50"``), or a percentage is non-numeric or outside ``[0, 100]``.
+    """
+    tokens = [token.strip() for token in expression.strip().split("!")]
+    if tokens == [""]:
+        raise ValueError("Empty color expression.")
+    if any(not token for token in tokens):
+        raise ValueError(
+            f"Malformed xcolor expression {expression!r}: empty segment between '!' separators."
+        )
+
+    names = tokens[::2]
+    percents: list[float] = []
+    for token in tokens[1::2]:
+        try:
+            percent = float(token)
+        except ValueError:
+            raise ValueError(
+                f"Malformed xcolor expression {expression!r}: {token!r} is not a percentage."
+            ) from None
+        if not 0.0 <= percent <= 100.0:
+            raise ValueError(f"Percentages must be in [0,100]; got {percent} in {expression!r}.")
+        percents.append(percent)
+    return names, percents
+
+
 def get_color_from_latex_string(latex_color_string: str) -> str:
     """Resolve an xcolor-style mix expression into a hex color.
 
-    Supported forms:
-      - "name"                   (just a color name)
-      - "name!p"                 == "name!p!white"
-      - "name!p!other"
-      - "name!p!other!q!third"   left-folded: ((name!p!other)!q!third)
-      etc.
+    Supported forms include ``"name"``, ``"name!p"``, ``"name!p!other"``, and longer left-folded
+    expressions such as ``"name!p!other!q!third"``. The two-part form ``"name!p"`` is equivalent to
+    ``"name!p!white"``.
 
     Args:
         latex_color_string (str): The xcolor expression (e.g., "amber!10!denim").
@@ -110,31 +157,14 @@ def get_color_from_latex_string(latex_color_string: str) -> str:
     Returns:
         str: The resulting hex color string, in the form "#RRGGBB"
     """
+    names, percents = tokenize_xcolor_expression(latex_color_string)
+    hex_colors = [normalize_hex_color(get_named_color(name)) for name in names]
 
-    def resolve_color_name_to_hex(name: str) -> str:
-        return _norm_hex(_resolve_named_color(name.strip()))
+    if not percents:
+        return hex_colors[0]
 
-    tokens = [t.strip() for t in latex_color_string.strip().split("!") if t.strip()]
+    # An even token count ends on a percentage: xcolor's shorthand for mixing toward white.
+    if len(hex_colors) == len(percents):
+        hex_colors.append("#ffffff")
 
-    if not tokens:
-        raise ValueError("Empty color expression.")
-
-    if len(tokens) == 1:
-        return resolve_color_name_to_hex(tokens[0])
-
-    raw_color_tokens = tokens[::2]
-    color_tokens = list(map(resolve_color_name_to_hex, raw_color_tokens))
-    pct_tokens = list(map(float, tokens[1::2]))
-    if not all(0.0 <= p <= 100.0 for p in pct_tokens):
-        raise ValueError(
-            f"Percentages must be in [0,100], interpreted the following percentages: "
-            f"{pct_tokens} in {latex_color_string!r}"
-        )
-
-    if tokens[-1] != raw_color_tokens[-1]:
-        color_tokens.append("#ffffff")
-
-    assert len(color_tokens) == len(pct_tokens) + 1
-
-    ret = _xcolor_mix_hex(color_tokens, pct_tokens)
-    return ret
+    return _xcolor_mix_hex(hex_colors, percents)

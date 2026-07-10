@@ -111,7 +111,6 @@ def _parse_tabular_preamble(fmt: str) -> tuple[list[str], list[int], list[str]]:
         if i >= n:
             break
 
-        start_i = i
         ch = fmt[i]
 
         if ch in "{}[]":
@@ -166,20 +165,13 @@ def _parse_tabular_preamble(fmt: str) -> tuple[list[str], list[int], list[str]]:
             continue
 
         if ch in simple_cols:
-            while True:
-                i = skip_ws(i)
-                if i >= n:
-                    break
-                if fmt[i] in simple_cols:
-                    colspecs.append(fmt[i])
-                    vrules.append(0)
-                    extras.append("")
-                    i += 1
-                    continue
-                break
+            colspecs.append(ch)
+            vrules.append(0)
+            extras.append("")
+            i += 1
             continue
 
-        if i == start_i:
-            raise ValueError(f"Unsupported token {fmt[i]!r} at pos {i} in preamble: {fmt!r}")
+        # Falling through without consuming input would make this loop spin forever.
+        raise ValueError(f"Unsupported token {fmt[i]!r} at pos {i} in preamble: {fmt!r}")
 
     return colspecs, vrules, extras

@@ -1,10 +1,24 @@
 import re
 
-from gerrytools.latex._colors import cellcolor_prefix
+from gerrytools.latex._colors import (
+    cellcolor_prefix,
+    is_hex_color,
+    is_latex_color_expression,
+)
 from gerrytools.typing import Color
 
 # LaTeX control sequence names are letters only;
 _CMD_RE = re.compile(r"^[A-Za-z]+$")
+
+
+def _validate_gradient_colors(*colors: str) -> None:
+    """Require color names or expressions that command-based gradients can emit."""
+    if any(is_hex_color(color) for color in colors):
+        raise ValueError(
+            "command-based gradients cannot use hex colors; use command_name=None for HTML colors"
+        )
+    if not all(is_latex_color_expression(color) for color in colors):
+        raise ValueError("command-based gradients require LaTeX color names/expressions")
 
 
 def validate_command_name(cmd_str: str) -> None:
@@ -35,6 +49,7 @@ def tex_gradient_command(
     color_name: str = "denim",
     lo: float = 0.0,
     hi: float = 1.0,
+    precision: int = 4,
 ) -> str:
     """Generates a LaTeX command for gradient coloring of numerical values.
 
@@ -52,26 +67,21 @@ def tex_gradient_command(
             Defaults to ``"denim"``.
         lo (float, optional): The lower bound of the numerical range. Defaults to ``0.0``.
         hi (float, optional): The upper bound of the numerical range. Defaults to ``1.0``.
+        precision (int, optional): Number of decimal places to round the number to.
+            Defaults to ``4``.
 
     Returns:
         str: A string containing the LaTeX command definition.
     """
-    validate_command_name(cmd_str)
-
-    # Additional % at the end of lines to prevent unwanted spaces in output
-    return (
-        rf"\newcommand{{\{cmd_str}}}[1]{{%"
-        "\n"
-        r"\begingroup"
-        "\n"
-        rf"\cellcolor{{{color_name}!\fpeval{{round(100*(1-min(1, max(0, "
-        rf"(#1-{lo})/max({hi}-{lo}, 1e-12)))),0)}}}}%"
-        "\n"
-        r"\num[round-precision=4]{#1}%"
-        "\n"
-        r"\endgroup"
-        "\n"
-        r"}"
+    # xcolor's ``color!p`` is shorthand for ``color!p!white``, so a single-color gradient is the
+    # two-color gradient with a white upper endpoint.
+    return tex_twocolor_gradient_command(
+        cmd_str,
+        lo=lo,
+        hi=hi,
+        color_lo=color_name,
+        color_hi="white",
+        precision=precision,
     )
 
 
@@ -85,14 +95,13 @@ def tex_twocolor_gradient_command(
 ) -> str:
     """Generates a LaTeX command for two-color gradient coloring of numerical values.
 
-    Emits a LaTeX command \\<cmd_str>{x} that colors the cell with a
-    two-color gradient from color_lo (at lo) to color_hi (at hi),
-    clamped outside the range.
+    Emits a LaTeX command \\<cmd_str>{x} that colors the cell with a two-color gradient from
+    color_lo (at lo) to color_hi (at hi), clamped outside the range.
 
     Requires: xcolor (with [table]), colortbl, xfp, siunitx.
 
-    Note: color mixing is done in xcolor and is a linear interpolation
-    by mixing saturation percentages of the two colors.
+    Note: color mixing is done in xcolor and is a linear interpolation by mixing saturation
+    percentages of the two colors.
 
     Args:
         cmd_str (str, optional): The name of the LaTeX command to create.
@@ -108,6 +117,7 @@ def tex_twocolor_gradient_command(
         str: A string containing the LaTeX command definition to be added to preamble.
     """
     validate_command_name(cmd_str)
+    _validate_gradient_colors(color_lo, color_hi)
 
     return (
         rf"\newcommand{{\{cmd_str}}}[1]{{%"
@@ -126,7 +136,7 @@ def tex_twocolor_gradient_command(
         "\n"
         r"  \expandafter\cellcolor\expandafter{\heatcolorspec}%"
         "\n"
-        rf"  \num[round-precision={precision}]{{#1}}%"
+        rf"  \num[round-mode=places,round-precision={precision}]{{#1}}%"
         "\n"
         r"  \endgroup%"
         "\n"
@@ -175,10 +185,8 @@ def tex_diverging_gradient_command(
 ) -> str:
     """Generates a LaTeX command for diverging gradient coloring for numerical values in a table.
 
-    Emits a LaTeX command
-    \\<cmd_str>{x} with diverging gradient:
-      lo_color (at lo) -> mid_color (at mid) -> hi_color (at hi)
-    Clamped to [lo, hi].
+    The generated command applies a gradient from ``color_lo`` at ``lo`` through ``color_mid`` at
+    ``mid`` to ``color_hi`` at ``hi``. Values are clamped to the interval ``[lo, hi]``.
 
     Requires: xcolor[table], latexcolor, xfp, siunitx.
 
@@ -199,6 +207,7 @@ def tex_diverging_gradient_command(
         str: A string containing the LaTeX command definition to be added to preamble.
     """
     validate_command_name(cmd_str)
+    _validate_gradient_colors(color_lo, color_mid, color_hi)
 
     lo_name = f"{cmd_str}Lo{_tex_ident(color_lo)}"
     hi_name = f"{cmd_str}Hi{_tex_ident(color_hi)}"
@@ -227,8 +236,10 @@ def tex_diverging_gradient_command(
         "\n"
         r"  \edef\rightw{\fpeval{max(\heathi-\heatmid, 1e-12)}}%"
         "\n"
-        # choose side; compute pct in 0..100 moving away from the endpoint toward the other endpoint
-        r"  \ifdim \heatxc pt < \heatmid pt"
+        # choose side; compute pct in 0..100 moving away from the endpoint toward the other
+        # endpoint. The comparison stays in fpeval space: an \ifdim on <value>pt overflows TeX's
+        # 16383pt dimension ceiling for population-scale ranges.
+        r"  \ifnum\fpeval{\heatxc < \heatmid}=1"
         "\n"
         # left: lo -> mid, so pct increases as x approaches mid
         r"    \edef\heatpct{\fpeval{round(100*(1-(\heatxc-\heatlo)/\leftw),0)}}%"
@@ -246,7 +257,7 @@ def tex_diverging_gradient_command(
         "\n"
         r"  \expandafter\cellcolor\expandafter{\heatcolorspec}%"
         "\n"
-        rf"  \num[round-precision={precision}]{{#1}}%"
+        rf"  \num[round-mode=places,round-precision={precision}]{{#1}}%"
         "\n"
         r"  \endgroup%"
         "\n"

@@ -1,4 +1,5 @@
 import logging
+import stat
 from pathlib import Path
 
 import httpx
@@ -61,6 +62,7 @@ class TestDualGraphs:
         dualgraphs20(us.states.WI, out, geometry="bg")
 
         assert out.read_bytes() == payload
+        assert mock_http.requests[0].headers["if-match"] == '"bc206fc60ddc9b831529da730ce43313"'
 
     def test_invalid_geometry_raises_without_any_request(self, mock_http: MockHTTP, tmp_path: Path):
         with pytest.raises(ValueError, match="not available as a dual graph"):
@@ -75,9 +77,20 @@ class TestDualGraphs:
         with pytest.raises(httpx.HTTPStatusError):
             dualgraphs20(us.states.WI, out, geometry="bg")
 
-        # raise_for_status fires before the file is opened, so a failed download never leaves a
-        # truncated or error-page file behind.
+        # The body streams to a temp file that is only renamed onto the destination on success,
+        # so a failed download never leaves a truncated or error-page file behind.
         assert not out.exists()
+        assert list(tmp_path.iterdir()) == []
+
+    def test_checksum_mismatch_has_actionable_error(self, mock_http: MockHTTP, tmp_path: Path):
+        mock_http.route(status_code=412, text="precondition failed")
+        out = tmp_path / "dg.json"
+
+        with pytest.raises(RuntimeError, match="pinned checksum"):
+            dualgraphs20(us.states.WI, out, geometry="bg")
+
+        assert not out.exists()
+        assert list(tmp_path.iterdir()) == []
 
 
 # =============================
@@ -128,7 +141,10 @@ class TestGeometries:
     @pytest.mark.parametrize(
         "geometry,expected_id",
         [
+            # Block groups accept the same spellings as the dual-graph ids.
+            ("bg", "bg"),
             ("block group", "bg"),
+            ("blockgroup", "bg"),
             ("block", "block"),
             ("congress", "cd116"),
             ("county", "county"),
@@ -164,25 +180,90 @@ class TestGeometries:
 
         assert not out.exists()
 
+    def test_unpublished_object_raises_without_any_request(
+        self, mock_http: MockHTTP, tmp_path: Path
+    ):
+        with pytest.raises(ValueError, match="No published checksum"):
+            geometries20(us.states.AS, tmp_path / "geo.zip", geometry="block")
+
+        assert mock_http.requests == []
+
 
 # ============================
 # == CROSS-CUTTING BEHAVIOR ==
 # ============================
 
 
+class _ExplodingStream(httpx.SyncByteStream):
+    """Response body that fails partway through, simulating a dropped connection."""
+
+    def __iter__(self):
+        yield b"partial bytes"
+        raise RuntimeError("mid-body failure")
+
+
+class TestAtomicDownload:
+    def test_mid_body_failure_leaves_no_file(self, mock_http: MockHTTP, tmp_path: Path):
+        # Regression: the destination used to be opened before the body was consumed, so a
+        # mid-stream failure left a truncated file behind.
+        mock_http.route(responder=lambda request: httpx.Response(200, stream=_ExplodingStream()))
+        out = tmp_path / "vtd.zip"
+
+        with pytest.raises(RuntimeError, match="mid-body"):
+            vtds20(us.states.WI, out)
+
+        assert not out.exists()
+        # The temp file is cleaned up too.
+        assert list(tmp_path.iterdir()) == []
+
+    def test_mid_body_failure_preserves_existing_destination(
+        self, mock_http: MockHTTP, tmp_path: Path
+    ):
+        mock_http.route(responder=lambda request: httpx.Response(200, stream=_ExplodingStream()))
+        out = tmp_path / "vtd.zip"
+        out.write_bytes(b"previous good download")
+
+        with pytest.raises(RuntimeError, match="mid-body"):
+            vtds20(us.states.WI, out)
+
+        assert out.read_bytes() == b"previous good download"
+        assert list(tmp_path.iterdir()) == [out]
+
+    def test_successful_download_leaves_only_the_destination(
+        self, mock_http: MockHTTP, tmp_path: Path
+    ):
+        payload = b"zip contents"
+        mock_http.route(content=payload)
+        out = tmp_path / "vtd.zip"
+
+        vtds20(us.states.WI, out)
+
+        assert out.read_bytes() == payload
+        assert list(tmp_path.iterdir()) == [out]
+
+    def test_new_download_uses_normal_file_permissions(self, mock_http: MockHTTP, tmp_path: Path):
+        mock_http.route(content=b"zip contents")
+        reference = tmp_path / "reference"
+        reference.write_bytes(b"")
+        out = tmp_path / "vtd.zip"
+
+        vtds20(us.states.WI, out)
+
+        assert stat.S_IMODE(out.stat().st_mode) == stat.S_IMODE(reference.stat().st_mode)
+
+    def test_replacing_download_preserves_permissions(self, mock_http: MockHTTP, tmp_path: Path):
+        mock_http.route(content=b"new contents")
+        out = tmp_path / "vtd.zip"
+        out.write_bytes(b"old contents")
+        out.chmod(0o640)
+
+        vtds20(us.states.WI, out)
+
+        assert out.read_bytes() == b"new contents"
+        assert stat.S_IMODE(out.stat().st_mode) == 0o640
+
+
 class TestCommonBehavior:
-    def test_endpoint_is_http_only(self):
-        # S3 static-website hosting does not terminate TLS, so the base URL is intentionally
-        # http://. Pin it so a well-meaning https:// "fix" fails.
-        assert DATA_MGGG_BASE_URL.startswith("http://")
-
-    def test_request_uses_http_scheme(self, mock_http: MockHTTP, tmp_path: Path):
-        mock_http.route(content=b"{}")
-
-        dualgraphs20(us.states.WI, tmp_path / "dg.json", geometry="bg")
-
-        assert mock_http.requests[0].url.scheme == "http"
-
     def test_accepts_str_path(self, mock_http: MockHTTP, tmp_path: Path):
         payload = b"zip"
         mock_http.route(content=payload)

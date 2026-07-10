@@ -28,7 +28,7 @@ class TestViolinPlotSnapshots:
         data = make_violin_data(rng)
 
         plot = ViolinPlot(figure_size=(8, 5), dpi=100, xlabel="Plan", ylabel="Score")
-        plot.add_violinplot_datasets(data, facecolor="denim", name="Ensemble")
+        plot.add_dataset(data, facecolor="denim", name="Ensemble")
         img = render_plot(plot, tmp_path)
 
         assert_image_snapshot(
@@ -44,9 +44,9 @@ class TestViolinPlotSnapshots:
         data_a = make_violin_data(rng)
         data_b = make_violin_data(rng)
 
-        plot = ViolinPlot(figure_size=(8, 5), dpi=100, include_legend=True)
-        plot.add_violinplot_datasets(data_a, facecolor="denim", name="Method A")
-        plot.add_violinplot_datasets(data_b, facecolor="alizarin", name="Method B")
+        plot = ViolinPlot(figure_size=(8, 5), dpi=100, legend=True)
+        plot.add_dataset(data_a, facecolor="denim", name="Method A")
+        plot.add_dataset(data_b, facecolor="alizarin", name="Method B")
         img = render_plot(plot, tmp_path)
 
         assert_image_snapshot(

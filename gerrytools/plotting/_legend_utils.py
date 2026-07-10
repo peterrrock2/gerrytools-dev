@@ -1,70 +1,12 @@
 from __future__ import annotations
 
-from typing import Literal, Sequence
+from collections.abc import Callable, Sequence
 
 import matplotlib.pyplot as plt
+from matplotlib.backend_bases import RendererBase
 
 from gerrytools.plotting.mpl.legend_options import LegendOptions
-from gerrytools.typing import Color, LegendHandle, MplKwargs
-
-
-def build_legend_options(
-    *,
-    loc: str | int = "center left",
-    bbox_to_anchor: tuple[float, float] | tuple[float, float, float, float] | None = (1.01, 0.5),
-    ncols: int = 1,
-    fontsize: float | str | None = None,
-    frameon: bool = True,
-    fancybox: bool = False,
-    shadow: bool = False,
-    framealpha: float | None = None,
-    facecolor: Color | None = None,
-    edgecolor: Color | None = None,
-    title: str | None = None,
-    alignment: Literal["center", "left", "right"] = "center",
-    labelspacing: float = 0.5,
-    columnspacing: float = 2.0,
-) -> LegendOptions:
-    """Build a ``LegendOptions`` instance from standard legend kwargs.
-
-    Args:
-        loc (str | int, optional): Legend location passed to Matplotlib. Defaults to
-            ``"center left"``.
-        bbox_to_anchor (tuple[float, float] | tuple[float, float, float, float] | None, optional):
-            Anchor box for legend placement. Defaults to ``(1.01, 0.5)``.
-        ncols (int, optional): Number of legend columns. Defaults to ``1``.
-        fontsize (float | str | None, optional): Legend font size. Defaults to ``None``.
-        frameon (bool, optional): Whether to draw a legend frame. Defaults to ``True``.
-        fancybox (bool, optional): Whether to draw a rounded frame. Defaults to ``False``.
-        shadow (bool, optional): Whether to draw a shadow. Defaults to ``False``.
-        framealpha (float | None, optional): Frame alpha override. Defaults to ``None``.
-        facecolor (Color | None, optional): Frame face color. Defaults to ``None``.
-        edgecolor (Color | None, optional): Frame edge color. Defaults to ``None``.
-        title (str | None, optional): Legend title. Defaults to ``None``.
-        alignment (Literal["center", "left", "right"], optional): Text alignment in the
-            legend box. Defaults to ``"center"``.
-        labelspacing (float, optional): Vertical spacing between entries. Defaults to ``0.5``.
-        columnspacing (float, optional): Horizontal spacing between columns. Defaults to ``2.0``.
-
-    Returns:
-        LegendOptions: Normalized legend option dataclass.
-    """
-    return LegendOptions(
-        loc=loc,
-        bbox_to_anchor=bbox_to_anchor,
-        ncols=ncols,
-        fontsize=fontsize,
-        frameon=frameon,
-        fancybox=fancybox,
-        shadow=shadow,
-        framealpha=framealpha,
-        facecolor=facecolor,
-        edgecolor=edgecolor,
-        title=title,
-        alignment=alignment,
-        labelspacing=labelspacing,
-        columnspacing=columnspacing,
-    )
+from gerrytools.typing import LegendHandle, MplKwargs
 
 
 def save_legend_handles(
@@ -105,7 +47,8 @@ def save_legend_handles(
 
         canvas = legend_fig.canvas
         canvas.draw()
-        get_renderer_fn = getattr(canvas, "get_renderer", None)
+        # get_renderer is backend-specific (e.g. Agg), so it is absent from FigureCanvasBase.
+        get_renderer_fn: Callable[[], RendererBase] | None = getattr(canvas, "get_renderer", None)
         if not callable(
             get_renderer_fn
         ):  # pragma: no cover - defensive guard for non-standard Matplotlib backends that omit get_renderer()

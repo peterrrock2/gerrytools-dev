@@ -13,6 +13,9 @@ _LATEX_ESCAPE_MAP = {
     "}": r"\}",
     "~": r"\textasciitilde{}",
     "^": r"\textasciicircum{}",
+    "<": r"\textless{}",
+    ">": r"\textgreater{}",
+    "|": r"\textbar{}",
 }
 
 

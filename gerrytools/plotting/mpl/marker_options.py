@@ -1,16 +1,38 @@
 from __future__ import annotations
 
-import logging
-import math
 from dataclasses import dataclass
+from typing import TypedDict
 
 import matplotlib.colors as mcolors
+from matplotlib.lines import Line2D
 
 from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
-from gerrytools.typing import Color, PlotMarkerKwargs, ScatterMarkerKwargs
+from gerrytools.plotting.utils import _resolve_color_clamped_width, _validated_nonneg_finite
+from gerrytools.typing import Color, MplRGBAColor
 
 logger = get_logger(__name__)
+
+
+class PlotMarkerKwargs(TypedDict):
+    """Marker kwargs emitted by ``PointMarkerOptions.to_mpl_settings_dict``."""
+
+    markerfacecolor: MplRGBAColor
+    marker: str
+    markersize: float
+    markeredgecolor: MplRGBAColor
+    markeredgewidth: float
+    zorder: int
+
+
+class ScatterMarkerKwargs(TypedDict):
+    """Marker kwargs emitted by ``PointMarkerOptions.to_mpl_scatter_settings_dict``."""
+
+    marker: str
+    s: float
+    edgecolor: MplRGBAColor
+    linewidths: float
+    zorder: int
 
 
 @dataclass(slots=True)
@@ -40,19 +62,14 @@ class PointMarkerOptions:
     zorder: int = 4
 
     def __post_init__(self) -> None:
-        lw = float(self.markeredgewidth)
-        if not math.isfinite(lw):
-            raise ValueError("markeredgewidth must be finite")
-        if lw < 0:
-            raise ValueError("markeredgewidth must be nonnegative")
-        object.__setattr__(self, "markeredgewidth", lw)
-
-        size = float(self.markersize)
-        if not math.isfinite(size):
-            raise ValueError("markersize must be finite")
-        if size < 0:
-            raise ValueError("markersize must be nonnegative")
-        object.__setattr__(self, "markersize", size)
+        object.__setattr__(
+            self,
+            "markeredgewidth",
+            _validated_nonneg_finite(self.markeredgewidth, field="markeredgewidth"),
+        )
+        object.__setattr__(
+            self, "markersize", _validated_nonneg_finite(self.markersize, field="markersize")
+        )
 
         resolved_mfc, resolved_mfa = resolve_color_and_alpha(
             self.markerfacecolor,
@@ -66,27 +83,19 @@ class PointMarkerOptions:
         object.__setattr__(self, "markerfacecolor", resolved_mfc)
         object.__setattr__(self, "markerfacealpha", resolved_mfa)
 
-        resolved_mec, resolved_mea = resolve_color_and_alpha(
+        resolved_mec, resolved_mea, clamped_edge_width = _resolve_color_clamped_width(
             self.markeredgecolor,
             self.markeredgealpha,
-            allow_none=True,
-            field="markeredgecolor",
+            self.markeredgewidth,
+            color_field="markeredgecolor",
+            width_field="markeredgewidth",
             owner="PointMarkerOptions",
-            logger=logger,
+            log=logger,
         )
 
         object.__setattr__(self, "markeredgecolor", resolved_mec)
         object.__setattr__(self, "markeredgealpha", resolved_mea)
-
-        if resolved_mec.lower() == "none" and lw > 0:
-            logger.log(
-                level=logging.DEBUG,
-                msg=(
-                    "PointMarkerOptions: markeredgecolor is 'none' but "
-                    f"markeredgewidth is {lw}>0; setting markeredgewidth to 0."
-                ),
-            )
-            object.__setattr__(self, "markeredgewidth", 0.0)
+        object.__setattr__(self, "markeredgewidth", clamped_edge_width)
 
     def to_mpl_settings_dict(self) -> PlotMarkerKwargs:
         """Convert to Matplotlib kwargs for ``Axes.plot`` marker styling."""
@@ -108,3 +117,14 @@ class PointMarkerOptions:
             "linewidths": self.markeredgewidth,
             "zorder": self.zorder,
         }
+
+
+def _marker_legend_handle(marker_options: PointMarkerOptions, label: str | None) -> Line2D:
+    """Build the standard line-less marker legend handle for a point set."""
+    return Line2D(
+        [0],
+        [0],
+        linestyle="none",
+        label=label,
+        **marker_options.to_mpl_settings_dict(),
+    )

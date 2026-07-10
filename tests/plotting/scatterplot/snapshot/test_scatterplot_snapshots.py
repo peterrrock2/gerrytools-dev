@@ -26,7 +26,7 @@ class TestScatterPlotSnapshots:
         x, y = make_scatter_data(rng)
 
         plot = ScatterPlot(figure_size=(7, 6), dpi=100, xlabel="X", ylabel="Y")
-        plot.add_scatter(x=x.tolist(), y=y.tolist(), label="Points")
+        plot.add_series(x=x.tolist(), y=y.tolist(), name="Points")
         img = render_plot(plot, tmp_path)
 
         assert_image_snapshot(
@@ -42,11 +42,9 @@ class TestScatterPlotSnapshots:
         x_a, y_a = make_scatter_data(rng)
         x_b, y_b = make_scatter_data(rng)
 
-        plot = ScatterPlot(figure_size=(7, 6), dpi=100, include_legend=True)
-        plot.add_scatter(x=x_a.tolist(), y=y_a.tolist(), label="Series A", markerfacecolor="denim")
-        plot.add_scatter(
-            x=x_b.tolist(), y=y_b.tolist(), label="Series B", markerfacecolor="alizarin"
-        )
+        plot = ScatterPlot(figure_size=(7, 6), dpi=100, legend=True)
+        plot.add_series(x=x_a.tolist(), y=y_a.tolist(), name="Series A", markerfacecolor="denim")
+        plot.add_series(x=x_b.tolist(), y=y_b.tolist(), name="Series B", markerfacecolor="alizarin")
         img = render_plot(plot, tmp_path)
 
         assert_image_snapshot(

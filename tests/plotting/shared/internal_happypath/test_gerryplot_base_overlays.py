@@ -6,12 +6,13 @@ matplotlib.use("Agg")
 import pytest
 
 from gerrytools.plotting.data.scatterplot import ScatterPlot
+from tests.plotting._typing_utils import as_any
 
 
 def _make_plot():
     """Create a minimal ScatterPlot with some data for testing base methods."""
     sp = ScatterPlot()
-    sp.add_scatter(x=[0.0, 1.0], y=[0.0, 1.0])
+    sp.add_series(x=[0.0, 1.0], y=[0.0, 1.0])
     return sp
 
 
@@ -28,18 +29,18 @@ class TestVerticalLines:
         sp = _make_plot()
         sp.add_vertical_lines([0.2, 0.4, 0.6])
         assert len(sp._annotations.vertical_lines) == 1
-        # The single LineData stores all three values
-        assert sp._annotations.vertical_lines[0].values == [0.2, 0.4, 0.6]
+        # The single _LineData stores all three values
+        assert sp._annotations.vertical_lines[0].values == (0.2, 0.4, 0.6)
 
     def test_add_vertical_lines_from_int(self):
         sp = _make_plot()
         sp.add_vertical_lines(5)
-        assert sp._annotations.vertical_lines[0].values == [5.0]
+        assert sp._annotations.vertical_lines[0].values == (5.0,)
 
     def test_string_x_values_raises_typeerror(self):
         sp = _make_plot()
         with pytest.raises(TypeError, match="string"):
-            sp.add_vertical_lines("bad")
+            sp.add_vertical_lines(as_any("bad"))
 
     def test_bool_x_values_raises_typeerror(self):
         sp = _make_plot()
@@ -66,12 +67,12 @@ class TestHorizontalLines:
     def test_add_multiple_horizontal_lines(self):
         sp = _make_plot()
         sp.add_horizontal_lines([0.25, 0.75])
-        assert sp._annotations.horizontal_lines[0].values == [0.25, 0.75]
+        assert sp._annotations.horizontal_lines[0].values == (0.25, 0.75)
 
     def test_string_y_values_raises_typeerror(self):
         sp = _make_plot()
         with pytest.raises(TypeError, match="string"):
-            sp.add_horizontal_lines("bad")
+            sp.add_horizontal_lines(as_any("bad"))
 
     def test_bool_y_values_raises_typeerror(self):
         sp = _make_plot()
@@ -161,22 +162,12 @@ class TestAxisLimits:
     def test_set_xlim(self):
         sp = _make_plot()
         sp.set_xlim(0.0, 10.0)
-        assert sp._x_limits == (0.0, 10.0)
+        assert sp._xaxis.limits == (0.0, 10.0)
 
     def test_set_ylim(self):
         sp = _make_plot()
         sp.set_ylim(-5.0, 5.0)
-        assert sp._y_limits == (-5.0, 5.0)
-
-    def test_set_xlim_alias(self):
-        sp = _make_plot()
-        sp.set_xlim(1.0, 2.0)
-        assert sp._x_limits == (1.0, 2.0)
-
-    def test_set_ylim_alias(self):
-        sp = _make_plot()
-        sp.set_ylim(3.0, 4.0)
-        assert sp._y_limits == (3.0, 4.0)
+        assert sp._yaxis.limits == (-5.0, 5.0)
 
     def test_limits_applied_on_build(self):
         sp = _make_plot()

@@ -36,9 +36,17 @@ class TestPreviewPalette:
         assert ax.texts[0].get_text() == "#aabbcc"
         plt.close(fig)
 
-    def test_preview_palette_empty_list_produces_no_patches(self):
-        fig, ax = preview_palette([])
-        assert len(ax.patches) == 0
+    def test_preview_palette_rejects_empty_input(self):
+        # Mirrors compare_palettes: an empty palette is an error, not a blank figure.
+        with pytest.raises(ValueError, match="No colors provided"):
+            preview_palette([])
+
+    def test_preview_palette_resolves_gerrytools_color_names(self):
+        import matplotlib.colors as mcolors
+
+        fig, ax = preview_palette(["citizen_blue"])
+        assert len(ax.patches) == 1
+        assert mcolors.to_hex(ax.patches[0].get_facecolor()) == "#4693b3"
         plt.close(fig)
 
 
@@ -73,3 +81,25 @@ class TestComparePalettes:
     def test_compare_palettes_rejects_empty_input(self):
         with pytest.raises(ValueError, match="No palettes provided"):
             compare_palettes([])
+
+    def test_compare_palettes_resolves_gerrytools_color_names(self):
+        import matplotlib.colors as mcolors
+
+        fig, ax = compare_palettes({"gerrytools": ["citizen_blue"]})
+        assert len(ax.patches) == 1
+        assert mcolors.to_hex(ax.patches[0].get_facecolor()) == "#4693b3"
+        plt.close(fig)
+
+
+class TestSwatchTextColor:
+    def test_saturated_green_reads_bright(self):
+        from gerrytools.colors.utils import _swatch_text_color
+
+        # A raw channel sum would call pure blue (sum 1.0) and pure green (sum 1.0) equally
+        # dark; luma keeps green bright and blue dark.
+        assert _swatch_text_color((0.0, 1.0, 0.0)) == "black"
+
+    def test_saturated_blue_reads_dark(self):
+        from gerrytools.colors.utils import _swatch_text_color
+
+        assert _swatch_text_color((0.0, 0.0, 1.0)) == "white"

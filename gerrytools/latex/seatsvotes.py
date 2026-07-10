@@ -1,58 +1,31 @@
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
-from typing import Literal, Sequence, TypedDict, get_args
+from typing import ClassVar, Literal, Sequence
 
 import numpy as np
 
+from gerrytools._election_math import overall_election_point, seats_votes_curve_values
 from gerrytools._geometry import line_segment_through_unit_square
-from gerrytools.latex._colors import TikzColorKind, classify_tikz_color
 from gerrytools.latex._text import latex_escape
-from gerrytools.latex.document import TexDocument
-from gerrytools.logging import get_logger
-from gerrytools.typing import Color, TikzLineStyle
-
-logger = get_logger(__name__)
-
-
-def _to_tikz_linestyle(linestyle: str) -> str:
-    """Map Matplotlib-style line strings to TikZ line styles.
-
-    Args:
-        linestyle (str): Matplotlib-style or TikZ-style line token.
-
-    Returns:
-        str: Equivalent TikZ line style token.
-
-    Raises:
-        ValueError: If ``linestyle`` is neither a known Matplotlib token nor a valid TikZ line
-            style. Unknown tokens used to pass through silently and break the LaTeX compile instead.
-    """
-    style_map = {
-        "-": "solid",
-        "--": "dashed",
-        ":": "dotted",
-        "-.": "dashdotted",
-        "dashdot": "dashdotted",
-    }
-    mapped_style = style_map.get(str(linestyle), str(linestyle))
-    valid_linestyles = get_args(TikzLineStyle)
-    if mapped_style not in valid_linestyles:
-        raise ValueError(
-            f"Invalid linestyle: {linestyle!r}. Must be a Matplotlib token "
-            f"({', '.join(repr(token) for token in style_map)}) or a TikZ line style "
-            f"({', '.join(repr(style) for style in valid_linestyles)})."
-        )
-    return mapped_style
+from gerrytools.latex._tikz_plot_base import (
+    OptionValidator,
+    _GuideLine,
+    _TikzPlotBase,
+    _to_tikz_linestyle,
+    _ValidatedOptions,
+    nonnegative_float_option,
+    ordered_limits_option,
+    passthrough_option,
+    positive_float_option,
+    unit_interval_option,
+)
+from gerrytools.typing import Color
 
 
 @dataclass(slots=True, frozen=True)
-class SeatsVotesData:
+class _SeatsVotesData:
     """Container for one seats-votes series and its marker metadata.
-
-    Deliberately parallel to :class:`gerrytools.plotting.data.seatsvotes.SeatsVotesData` (the
-    Matplotlib backend); keep field changes in sync where the concepts overlap.
 
     Attributes:
         pov_party_vote_counts (np.ndarray): Per-district party-of-interest vote totals.
@@ -60,7 +33,7 @@ class SeatsVotesData:
         name (str): Legend label for the seats-votes curve.
         linecolor (Color): Color for the step curve.
         markercolor (Color): Color for the election-result marker.
-        markerlabel (str): Legend label for the marker.
+        marker_label (str): Legend label for the marker.
     """
 
     pov_party_vote_counts: np.ndarray
@@ -68,11 +41,9 @@ class SeatsVotesData:
     name: str
     linecolor: Color
     markercolor: Color
-    markerlabel: str
+    marker_label: str
 
-    def seats_votes_curve_values(
-        self,
-    ) -> tuple[list[float], list[float]]:
+    def seats_votes_curve_values(self) -> tuple[list[float], list[float]]:
         """Compute standard uniform-swing seats-votes step-curve positions.
 
         Returns:
@@ -81,99 +52,14 @@ class SeatsVotesData:
         Raises:
             ValueError: If vote arrays do not align or contain nonpositive totals.
         """
-        if self.pov_party_vote_counts.shape != self.total_vote_counts.shape:
-            raise ValueError("pov_party_vote_counts and total_vote_counts must have same shape.")
-        if np.any(self.total_vote_counts <= 0):
-            raise ValueError("total_vote_counts must be positive for all districts.")
-
-        vote_shares = self.pov_party_vote_counts / self.total_vote_counts
-        weights = self.total_vote_counts
-
-        overall_percent = float(np.sum(vote_shares * weights) / np.sum(weights))
-        vote_share_shift_positions = (
-            [0.0] + sorted([float(overall_percent - r + 0.5) for r in vote_shares]) + [1.0]
-        )
-
-        n_seats = len(vote_shares)
-        seat_shares_shift_positions = [0.0] + list(map(float, np.arange(n_seats + 1) / n_seats))
-        return vote_share_shift_positions, seat_shares_shift_positions
+        return seats_votes_curve_values(self.pov_party_vote_counts, self.total_vote_counts)
 
 
-@dataclass(frozen=True)
-class SVPlotLine:
-    """Dataclass for seats-votes guide-line styling.
-
-    Deliberately parallel to :class:`gerrytools.plotting.data.seatsvotes.SVPlotLine` (the Matplotlib
-    backend); keep field changes in sync where the concepts overlap.
-
-    Attributes:
-        slope (float): Line slope through ``(0.5, 0.5)``.
-        linecolor (Color): Line color.
-        linewidth (float): Line width in points.
-        linestyle (str): Line style token.
-        label (str | None): Legend label.
-    """
-
-    slope: float
-    linecolor: Color
-    linewidth: float
-    linestyle: str
-    label: str | None = None
-
-    def __post_init__(self) -> None:
-        slope = float(self.slope)
-        if math.isnan(slope):
-            raise ValueError("slope must not be NaN.")
-        object.__setattr__(self, "slope", slope)
-
-        line_width = float(self.linewidth)
-        if not math.isfinite(line_width):
-            raise ValueError("linewidth must be finite.")
-        if line_width < 0:
-            raise ValueError("linewidth must be nonnegative.")
-        object.__setattr__(self, "linewidth", line_width)
-
-
-# The _Crosshair*Settings TypedDicts are deliberately parallel to the ones in
-# gerrytools.plotting.data.seatsvotes (the Matplotlib backend); keep changes in sync where the
-# concepts overlap.
-class _CrosshairXSettings(TypedDict):
-    xmin: float
-    xmax: float
-    color: Color
-    alpha: float
-
-
-class _CrosshairYSettings(TypedDict):
-    ymin: float
-    ymax: float
-    color: Color
-    alpha: float
-
-
-class _CrosshairSettings(TypedDict):
-    x: _CrosshairXSettings
-    y: _CrosshairYSettings
-
-
-@dataclass(slots=True, frozen=True)
-class _TikzColorToken:
-    """Internal representation of a color token for TikZ emission.
-
-    Attributes:
-        kind (TikzColorKind): Output encoding category, as classified by
-            :func:`gerrytools.latex._colors.classify_tikz_color`.
-        value (str): Color payload. For ``kind="xcolor"``, this is an xcolor expression
-            such as ``"denim!20!amber"``. For ``kind="html"``, this is an uppercase
-            6-digit hex token such as ``"1560BD"``. For ``kind="none"``, this is ``"none"``.
-    """
-
-    kind: TikzColorKind
-    value: str
+_SVPlotLine = _GuideLine
 
 
 @dataclass(slots=True)
-class SeatsVotesOptions:
+class SeatsVotesOptions(_ValidatedOptions):
     """Configuration for LaTeX seats-votes rendering."""
 
     crosshair_x_width: float = 0.02
@@ -189,150 +75,93 @@ class SeatsVotesOptions:
     fontsize: float = 16.0
     legend_fontsize: float = 16.0
 
-    def __setattr__(self, key: str, value) -> None:
-        match key:
-            case "crosshair_x_width" | "crosshair_y_width":
-                value = float(value)
-                if not math.isfinite(value):
-                    raise ValueError(f"{key} must be finite.")
-                if value < 0:
-                    raise ValueError(f"{key} must be nonnegative.")
-                object.__setattr__(self, key, value)
-            case "crosshair_color":
-                object.__setattr__(self, key, value)
-            case "crosshair_alpha":
-                value = float(value)
-                if not (0.0 <= value <= 1.0):
-                    raise ValueError("crosshair_alpha must be in [0, 1].")
-                object.__setattr__(self, key, value)
-            case "xlim" | "ylim":
-                lower = float(value[0])
-                upper = float(value[1])
-                if not (lower < upper):
-                    raise ValueError(f"{key}[0] must be less than {key}[1].")
-                object.__setattr__(self, key, (lower, upper))
-            case "xscale" | "yscale":
-                value = float(value)
-                if not math.isfinite(value):
-                    raise ValueError(f"{key} must be finite.")
-                if value <= 0:
-                    raise ValueError(f"{key} must be positive.")
-                object.__setattr__(self, key, value)
-            case "linewidth" | "markersize" | "fontsize" | "legend_fontsize":
-                value = float(value)
-                if not math.isfinite(value):
-                    raise ValueError(f"{key} must be finite.")
-                if value < 0:
-                    raise ValueError(f"{key} must be nonnegative.")
-                object.__setattr__(self, key, value)
-            case _:
-                raise AttributeError(f"Unknown SeatsVotesOptions attribute: {key}")
+    _VALIDATORS: ClassVar[dict[str, OptionValidator]] = {
+        "crosshair_x_width": nonnegative_float_option("crosshair_x_width"),
+        "crosshair_y_width": nonnegative_float_option("crosshair_y_width"),
+        "crosshair_color": passthrough_option,
+        "crosshair_alpha": unit_interval_option("crosshair_alpha"),
+        "xlim": ordered_limits_option("xlim"),
+        "ylim": ordered_limits_option("ylim"),
+        "xscale": positive_float_option("xscale"),
+        "yscale": positive_float_option("yscale"),
+        "linewidth": nonnegative_float_option("linewidth"),
+        "markersize": nonnegative_float_option("markersize"),
+        "fontsize": nonnegative_float_option("fontsize"),
+        "legend_fontsize": nonnegative_float_option("legend_fontsize"),
+    }
 
 
-class SeatsVotes:
+class SeatsVotesPlot(_TikzPlotBase):
     """Generate seats-votes plots as TikZ/LaTeX."""
+
+    _options_cls = SeatsVotesOptions
+    options: SeatsVotesOptions
 
     def __init__(
         self,
-        figure_size: tuple[float, float] = (10, 10),
-        dpi: int = 300,
         *,
-        include_legend: bool = False,
+        legend: bool = False,
         xlabel: str | None = None,
         ylabel: str | None = None,
         title: str | None = None,
     ) -> None:
         """Initialize a LaTeX seats-votes plot.
 
+        The plot renders at the options' ``xscale``/``yscale`` (10 by 10 TikZ units by default);
+        use :meth:`set_scale` to change the drawn size.
+
         Args:
-            figure_size (tuple[float, float], optional): Target plot size interpreted as
-                ``(xscale, yscale)`` in TikZ units. Defaults to ``(10, 10)``.
-            dpi (int, optional): Stored dpi metadata for previews. Defaults to ``300``.
-            include_legend (bool, optional): Whether to include a legend. Defaults to True.
+            legend (bool, optional): Whether to include a legend. Defaults to False.
             xlabel (str | None, optional): X-axis label text. Defaults to None.
             ylabel (str | None, optional): Y-axis label text. Defaults to None.
             title (str | None, optional): Plot title text. Defaults to None.
         """
-        self._document = TexDocument()
-        self._document.add_packages("tikz")
+        super().__init__()
 
-        self.figure_size = figure_size
-        self.dpi = dpi
-        self.include_legend = include_legend
+        self.legend = legend
         self.xlabel = xlabel
         self.ylabel = ylabel
         self.title = title
 
-        self.options = SeatsVotesOptions()
-        self.set_scale(xscale=figure_size[0], yscale=figure_size[1])
+        self._sv_data_list: list[_SeatsVotesData] = []
+        self._line_data_list: list[_SVPlotLine] = []
 
-        self._sv_data_list: list[SeatsVotesData] = []
-        self._line_data_list: list[SVPlotLine] = []
-
-        self._crosshair_settings: _CrosshairSettings | None = None
-        self.update_crosshair_settings()
+        self._show_crosshairs = True
 
         self._display_election_markers = True
         self.standard_marker_color: Color = "#daa520"
         self.standard_election_color: Color = "#006400"
         self._display_line_legend = True
 
-    def __repr__(self) -> str:  # pragma: no cover
-        return self._generate_latex()
-
-    def __str__(self) -> str:  # pragma: no cover
-        return self._generate_latex()
-
-    @property
-    def document(self) -> TexDocument:
-        """Return the LaTeX document associated with this seats-votes plot.
-
-        Returns:
-            TexDocument: Document object containing generated TikZ source.
-        """
-        self._document.body_string = self._generate_latex()
-        return self._document
-
-    def print(self) -> None:
-        """Print the raw TikZ body for this seats-votes plot."""
-        print(self._generate_latex())
-
-    def preview(self) -> None:  # pragma: no cover
-        """Preview the seats-votes plot via TexDocument."""
-        self.document.preview()
-
     def clear_options(self) -> None:
-        """Reset seats-votes options to defaults.
-
-        Returns:
-            None
-        """
-        self.options = SeatsVotesOptions()
-        self.set_scale(xscale=self.figure_size[0], yscale=self.figure_size[1])
-        self.update_crosshair_settings()
+        """Reset seats-votes options to defaults and restore the default crosshairs."""
+        super().clear_options()
+        self._show_crosshairs = True
+        self._display_election_markers = True
+        self._display_line_legend = True
 
     # ====================
     #   FEATURE ADDITION
     # ====================
-    def add_seat_votes_data(
+    def add_election(
         self,
-        pov_party_vote_shares: Sequence[int | float],
-        total_vote_shares: Sequence[int | float] | None = None,
+        target_party_vote_shares: Sequence[int | float],
+        total_votes: Sequence[int | float] | None = None,
         *,
         name: str | None = None,
         linecolor: Color | None = None,
         markercolor: Color | None = None,
-        markerlabel: str | None = None,
+        marker_label: str | None = None,
     ) -> None:
         """Add a seats-votes curve to the plot.
 
         Args:
-            pov_party_vote_shares (Sequence[int | float]): Per-district vote totals or vote shares
-                for the party of interest. If ``total_vote_shares`` is None, these are interpreted
+            target_party_vote_shares (Sequence[int | float]): Per-district vote totals or vote shares
+                for the party of interest. If ``total_votes`` is None, these are interpreted
                 as vote shares and must be in [0, 1].
-            total_vote_shares (Sequence[int | float] | None, optional): Per-district total vote
+            total_votes (Sequence[int | float] | None, optional): Per-district total vote
                 totals. If None, all totals are treated as 1.0 and
-                ``pov_party_vote_shares`` is interpreted as vote shares.
+                ``target_party_vote_shares`` is interpreted as vote shares.
                 Defaults to None.
             name (str | None, optional): Legend label for the seats-votes curve.
                 Defaults to None.
@@ -340,25 +169,30 @@ class SeatsVotes:
                 ``self.standard_election_color``.
             markercolor (Color | None, optional): Election-result marker color. Defaults to None,
                 which uses ``self.standard_marker_color``.
-            markerlabel (str | None, optional): Legend label for election-result markers.
+            marker_label (str | None, optional): Legend label for election-result markers.
                 Defaults to None.
         """
-        if total_vote_shares is None:
-            if any(v < 0 or v > 1 for v in pov_party_vote_shares):
+        if total_votes is None:
+            if any(v < 0 or v > 1 for v in target_party_vote_shares):
                 raise ValueError(
-                    "If total_vote_shares is not provided, then pov_party_vote_shares must be "
+                    "If total_votes is not provided, then target_party_vote_shares must be "
                     "vote shares in [0, 1]."
                 )
-            total_vote_shares = [1.0] * len(pov_party_vote_shares)
+            total_votes = [1.0] * len(target_party_vote_shares)
+
+        pov_counts = np.array(target_party_vote_shares, dtype=float)
+        total_counts = np.array(total_votes, dtype=float)
+        # Validate the series now so mistakes raise at add time rather than at render.
+        seats_votes_curve_values(pov_counts, total_counts)
 
         self._sv_data_list.append(
-            SeatsVotesData(
-                pov_party_vote_counts=np.array(pov_party_vote_shares, dtype=float),
-                total_vote_counts=np.array(total_vote_shares, dtype=float),
+            _SeatsVotesData(
+                pov_party_vote_counts=pov_counts,
+                total_vote_counts=total_counts,
                 name=name if name is not None else "Election Seats-Votes Curve",
                 linecolor=linecolor if linecolor is not None else self.standard_election_color,
                 markercolor=markercolor if markercolor is not None else self.standard_marker_color,
-                markerlabel=markerlabel if markerlabel is not None else "Election Result",
+                marker_label=marker_label if marker_label is not None else "Election Result",
             )
         )
 
@@ -391,64 +225,41 @@ class SeatsVotes:
         self.options.crosshair_y_width = y_width
         self.options.crosshair_color = color
         self.options.crosshair_alpha = alpha
-
-        dx = self.options.crosshair_x_width / 2
-        dy = self.options.crosshair_y_width / 2
-        self._crosshair_settings = _CrosshairSettings(
-            x=_CrosshairXSettings(
-                xmin=0.5 - dx,
-                xmax=0.5 + dx,
-                color=self.options.crosshair_color,
-                alpha=self.options.crosshair_alpha,
-            ),
-            y=_CrosshairYSettings(
-                ymin=0.5 - dy,
-                ymax=0.5 + dy,
-                color=self.options.crosshair_color,
-                alpha=self.options.crosshair_alpha,
-            ),
-        )
+        self._show_crosshairs = True
 
     def remove_crosshairs(self) -> None:
         """Remove crosshairs from the plot."""
-        self._crosshair_settings = None
+        self._show_crosshairs = False
 
-    def show_election_markers(self) -> None:
-        """Show overall election-result markers."""
-        self._display_election_markers = True
+    def display_election_markers(self, enabled: bool) -> None:
+        """Set whether overall election-result markers are displayed."""
+        self._display_election_markers = enabled
 
-    def hide_election_markers(self) -> None:
-        """Hide overall election-result markers."""
-        self._display_election_markers = False
-
-    def show_additional_lines_in_legend(self) -> None:
-        """Include additional guide lines in the legend."""
-        self._display_line_legend = True
-
-    def hide_additional_lines_in_legend(self) -> None:
-        """Hide additional guide lines from the legend."""
-        self._display_line_legend = False
+    def display_additional_lines_in_legend(self, enabled: bool) -> None:
+        """Set whether additional guide lines appear in the legend."""
+        self._display_line_legend = enabled
 
     def add_proportionality_line(
         self,
         *,
-        color: Color = "grey",
-        linestyle: str = "--",
+        linecolor: Color = "gray",
+        linestyle: str = "dashed",
         linewidth: float = 1.0,
         name: str | None = None,
     ) -> None:
         """Add a proportionality line (y=x) to the plot.
 
         Args:
-            color (Color, optional): Line color. Defaults to "grey".
-            linestyle (str, optional): Line style. Defaults to "--".
+            linecolor (Color, optional): Line color. Defaults to "gray".
+            linestyle (str, optional): Line style (Matplotlib token or TikZ style).
+                Defaults to "dashed".
             linewidth (float, optional): Line width. Defaults to 1.0.
             name (str | None, optional): Legend label. Defaults to "Proportionality".
         """
         self._line_data_list.append(
-            SVPlotLine(
+            _SVPlotLine(
                 slope=1.0,
-                linecolor=color,
+                linecolor=linecolor,
                 linestyle=linestyle,
                 linewidth=linewidth,
                 label=name if name is not None else "Proportionality",
@@ -458,23 +269,24 @@ class SeatsVotes:
     def add_efficiency_gap_line(
         self,
         *,
-        color: Color = "grey",
-        linestyle: str = "-",
+        linecolor: Color = "gray",
+        linestyle: str = "solid",
         linewidth: float = 1.0,
         name: str | None = None,
     ) -> None:
         """Add an efficiency-gap line (y=2x-0.5) to the plot.
 
         Args:
-            color (Color, optional): Line color. Defaults to "grey".
-            linestyle (str, optional): Line style. Defaults to "-".
+            linecolor (Color, optional): Line color. Defaults to "gray".
+            linestyle (str, optional): Line style (Matplotlib token or TikZ style).
+                Defaults to "solid".
             linewidth (float, optional): Line width. Defaults to 1.0.
             name (str | None, optional): Legend label. Defaults to "Efficiency Gap".
         """
         self._line_data_list.append(
-            SVPlotLine(
+            _SVPlotLine(
                 slope=2.0,
-                linecolor=color,
+                linecolor=linecolor,
                 linestyle=linestyle,
                 linewidth=linewidth,
                 label=name if name is not None else "Efficiency Gap",
@@ -488,7 +300,6 @@ class SeatsVotes:
         linecolor: Color,
         linestyle: str,
         linewidth: float,
-        label: str | None = None,
         name: str | None = None,
     ) -> None:
         """Add a custom slope-constrained line passing through (0.5, 0.5).
@@ -496,27 +307,23 @@ class SeatsVotes:
         Args:
             slope (float): Line slope.
             linecolor (Color): Line color.
-            linestyle (str): Line style.
+            linestyle (str): Line style (Matplotlib token or TikZ style).
             linewidth (float): Line width.
-            label (str | None, optional): Legend label. Defaults to None.
-            name (str | None, optional): Alias for ``label`` for consistency with the
-                Matplotlib version. Defaults to None.
+            name (str | None, optional): Legend label; unlabeled lines are drawn but do not
+                appear in the legend. Defaults to None.
         """
-        if label is not None and name is not None and label != name:
-            raise ValueError("name and label must match if both are provided.")
-        legend_label = name if name is not None else label
         self._line_data_list.append(
-            SVPlotLine(
+            _SVPlotLine(
                 slope=slope,
                 linecolor=linecolor,
                 linestyle=linestyle,
                 linewidth=linewidth,
-                label=legend_label,
+                label=name,
             )
         )
 
-    def set_tick_fontsize(self, fontsize: float) -> None:
-        """Set font size used for axis labels and tick labels.
+    def set_label_fontsize(self, fontsize: float) -> None:
+        """Set the font size used for the title and axis labels.
 
         Args:
             fontsize (float): Font size in points.
@@ -527,7 +334,7 @@ class SeatsVotes:
         self.options.fontsize = fontsize
 
     def set_fontsize(self, fontsize: float) -> None:
-        """Set a unified font size for axis labels/ticks and legend text.
+        """Set a unified font size for the title, axis labels, and legend text.
 
         Args:
             fontsize (float): Font size in points.
@@ -559,75 +366,6 @@ class SeatsVotes:
             None
         """
         self.options.linewidth = linewidth
-
-    def set_xlim(self, xmin: float, xmax: float, rescale: bool = False) -> None:
-        """Set x-axis limits.
-
-        Args:
-            xmin (float): Lower x-axis limit.
-            xmax (float): Upper x-axis limit.
-            rescale (bool, optional): If True, adjust xscale to preserve visual span.
-                Defaults to False.
-
-        Returns:
-            None
-        """
-        self.options.xlim = (xmin, xmax)
-        if rescale:
-            self.set_xscale(self.options.xscale * (1.0 / (float(xmax) - float(xmin))))
-
-    def set_ylim(self, ymin: float, ymax: float, rescale: bool = False) -> None:
-        """Set y-axis limits.
-
-        Args:
-            ymin (float): Lower y-axis limit.
-            ymax (float): Upper y-axis limit.
-            rescale (bool, optional): If True, adjust yscale to preserve visual span.
-                Defaults to False.
-
-        Returns:
-            None
-        """
-        self.options.ylim = (ymin, ymax)
-        if rescale:
-            self.set_yscale(self.options.yscale * (1.0 / (float(ymax) - float(ymin))))
-
-    def set_xscale(self, xscale: float) -> None:
-        """Set TikZ xscale factor.
-
-        Args:
-            xscale (float): X-axis TikZ scale factor.
-
-        Returns:
-            None
-        """
-        self.options.xscale = xscale
-
-    def set_yscale(self, yscale: float) -> None:
-        """Set TikZ yscale factor.
-
-        Args:
-            yscale (float): Y-axis TikZ scale factor.
-
-        Returns:
-            None
-        """
-        self.options.yscale = yscale
-
-    def set_scale(self, xscale: float | None = None, yscale: float | None = None) -> None:
-        """Set TikZ xscale/yscale factors.
-
-        Args:
-            xscale (float | None, optional): X-axis scale factor. Defaults to None.
-            yscale (float | None, optional): Y-axis scale factor. Defaults to None.
-
-        Returns:
-            None
-        """
-        if xscale is not None:
-            self.set_xscale(xscale)
-        if yscale is not None:
-            self.set_yscale(yscale)
 
     # =====================
     #   STRING GENERATORS
@@ -684,11 +422,11 @@ class SeatsVotes:
         """Collect unique election-marker legend entries.
 
         Returns:
-            list[tuple[Color, str]]: Unique ``(markercolor, markerlabel)`` pairs in insertion
+            list[tuple[Color, str]]: Unique ``(markercolor, marker_label)`` pairs in insertion
                 order.
         """
         unique_pairs = dict.fromkeys(
-            (sdata.markercolor, sdata.markerlabel) for sdata in self._sv_data_list
+            (sdata.markercolor, sdata.marker_label) for sdata in self._sv_data_list
         )
         return list(unique_pairs.keys())
 
@@ -705,145 +443,6 @@ class SeatsVotes:
                 continue
             entries.append((line.linecolor, line.linestyle, line.label))
         return entries
-
-    def _to_latex_color(self, color: Color) -> _TikzColorToken:
-        """Convert a color token into an internal TikZ color representation.
-
-        Unlike ``PaintBall._to_latex_color``, no auto-color name is registered on the document and
-        HTML hex tokens are emitted inline via ``\\color[HTML]{...}``, so no name prefix is needed.
-
-        Args:
-            color (Color): Input color token.
-
-        Returns:
-            _TikzColorToken: Color token encoded as one of:
-                ``kind="xcolor"`` for valid xcolor expressions,
-                ``kind="html"`` for HTML hex colors used with ``\\color[HTML]{...}``,
-                ``kind="none"`` for transparent/no-color tokens.
-        """
-        color_kind, color_value = classify_tikz_color(color)
-        return _TikzColorToken(kind=color_kind, value=color_value)
-
-    @staticmethod
-    def _color_prefix(color: _TikzColorToken) -> str:
-        """Build a color prefix command for a TikZ command scope.
-
-        Args:
-            color (_TikzColorToken): Internal color token.
-
-        Returns:
-            str: Color-setting prefix command or empty string for ``none``.
-        """
-        if color.kind == "html":
-            return rf"\color[HTML]{{{color.value}}}"
-        if color.kind == "xcolor":
-            return rf"\color{{{color.value}}}"
-        return ""
-
-    @staticmethod
-    def _wrap_with_color_scope(command: str, color: _TikzColorToken) -> str:
-        """Wrap a TikZ command in a local color scope when needed.
-
-        Args:
-            command (str): TikZ command ending in ``;``.
-            color (_TikzColorToken): Internal color token.
-
-        Returns:
-            str: Scoped TikZ command with color prefix, or ``command`` unchanged.
-        """
-        color_prefix = SeatsVotes._color_prefix(color)
-        if len(color_prefix) == 0:
-            return command
-        return "{" + color_prefix + command + "}"
-
-    def _draw_path_command(
-        self,
-        *,
-        path: str,
-        color: _TikzColorToken,
-        linewidth: float,
-        linestyle: str | None = None,
-    ) -> str:
-        """Build a ``\\draw`` command with the provided styling and color token.
-
-        Args:
-            path (str): TikZ path expression without trailing semicolon.
-            color (_TikzColorToken): Internal color token.
-            linewidth (float): Line width in points.
-            linestyle (str | None, optional): TikZ line-style token. Defaults to None.
-
-        Returns:
-            str: Fully formed TikZ ``\\draw`` command.
-        """
-        options = [f"line width={linewidth:0.2f}pt"]
-        if linestyle is not None:
-            options.append(linestyle)
-        if color.kind == "none":
-            options.append("draw=none")
-
-        command = rf"\draw [{', '.join(options)}] {path};"
-        return self._wrap_with_color_scope(command, color)
-
-    def _fill_rectangle_command(
-        self,
-        *,
-        xmin: float,
-        ymin: float,
-        xmax: float,
-        ymax: float,
-        color: _TikzColorToken,
-        fill_opacity: float,
-    ) -> str:
-        """Build a ``\\fill`` rectangle command with color and opacity.
-
-        Args:
-            xmin (float): Left x-coordinate.
-            ymin (float): Bottom y-coordinate.
-            xmax (float): Right x-coordinate.
-            ymax (float): Top y-coordinate.
-            color (_TikzColorToken): Internal color token.
-            fill_opacity (float): Fill opacity in ``[0, 1]``.
-
-        Returns:
-            str: Fully formed TikZ ``\\fill`` command.
-        """
-        options = [f"fill opacity={fill_opacity:0.4f}"]
-        if color.kind == "none":
-            options.append("fill=none")
-
-        command = (
-            rf"\fill [{', '.join(options)}] ({xmin:0.4f}, {ymin:0.4f}) rectangle "
-            rf"({xmax:0.4f}, {ymax:0.4f});"
-        )
-        return self._wrap_with_color_scope(command, color)
-
-    def _marker_node_command(
-        self,
-        *,
-        x: float,
-        y: float,
-        color: _TikzColorToken,
-        size_pt: float,
-    ) -> str:
-        """Build a circular marker node command.
-
-        Args:
-            x (float): Marker x-coordinate.
-            y (float): Marker y-coordinate.
-            color (_TikzColorToken): Internal color token.
-            size_pt (float): Marker diameter in points.
-
-        Returns:
-            str: Fully formed TikZ ``\\node`` command.
-        """
-        options = ["circle", "inner sep=0pt", f"minimum size={size_pt:0.2f}pt"]
-        if color.kind == "none":
-            options.extend(["fill=none", "draw=none"])
-        else:
-            options.extend(["fill", "draw"])
-
-        command = rf"\node [{', '.join(options)}] at ({x:0.4f}, {y:0.4f}) {{}};"
-        return self._wrap_with_color_scope(command, color)
 
     def _add_labels(self, lines: list[str]) -> None:
         """Append title/xlabel/ylabel TikZ nodes to the output line list.
@@ -892,7 +491,7 @@ class SeatsVotes:
         Returns:
             None
         """
-        if not self.include_legend:
+        if not self.legend:
             return
 
         legend_rows: list[tuple[Literal["line", "marker"], Color, str, str]] = []
@@ -914,12 +513,16 @@ class SeatsVotes:
 
         legend_font_cmd = self._fontsize_command(self.options.legend_fontsize)
 
-        x_start = self.options.xlim[1] + 0.03
-        y_step = 0.06
+        # Scale legend geometry by the axis spans, like _add_labels, so non-unit limits keep
+        # the legend proportioned and adjacent to the plot.
+        width = self.options.xlim[1] - self.options.xlim[0]
+        height = self.options.ylim[1] - self.options.ylim[0]
+        x_start = self.options.xlim[1] + 0.03 * width
+        y_step = 0.06 * height
         y_center = (self.options.ylim[0] + self.options.ylim[1]) / 2
         y_start = y_center + 0.5 * (len(legend_rows) - 1) * y_step
-        line_length = 0.06
-        label_offset = 0.08
+        line_length = 0.06 * width
+        label_offset = 0.08 * width
 
         lines.append(
             f"\\begin{{scope}}[xscale={self.options.xscale}, yscale={self.options.yscale}]"
@@ -974,31 +577,29 @@ class SeatsVotes:
         )
         lines.append("")
 
-        if self._crosshair_settings is not None:
-            x_settings = self._crosshair_settings["x"]
-            y_settings = self._crosshair_settings["y"]
-
-            x_color = self._to_latex_color(x_settings["color"])
-            y_color = self._to_latex_color(y_settings["color"])
+        if self._show_crosshairs:
+            crosshair_color = self._to_latex_color(self.options.crosshair_color)
+            dx = self.options.crosshair_x_width / 2
+            dy = self.options.crosshair_y_width / 2
 
             lines.append(
                 self._fill_rectangle_command(
-                    xmin=float(x_settings["xmin"]),
+                    xmin=0.5 - dx,
                     ymin=self.options.ylim[0],
-                    xmax=float(x_settings["xmax"]),
+                    xmax=0.5 + dx,
                     ymax=self.options.ylim[1],
-                    color=x_color,
-                    fill_opacity=float(x_settings["alpha"]),
+                    color=crosshair_color,
+                    fill_opacity=self.options.crosshair_alpha,
                 )
             )
             lines.append(
                 self._fill_rectangle_command(
                     xmin=self.options.xlim[0],
-                    ymin=float(y_settings["ymin"]),
+                    ymin=0.5 - dy,
                     xmax=self.options.xlim[1],
-                    ymax=float(y_settings["ymax"]),
-                    color=y_color,
-                    fill_opacity=float(y_settings["alpha"]),
+                    ymax=0.5 + dy,
+                    color=crosshair_color,
+                    fill_opacity=self.options.crosshair_alpha,
                 )
             )
             lines.append("")
@@ -1039,11 +640,9 @@ class SeatsVotes:
         if self._display_election_markers:
             for sv_series in self._sv_data_list:
                 marker_color = self._to_latex_color(sv_series.markercolor)
-                total_vote_share = float(
-                    sv_series.pov_party_vote_counts.sum() / sv_series.total_vote_counts.sum()
+                total_vote_share, total_seat_share = overall_election_point(
+                    sv_series.pov_party_vote_counts, sv_series.total_vote_counts
                 )
-                district_vote_shares = sv_series.pov_party_vote_counts / sv_series.total_vote_counts
-                total_seat_share = float(np.mean(district_vote_shares > 0.5))
 
                 lines.append(
                     self._marker_node_command(

@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import gc
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 
+import gerrytools.latex._render as render_module
 import gerrytools.latex.document as document_module
+from gerrytools.latex._colors import LatexColorSpec
 from gerrytools.latex.document import TexDocument
 
 
@@ -60,6 +64,54 @@ class TestTexDocumentConstruction:
         gc.collect()
 
         assert not folder.exists()
+
+    def test_construction_and_source_generation_create_no_workdir(self, monkeypatch):
+        # Regression: every document eagerly owned a /tmp/latex-preview-* directory; the
+        # workspace must only appear on the compile/preview/save path.
+        created: list[str] = []
+        real_mkdtemp = tempfile.mkdtemp
+
+        def tracking_mkdtemp(*args, **kwargs) -> str:
+            path = real_mkdtemp(*args, **kwargs)
+            created.append(path)
+            return path
+
+        monkeypatch.setattr(document_module.tempfile, "mkdtemp", tracking_mkdtemp)
+
+        doc = TexDocument()
+        doc.body_string = "x"
+        doc.to_tex()
+        _ = doc.preamble
+        assert created == []
+        assert doc._workdir_path is None
+
+        _ = doc._workdir
+        assert len(created) == 1
+
+    def test_table_generation_creates_no_workdir(self):
+        import pandas as pd
+
+        from gerrytools.latex import TexTable, TikzTable
+
+        for table_cls in (TexTable, TikzTable):
+            table = table_cls(pd.DataFrame({"a": [1.0, 2.0]}))
+            assert table.document.body_string
+            assert table._document._workdir_path is None
+
+    def test_mocked_compile_allocates_workspace_on_demand(self, monkeypatch, tmp_path: Path):
+        monkeypatch.setattr(TexDocument, "_compile_pdf", _fake_compile_pdf)
+
+        doc = TexDocument()
+        assert doc._workdir_path is None
+
+        doc.save_pdf(tmp_path / "out.pdf")
+
+        workdir = doc._workdir_path
+        assert workdir is not None and workdir.exists()
+
+        del doc
+        gc.collect()
+        assert not workdir.exists()
 
     def test_document_add_packages_deduplicates_plain_and_optioned_packages(self):
         doc = TexDocument()
@@ -135,43 +187,6 @@ class TestTexDocumentColors:
         assert r"\colorlet{myxcolor}{red!60!black}" in preamble
         assert r"\definecolor{mytabblue}{HTML}{1f77b4}" in preamble
 
-    def test_resolve_color_reuses_existing_auto_colors(self):
-        doc = TexDocument()
-
-        initial_color_count = len(doc.color_dict)
-        first = doc.resolve_color("#123456", prefix="auto")
-        second = doc.resolve_color("#123456", prefix="ignored")
-
-        assert first == second
-        assert len(doc.color_dict) == initial_color_count + 1
-        assert doc.color_dict[first] == ("HTML", "123456")
-
-    def test_resolve_color_returns_existing_name_for_xcolor_expression(self):
-        doc = TexDocument()
-
-        color_name = doc.resolve_color("denim!25!amber", prefix="auto")
-
-        assert color_name == "denim!25!amber"
-        assert "denim!25!amber" not in doc.color_dict
-
-    def test_resolve_color_reuses_rgb_auto_colors(self):
-        doc = TexDocument()
-
-        first = doc.resolve_color((0.1, 0.2, 0.3), prefix="auto")
-        second = doc.resolve_color((0.1, 0.2, 0.3), prefix="ignored")
-
-        assert first == second
-        assert doc.color_dict[first] == ("rgb", (0.1, 0.2, 0.3))
-
-    def test_resolve_color_reuses_RGB_auto_colors(self):
-        doc = TexDocument()
-
-        first = doc.resolve_color((10, 20, 30), prefix="auto")
-        second = doc.resolve_color((10, 20, 30), prefix="ignored")
-
-        assert first == second
-        assert doc.color_dict[first] == ("RGB", (10, 20, 30))
-
     def test_document_bad_color_raises_for_invalid_inputs(self):
         doc = TexDocument()
 
@@ -187,9 +202,14 @@ class TestTexDocumentColors:
         with pytest.raises(ValueError, match="cannot be registered"):
             doc.add_color("badcolor4", "none")
 
+    @pytest.mark.parametrize("name", ["", "1blue", "bad}name", r"bad\name", "bad%name"])
+    def test_document_rejects_unsafe_color_names(self, name):
+        with pytest.raises(ValueError, match="Color name"):
+            TexDocument().add_color(name, (1, 0, 0))
+
     def test_preamble_raises_for_unsupported_color_type(self):
         doc = TexDocument()
-        doc.color_dict["bad"] = ("XYZ", "value")
+        doc.color_dict["bad"] = cast(LatexColorSpec, ("XYZ", "value"))
 
         with pytest.raises(ValueError, match="Unsupported color type"):
             _ = doc.preamble
@@ -265,10 +285,10 @@ class TestDocumentRendererHelpers:
     def test_render_pdf_to_png_raises_when_no_renderer_is_available(
         self, monkeypatch, tmp_path: Path
     ):
-        monkeypatch.setattr(document_module, "_which_any", lambda names: None)
+        monkeypatch.setattr(render_module, "_which_any", lambda names: None)
 
         with pytest.raises(RuntimeError, match="No PDF renderer found"):
-            document_module._render_pdf_to_png(
+            render_module._render_pdf_to_png(
                 tmp_path / "input.pdf",
                 tmp_path / "output.png",
             )
@@ -284,17 +304,18 @@ class TestDocumentRendererHelpers:
         produced_path = tmp_path / "output.png"
         calls: list[list[str]] = []
 
-        def fake_run(cmd, capture_output, text):
+        def fake_run(cmd, capture_output, text, timeout):
             del capture_output
             del text
+            assert timeout == 120
             calls.append(cmd)
             produced_path.write_bytes(b"png-bytes")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr(document_module, "_which_any", lambda names: "pdftoppm")
-        monkeypatch.setattr(document_module.subprocess, "run", fake_run)
+        monkeypatch.setattr(render_module, "_which_any", lambda names: "pdftoppm")
+        monkeypatch.setattr(render_module.subprocess, "run", fake_run)
 
-        document_module._render_pdf_to_png(pdf_path, output_path, dpi=300)
+        render_module._render_pdf_to_png(pdf_path, output_path, dpi=300)
 
         assert calls[0][0] == "pdftoppm"
         assert calls[0][1:4] == ["-png", "-r", "300"]
@@ -307,17 +328,18 @@ class TestDocumentRendererHelpers:
         output_path = tmp_path / "output.png"
         calls: list[list[str]] = []
 
-        def fake_run(cmd, capture_output, text):
+        def fake_run(cmd, capture_output, text, timeout):
             del capture_output
             del text
+            assert timeout == 120
             calls.append(cmd)
             output_path.write_bytes(b"cairo-png")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr(document_module, "_which_any", lambda names: "pdftocairo")
-        monkeypatch.setattr(document_module.subprocess, "run", fake_run)
+        monkeypatch.setattr(render_module, "_which_any", lambda names: "pdftocairo")
+        monkeypatch.setattr(render_module.subprocess, "run", fake_run)
 
-        document_module._render_pdf_to_png(pdf_path, output_path, dpi=180)
+        render_module._render_pdf_to_png(pdf_path, output_path, dpi=180)
 
         assert calls[0][0] == "pdftocairo"
         assert calls[0][1:4] == ["-png", "-r", "180"]
@@ -329,19 +351,20 @@ class TestDocumentRendererHelpers:
         output_path = tmp_path / "output.png"
         calls: list[list[str]] = []
 
-        def fake_run(cmd, capture_output, text):
+        def fake_run(cmd, capture_output, text, timeout):
             del capture_output
             del text
+            assert timeout == 120
             calls.append(cmd)
             for arg in cmd:
                 if arg.startswith("-sOutputFile="):
                     Path(arg.removeprefix("-sOutputFile=")).write_bytes(b"gs-png")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr(document_module, "_which_any", lambda names: "gs")
-        monkeypatch.setattr(document_module.subprocess, "run", fake_run)
+        monkeypatch.setattr(render_module, "_which_any", lambda names: "gs")
+        monkeypatch.setattr(render_module.subprocess, "run", fake_run)
 
-        document_module._render_pdf_to_png(pdf_path, output_path)
+        render_module._render_pdf_to_png(pdf_path, output_path)
 
         assert calls[0][0] == "gs"
         assert output_path.read_bytes() == b"gs-png"
@@ -352,17 +375,18 @@ class TestDocumentRendererHelpers:
         output_path = tmp_path / "output.png"
         calls: list[list[str]] = []
 
-        def fake_run(cmd, capture_output, text):
+        def fake_run(cmd, capture_output, text, timeout):
             del capture_output
             del text
+            assert timeout == 120
             calls.append(cmd)
             Path(cmd[-1]).write_bytes(b"convert-png")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr(document_module, "_which_any", lambda names: "convert")
-        monkeypatch.setattr(document_module.subprocess, "run", fake_run)
+        monkeypatch.setattr(render_module, "_which_any", lambda names: "convert")
+        monkeypatch.setattr(render_module.subprocess, "run", fake_run)
 
-        document_module._render_pdf_to_png(pdf_path, output_path)
+        render_module._render_pdf_to_png(pdf_path, output_path)
 
         assert calls[0][0] == "convert"
         assert output_path.read_bytes() == b"convert-png"
@@ -373,44 +397,46 @@ class TestDocumentRendererHelpers:
         pdf_path = tmp_path / "input.pdf"
         pdf_path.write_bytes(b"%PDF-1.4\n")
 
-        def fake_run(cmd, capture_output, text):
+        def fake_run(cmd, capture_output, text, timeout):
             del cmd
             del capture_output
             del text
+            assert timeout == 120
             return SimpleNamespace(returncode=1, stdout="out", stderr="err")
 
-        monkeypatch.setattr(document_module, "_which_any", lambda names: "convert")
-        monkeypatch.setattr(document_module.subprocess, "run", fake_run)
+        monkeypatch.setattr(render_module, "_which_any", lambda names: "convert")
+        monkeypatch.setattr(render_module.subprocess, "run", fake_run)
 
         with pytest.raises(RuntimeError, match="PDF->PNG render failed using convert"):
-            document_module._render_pdf_to_png(pdf_path, tmp_path / "output.png")
+            render_module._render_pdf_to_png(pdf_path, tmp_path / "output.png")
 
     def test_render_pdf_to_png_raises_when_output_is_missing(self, monkeypatch, tmp_path: Path):
         pdf_path = tmp_path / "input.pdf"
         pdf_path.write_bytes(b"%PDF-1.4\n")
 
-        def fake_run(cmd, capture_output, text):
+        def fake_run(cmd, capture_output, text, timeout):
             del cmd
             del capture_output
             del text
+            assert timeout == 120
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr(document_module, "_which_any", lambda names: "gs")
-        monkeypatch.setattr(document_module.subprocess, "run", fake_run)
+        monkeypatch.setattr(render_module, "_which_any", lambda names: "gs")
+        monkeypatch.setattr(render_module.subprocess, "run", fake_run)
 
         with pytest.raises(RuntimeError, match="renderer reported success but"):
-            document_module._render_pdf_to_png(pdf_path, tmp_path / "output.png")
+            render_module._render_pdf_to_png(pdf_path, tmp_path / "output.png")
 
     def test_render_to_temp_png_raises_when_no_engine_is_found(self, monkeypatch):
         doc = TexDocument()
-        monkeypatch.setattr(document_module, "_which_any", lambda names: None)
+        monkeypatch.setattr(render_module, "_which_any", lambda names: None)
 
         with pytest.raises(RuntimeError, match="No TeX engine found"):
             doc._render_to_temp_png()
 
     def test_render_to_temp_png_raises_when_preferred_engine_is_missing(self, monkeypatch):
         doc = TexDocument()
-        monkeypatch.setattr(document_module, "_which_any", lambda names: None)
+        monkeypatch.setattr(render_module, "_which_any", lambda names: None)
 
         with pytest.raises(RuntimeError, match="TeX engine xelatex not found"):
             doc._render_to_temp_png(preferred_engine="xelatex")
@@ -420,13 +446,16 @@ class TestDocumentRendererHelpers:
         monkeypatch,
     ):
         doc = TexDocument()
+        doc.compile_passes = 2
         doc.body_string = "body"
+        commands = []
         calls: dict[str, object] = {}
 
-        def fake_run(cmd, capture_output, text):
+        def fake_run(cmd, capture_output, text, timeout):
             del capture_output
             del text
-            calls["cmd"] = cmd
+            assert timeout == 120
+            commands.append(cmd)
             doc._pdf_path.write_bytes(b"%PDF-1.4\n")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
@@ -434,13 +463,13 @@ class TestDocumentRendererHelpers:
             calls["render"] = (pdf_path, png_path, dpi)
             png_path.write_bytes(b"png")
 
-        monkeypatch.setattr(document_module, "_which_any", lambda names: "pdflatex")
-        monkeypatch.setattr(document_module.subprocess, "run", fake_run)
-        monkeypatch.setattr(document_module, "_render_pdf_to_png", fake_render)
+        monkeypatch.setattr(render_module, "_which_any", lambda names: "pdflatex")
+        monkeypatch.setattr(render_module.subprocess, "run", fake_run)
+        monkeypatch.setattr(render_module, "_render_pdf_to_png", fake_render)
 
         doc._render_to_temp_png(dpi=111)
 
-        assert calls["cmd"] == [
+        expected_command = [
             "pdflatex",
             "-interaction=nonstopmode",
             "-halt-on-error",
@@ -449,16 +478,20 @@ class TestDocumentRendererHelpers:
             str(doc._workdir),
             str(doc._tex_path),
         ]
+        assert commands == [expected_command, expected_command]
         assert calls["render"] == (doc._pdf_path, doc._png_path, 111)
 
     def test_render_to_temp_png_uses_tectonic_command_shape(self, monkeypatch):
         doc = TexDocument()
+        doc.compile_passes = 2
+        commands = []
         calls: dict[str, object] = {}
 
-        def fake_run(cmd, capture_output, text):
+        def fake_run(cmd, capture_output, text, timeout):
             del capture_output
             del text
-            calls["cmd"] = cmd
+            assert timeout == 120
+            commands.append(cmd)
             doc._pdf_path.write_bytes(b"%PDF-1.4\n")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
@@ -466,25 +499,137 @@ class TestDocumentRendererHelpers:
             calls["render"] = (pdf_path, png_path, dpi)
             png_path.write_bytes(b"png")
 
-        monkeypatch.setattr(document_module, "_which_any", lambda names: "tectonic")
-        monkeypatch.setattr(document_module.subprocess, "run", fake_run)
-        monkeypatch.setattr(document_module, "_render_pdf_to_png", fake_render)
+        monkeypatch.setattr(render_module, "_which_any", lambda names: "tectonic")
+        monkeypatch.setattr(render_module.subprocess, "run", fake_run)
+        monkeypatch.setattr(render_module, "_render_pdf_to_png", fake_render)
 
         doc._render_to_temp_png()
 
-        assert calls["cmd"] == ["tectonic", str(doc._tex_path), "--outdir", str(doc._workdir)]
+        assert commands == [["tectonic", str(doc._tex_path), "--outdir", str(doc._workdir)]]
 
     def test_render_to_temp_png_raises_when_compile_fails(self, monkeypatch):
         doc = TexDocument()
 
-        def fake_run(cmd, capture_output, text):
+        def fake_run(cmd, capture_output, text, timeout):
             del cmd
             del capture_output
             del text
+            assert timeout == 120
             return SimpleNamespace(returncode=1, stdout="stdout", stderr="stderr")
 
-        monkeypatch.setattr(document_module, "_which_any", lambda names: "pdflatex")
-        monkeypatch.setattr(document_module.subprocess, "run", fake_run)
+        monkeypatch.setattr(render_module, "_which_any", lambda names: "pdflatex")
+        monkeypatch.setattr(render_module.subprocess, "run", fake_run)
 
         with pytest.raises(RuntimeError, match="LaTeX compile failed with pdflatex"):
             doc._render_to_temp_png()
+
+
+def test_to_tex_is_full_standalone_source():
+    from gerrytools.latex import TexDocument
+
+    document = TexDocument()
+    document.body_string = "hello"
+    source = document.to_tex()
+    assert source.startswith("\\documentclass")
+    assert "\\begin{document}" in source and source.rstrip().endswith("\\end{document}")
+    assert "hello" in source
+
+
+class TestMinimalDynamicPreamble:
+    def test_bare_document_has_no_packages(self):
+        from gerrytools.latex import TexDocument
+
+        document = TexDocument()
+        document.body_string = "plain text"
+        assert "\\usepackage" not in document.preamble
+
+    def test_body_macros_imply_packages(self):
+        from gerrytools.latex import TexDocument
+
+        document = TexDocument()
+        document.body_string = "\\toprule\n\\rowcolor{amber}\nx"
+        preamble = document.preamble
+        # Plain packages condense into a single \usepackage line; amber is a
+        # latexcolors name, so latexcolors (not bare xcolor) is pulled in.
+        for package in ("booktabs", "latexcolors", "colortbl"):
+            assert package in preamble
+        assert preamble.count("\\usepackage") == 1
+
+    def test_registered_command_macros_imply_packages(self):
+        from gerrytools.latex import TexDocument
+
+        document = TexDocument()
+        document.add_command("\\newcommand{\\heat}[1]{\\fpeval{#1}}")
+        assert "xfp" in document.preamble
+
+    def test_optioned_package_not_duplicated_by_scan(self):
+        from gerrytools.latex import TexDocument
+
+        document = TexDocument()
+        document.body_string = "\\toprule"
+        document.add_package_with_options("booktabs", [])
+        assert document.preamble.count("booktabs") == 1
+
+    @pytest.mark.parametrize("color", ["yellow-green", "amber(sae/ece)", "olivedrab7"])
+    def test_latexcolors_scanner_accepts_full_squashed_key_alphabet(self, color):
+        document = TexDocument()
+        document.body_string = rf"\textcolor{{{color}}}{{sample}}"
+
+        assert "latexcolors" in document.preamble
+
+    @pytest.mark.parametrize("color", ["ao", "cadmiumgreen"])
+    def test_bare_tikz_color_names_imply_latexcolors(self, color):
+        document = TexDocument()
+        document.body_string = rf"\node[fill={color}] {{}};"
+
+        assert "latexcolors" in document.preamble
+
+    def test_plain_color_specs_need_only_xcolor(self):
+        document = TexDocument()
+        document.body_string = "\\rowcolor[HTML]{FF00AA} x"
+        preamble = document.preamble
+
+        assert "xcolor" in preamble
+        assert "latexcolors" not in preamble
+
+    @pytest.mark.parametrize(
+        "body",
+        [r"{\color[HTML]{FF00AA} x}", r"\definecolor{mine}{HTML}{FF00AA}"],
+    )
+    def test_bare_color_macros_imply_xcolor(self, body):
+        document = TexDocument()
+        document.body_string = body
+
+        assert "xcolor" in document.preamble
+
+    def test_plain_prose_matching_color_names_does_not_imply_latexcolors(self):
+        document = TexDocument()
+        document.body_string = r"\node[fill=white] {desert coral}; tundra"
+
+        assert "latexcolors" not in document.preamble
+
+
+def test_table_repr_is_standalone_document():
+    import pandas as pd
+
+    from gerrytools.latex import TexTable
+
+    table = TexTable(pd.DataFrame({"a": [1.0, 2.0]}))
+    source = repr(table)
+    assert source.startswith("\\documentclass")
+    assert "\\begin{document}" in source
+    assert str(table) == source
+    assert table.document.body_string in source
+
+
+def test_print_table_prints_body_only(capsys):
+    import pandas as pd
+
+    from gerrytools.latex import TexTable, TikzTable
+
+    for cls in (TexTable, TikzTable):
+        table = cls(pd.DataFrame({"a": [1.0, 2.0]}))
+        table.print_table()
+        printed = capsys.readouterr().out
+        assert "\\documentclass" not in printed
+        assert printed.strip() == table.document.body_string.strip()

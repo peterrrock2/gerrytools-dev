@@ -6,6 +6,8 @@ from typing import Literal
 import matplotlib.colors as mcolors
 import matplotlib.patheffects as patheffects
 import matplotlib.pyplot as plt
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
 from matplotlib.patches import Circle
 
 from gerrytools.colors import convert_color_to_hexa_or_none
@@ -30,10 +32,8 @@ class SubwaySignOptions:
             defaults to 0.3 * radius. Default is None.
         padding (float | None): Padding around the entire layout. If None,
             defaults to 0.2 * radius. Default is None.
-        ragged (bool): Whether to allow ragged packing of signs when the number of
-            signs does not fill the grid completely. Default is True.
-        raggededge (Literal["first", "last"]): If ragged packing is enabled, determines whether
-            the incomplete band is placed at the start or end of the layout. Default is "last".
+        raggededge (Literal["first", "last"]): Whether the incomplete band is placed at the start
+            or end of the layout. Default is "last".
     """
 
     radius: float = 0.3
@@ -49,7 +49,6 @@ class SubwaySignOptions:
     verticalgap: float | None = None
     padding: float | None = None
 
-    ragged: bool = True
     raggededge: Literal["first", "last"] = "last"
 
 
@@ -82,8 +81,10 @@ def _validate_subway_settings(
     """
     if orientation not in ("vertical", "horizontal"):
         raise ValueError("`orientation` must be either 'vertical' or 'horizontal'.")
+    if sign_options.raggededge not in ("first", "last"):
+        raise ValueError("`sign_options.raggededge` must be 'first' or 'last'.")
     if n_bands is not None and max_items_per_band is not None:
-        raise ValueError("Only one of `n_rows` and `max_items_per_row` may be set.")
+        raise ValueError("Only one of `n_bands` and `max_items_per_band` may be set.")
     if len(colors) != len(labels):
         raise ValueError("`colors` and `labels` must have the same length.")
     if len(labels) == 0:
@@ -154,29 +155,25 @@ def _determine_offsets_and_counts(
     verticalgap = sign_options.verticalgap if sign_options.verticalgap is not None else 0.3 * radius
     padding = sign_options.padding if sign_options.padding is not None else 0.2 * radius
 
+    # Work in band terms (a band is a row when horizontal, a column when vertical), then
+    # transpose once at the end.
     if max_items_per_band is not None:
-        if orientation == "horizontal":
-            column_count = int(max_items_per_band)
-            row_count = math.ceil(item_count / column_count)
-        else:  # vertical
-            row_count = int(max_items_per_band)
-            column_count = math.ceil(item_count / row_count)
-
+        band_size = min(int(max_items_per_band), item_count)
+        band_count = math.ceil(item_count / band_size)
     elif n_bands is not None:
-        if orientation == "horizontal":
-            row_count = int(n_bands)
-            column_count = math.ceil(item_count / row_count)
-        else:  # vertical
-            column_count = int(n_bands)
-            row_count = math.ceil(item_count / column_count)
-
+        band_count = int(n_bands)
+        band_size = math.ceil(item_count / band_count)
+        # More requested bands than band_size can fill would leave blank bands and a
+        # nonpositive ragged size; clamp so 1 <= ragged_size <= band_size always holds.
+        band_count = math.ceil(item_count / band_size)
     else:
-        if orientation == "horizontal":
-            row_count = 1
-            column_count = item_count
-        else:  # vertical
-            row_count = item_count
-            column_count = 1
+        band_count = 1
+        band_size = item_count
+
+    if orientation == "horizontal":
+        row_count, column_count = band_count, band_size
+    else:
+        row_count, column_count = band_size, band_count
 
     return _SubwayPlotLayout(
         item_count=item_count,
@@ -190,198 +187,58 @@ def _determine_offsets_and_counts(
     )
 
 
-def _determine_grid_position(
-    *,
+def _band_position(
     linear_index: int,
-    sign_options: SubwaySignOptions,
-    orientation: Literal["vertical", "horizontal"],
-    item_count: int,
-    row_count: int,
-    column_count: int,
-) -> tuple[int, int]:
-    """Given a linear index, determine the (row, column) position in the grid,
-    accounting for ragged edges if necessary.
-
-    Args:
-        linear_index (int): The linear index of the sign.
-        sign_options (SubwaySignOptions): Rendering/layout options containing ragged-edge mode.
-        orientation (Literal["vertical", "horizontal"]): The layout orientation.
-        item_count (int): Total number of signs.
-        row_count (int): Number of rows in the layout.
-        column_count (int): Number of columns in the layout.
-
-    Returns:
-        tuple[int, int]: Row and column position for ``linear_index``.
-    """
-    raggededge = getattr(sign_options, "raggededge", "last")
-    if raggededge not in ("first", "last"):
-        raise ValueError("`sign_options.raggededge` must be 'first' or 'last'.")
-
-    if orientation == "horizontal":
-        full_band_size = column_count
-        ragged_band_size = item_count - (row_count - 1) * column_count
-
-        if ragged_band_size == full_band_size or row_count == 1:
-            row_index = linear_index // full_band_size
-            col_index = linear_index % full_band_size
-            return row_index, col_index
-
-        if raggededge == "last":
-            row_index = linear_index // full_band_size
-            col_index = linear_index % full_band_size
-            return row_index, col_index
-
-        if linear_index < ragged_band_size:
-            return 0, linear_index
-
-        remaining_index = linear_index - ragged_band_size
-        row_index = 1 + (remaining_index // full_band_size)
-        col_index = remaining_index % full_band_size
-        return row_index, col_index
-
-    else:
-        full_band_size = row_count
-        ragged_band_size = item_count - (column_count - 1) * row_count
-
-        if ragged_band_size == full_band_size or column_count == 1:
-            row_index = linear_index % full_band_size
-            col_index = linear_index // full_band_size
-            return row_index, col_index
-
-        if raggededge == "last":
-            row_index = linear_index % full_band_size
-            col_index = linear_index // full_band_size
-            return row_index, col_index
-
-        if linear_index < ragged_band_size:
-            return linear_index, 0
-
-        remaining_index = linear_index - ragged_band_size
-        col_index = 1 + (remaining_index // full_band_size)
-        row_index = remaining_index % full_band_size
-        return row_index, col_index
-
-
-def _ragged_edge_offset(
     *,
-    row_index: int,
-    col_index: int,
-    sign_options: SubwaySignOptions,
-    orientation: Literal["vertical", "horizontal"],
     item_count: int,
-    row_count: int,
-    column_count: int,
-    x_step: float,
-    y_step: float,
-) -> tuple[float, float]:
-    """Determine the offset for the incomplete outer edge by shifting along primary layout axis.
+    band_count: int,
+    band_size: int,
+    ragged_first: bool,
+) -> tuple[int, int]:
+    """Return ``(band_index, index_in_band)`` for a linear index.
 
-    Args:
-        row_index (int): The row index of the sign.
-        col_index (int): The column index of the sign.
-        sign_options (SubwaySignOptions): Options for sign appearance.
-        orientation (Literal["vertical", "horizontal"]): The layout orientation.
-        item_count (int): Total number of signs.
-        row_count (int): Number of rows in the layout.
-        column_count (int): Number of columns in the layout.
-        x_step (float): The horizontal step size between sign centers.
-        y_step (float): The vertical step size between sign centers.
-
-    Returns:
-        tuple[float, float]: The (dx, dy) offset to apply to the sign's center.
+    Bands fill in order with ``band_size`` items each; when the item count does not fill the
+    grid, the partial band is the first band when ``ragged_first`` else the last (where plain
+    ``divmod`` already leaves it).
     """
-    raggededge = getattr(sign_options, "raggededge", "last")
-    if orientation == "horizontal":
-        items_in_partial_row = item_count - (row_count - 1) * column_count
-        if items_in_partial_row == column_count:
-            return 0.0, 0.0  # no ragged row
-
-        ragged_row_index = 0 if raggededge == "first" else (row_count - 1)
-        if row_index != ragged_row_index:
-            return 0.0, 0.0
-
-        missing = column_count - items_in_partial_row
-        dx = 0.5 * missing * x_step
-        return dx, 0.0
-
-    else:
-        items_in_partial_col = item_count - (column_count - 1) * row_count
-        if items_in_partial_col == row_count:
-            return 0.0, 0.0  # no ragged column
-
-        ragged_col_index = 0 if raggededge == "first" else (column_count - 1)
-        if col_index != ragged_col_index:
-            return 0.0, 0.0
-
-        missing = row_count - items_in_partial_col
-        dy = -0.5 * missing * y_step
-        return 0.0, dy
+    ragged_size = item_count - (band_count - 1) * band_size
+    if ragged_first and ragged_size != band_size:
+        if linear_index < ragged_size:
+            return 0, linear_index
+        band_index, index_in_band = divmod(linear_index - ragged_size, band_size)
+        return band_index + 1, index_in_band
+    return divmod(linear_index, band_size)
 
 
 def _normalize_colors_and_adjust_item_order(
     *,
     colors: list[Color],
     labels: list[str],
-    orientation: Literal["vertical", "horizontal"],
-    item_count: int,
-    row_count: int,
-    column_count: int,
-    max_items_per_band: int | None,
     reverse_display_order: bool,
-    sign_options: SubwaySignOptions,
 ) -> list[tuple[HexColor, str]]:
-    """Normalize colors to hex format and adjust item order for ragged edges and reverse display.
+    """Normalize colors to hex format and optionally reverse the display order.
+
+    Reversing display order reverses the full flattened sequence of signs; the drawing pass
+    then reflows that sequence into the same band layout (including which side the ragged
+    edge sits on). A single band therefore simply reverses, and a multi-band grid equals
+    reversing the flat list and re-banding it.
 
     Args:
         colors (list[Color]): List of colors for each sign.
         labels (list[str]): List of labels for each sign.
-        orientation (Literal["vertical", "horizontal"]): The layout orientation.
-        item_count (int): Total number of signs.
-        row_count (int): Number of rows in the layout.
-        column_count (int): Number of columns in the layout.
-        max_items_per_band (int | None): Maximum number of items per band (row or column).
         reverse_display_order (bool): Whether to reverse the display order of signs.
-        sign_options (SubwaySignOptions): Options for sign appearance.
-
     """
-    new_colors = []
-    for c in colors:
-        hexa_color = convert_color_to_hexa_or_none(c)
-        new_colors.append(hexa_color)
-
-    items = list(zip(new_colors, labels))
-    raggededge = getattr(sign_options, "raggededge", "last")
-
+    items: list[tuple[HexColor, str]] = [
+        (convert_color_to_hexa_or_none(c), label) for c, label in zip(colors, labels)
+    ]
     if reverse_display_order:
-        new_items = []
-        band_count = row_count if orientation == "horizontal" else column_count
-        band_width = column_count if orientation == "horizontal" else row_count
-
-        remainder = item_count % band_width
-
-        starting_offset = 0
-        if raggededge == "first" and remainder != 0:
-            new_items.extend(items[-remainder:])
-            starting_offset = remainder
-
-        for band_index in range(band_count):
-            start_index = band_index * band_width + starting_offset
-            end_index = start_index + band_width
-            start_index = len(items) - end_index
-            end_index = start_index + band_width
-            new_items.extend(items[start_index:end_index])
-
-        if raggededge == "last" and remainder != 0:
-            new_items.extend(items[:remainder])
-
-        items = new_items
-
+        items.reverse()
     return items
 
 
 def _draw_sign(
     *,
-    axes: plt.Axes,
+    axes: Axes,
     index: int,
     face_color: Color,
     label_text: str,
@@ -415,32 +272,37 @@ def _draw_sign(
     """
     normalized_face_color = mcolors.to_rgba(face_color)
 
-    row_index, col_index = _determine_grid_position(
-        linear_index=index,
-        sign_options=sign_options,
-        orientation=orientation,
+    horizontal = orientation == "horizontal"
+    band_count = row_count if horizontal else column_count
+    band_size = column_count if horizontal else row_count
+    ragged_first = sign_options.raggededge == "first"
+
+    band_index, index_in_band = _band_position(
+        index,
         item_count=item_count,
-        row_count=row_count,
-        column_count=column_count,
+        band_count=band_count,
+        band_size=band_size,
+        ragged_first=ragged_first,
     )
 
-    base_x_center = col_index * x_step + radius
-    base_y_center = (row_count - 1 - row_index) * y_step + radius
+    # The one point orientation matters: transpose band coordinates to (row, column).
+    if horizontal:
+        row_index, col_index = band_index, index_in_band
+    else:
+        row_index, col_index = index_in_band, band_index
 
-    dx, dy = _ragged_edge_offset(
-        row_index=row_index,
-        col_index=col_index,
-        sign_options=sign_options,
-        orientation=orientation,
-        item_count=item_count,
-        row_count=row_count,
-        column_count=column_count,
-        x_step=x_step,
-        y_step=y_step,
-    )
+    x_center = col_index * x_step + radius
+    y_center = (row_count - 1 - row_index) * y_step + radius
 
-    x_center = base_x_center + dx
-    y_center = base_y_center + dy
+    # Center a partial band by shifting it half the missing width along its own axis.
+    ragged_size = item_count - (band_count - 1) * band_size
+    ragged_band_index = 0 if ragged_first else band_count - 1
+    if ragged_size != band_size and band_index == ragged_band_index:
+        shift = 0.5 * (band_size - ragged_size)
+        if horizontal:
+            x_center += shift * x_step
+        else:
+            y_center -= shift * y_step
 
     circle_patch = Circle(
         (x_center, y_center),
@@ -468,18 +330,20 @@ def subway_signs(
     colors: list[Color],
     labels: list[str],
     *,
+    ax: Axes | None = None,
     orientation: Literal["vertical", "horizontal"] = "horizontal",
     n_bands: int | None = None,
     max_items_per_band: int | None = None,
     reverse_display_order: bool = False,
     sign_options: SubwaySignOptions | None = None,
-    save_path: str | None = None,
-) -> None:
+    filepath: str | None = None,
+) -> tuple[Figure, Axes]:
     """Draw a grid of colored 'subway signs' with labels.
 
     Args:
         colors (list[Color]): List of colors for each sign.
         labels (list[str]): List of labels for each sign.
+        ax (Axes | None, optional): Axes to draw on. Creates a new figure when omitted.
         orientation (Literal["vertical", "horizontal"], optional): Orientation of the layout.
             Defaults to "horizontal".
         n_bands (int | None, optional): Number of bands (rows or columns) in the layout.
@@ -489,12 +353,16 @@ def subway_signs(
             If None, determined by `n_bands` or defaults to all items in one band.
             Defaults to None.
         reverse_display_order (bool, optional): Whether to reverse the order in which the
-            signs are displayed. The general layout (i.e. which side the ragged edge appears on)
-            will remain the same. Defaults to False.
+            signs are displayed. The full flattened sequence of signs is reversed and reflowed
+            into the same band layout, so the general layout (i.e. which side the ragged edge
+            appears on) remains the same. Defaults to False.
         sign_options (SubwaySignOptions | None, optional): Options for sign appearance.
             Defaults to None.
-        save_path (str | None, optional): If provided, saves the figure to this path.
+        filepath (str | None, optional): If provided, saves the figure to this path.
             Defaults to None.
+
+    Returns:
+        tuple[Figure, Axes]: The figure and axes containing the signs.
     """
     if sign_options is None:
         sign_options = SubwaySignOptions()
@@ -525,9 +393,13 @@ def subway_signs(
     fig_width_in = layout_width + 2 * layout.padding
     fig_height_in = layout_height + 2 * layout.padding
 
-    figure, axes = plt.subplots(figsize=(fig_width_in, fig_height_in), dpi=200)
-    figure.subplots_adjust(left=0, right=1, bottom=0, top=1)  # allow axes to fill the whole canvas
-    axes.set_position((0, 0, 1, 1))  # force axes to fill the whole figure
+    if ax is None:
+        figure, axes = plt.subplots(figsize=(fig_width_in, fig_height_in))
+        figure.subplots_adjust(left=0, right=1, bottom=0, top=1)
+        axes.set_position((0, 0, 1, 1))  # force axes to fill the whole figure
+    else:
+        figure, axes = ax.get_figure(root=True), ax
+        assert isinstance(figure, Figure)
     axes.set_aspect("equal")
     axes.axis("off")
 
@@ -539,13 +411,7 @@ def subway_signs(
     items = _normalize_colors_and_adjust_item_order(
         colors=colors,
         labels=labels,
-        orientation=orientation,
-        item_count=layout.item_count,
-        row_count=layout.row_count,
-        column_count=layout.column_count,
-        max_items_per_band=max_items_per_band,
         reverse_display_order=reverse_display_order,
-        sign_options=sign_options,
     )
 
     for index, (face_color, label_text) in enumerate(items):
@@ -565,10 +431,10 @@ def subway_signs(
             text_outline_effects=text_outline_effects,
         )
 
-    total_width = layout.column_count * x_step - layout.horizontalgap
-    total_height = layout.row_count * y_step - layout.verticalgap
-    axes.set_xlim(-layout.padding, total_width + layout.padding)
-    axes.set_ylim(-layout.padding, total_height + layout.padding)
+    axes.set_xlim(-layout.padding, layout_width + layout.padding)
+    axes.set_ylim(-layout.padding, layout_height + layout.padding)
 
-    if save_path is not None:
-        figure.savefig(save_path, bbox_inches="tight", pad_inches=0)
+    if filepath is not None:
+        figure.savefig(filepath, bbox_inches="tight", pad_inches=0)
+
+    return figure, axes

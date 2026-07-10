@@ -1,74 +1,107 @@
+from collections.abc import Hashable, Mapping
+from typing import Any, cast
+
 import matplotlib.pyplot as plt
 import networkx as nx
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
 
-def drawgraph(
-    G: nx.Graph,
+def _resolve_positions(
+    graph: nx.Graph,
+    *,
+    pos: Mapping[Hashable, tuple[float, float]] | None,
+    x: str,
+    y: str,
+) -> dict[Hashable, tuple[float, float]]:
+    """Resolve node positions from an explicit mapping or per-node coordinate attributes.
+
+    Raises:
+        ValueError: If a node lacks the ``x``/``y`` coordinate attributes and no ``pos``
+            mapping was given.
+    """
+    if pos is not None:
+        return dict(pos)
+
+    positions: dict[Hashable, tuple[float, float]] = {}
+    for node, properties in graph.nodes(data=True):
+        if x not in properties or y not in properties:
+            raise ValueError(
+                f"Node {node!r} has no {x!r}/{y!r} coordinate attributes. Pass pos=... with "
+                "explicit positions, or set x=/y= to the node attributes holding coordinates."
+            )
+        positions[node] = (float(properties[x]), float(properties[y]))
+    return positions
+
+
+def draw_graph(
+    graph: nx.Graph,
+    *,
     ax: Axes | None = None,
+    pos: Mapping[Hashable, tuple[float, float]] | None = None,
     x: str = "INTPTLON20",
     y: str = "INTPTLAT20",
-    components: bool = False,
     node_size: float = 1,
     **kwargs: object,
-) -> Axes | list[tuple[Figure, Axes]]:
-    """
-    Draws a gerrychain Graph object. Returns a single Axes object (for dual
-    graphs drawn whole) and lists of `(Figure, Axes)` pairs for graphs drawn
-    component-wise.
+) -> Axes:
+    """Draw a gerrychain dual graph onto one axes.
 
     Args:
-        G (Graph): The dual graph to draw.
-        ax (Axes, optional): `matplotlib.axes.Axes` object. If not passed, one
-            is created.
+        graph (Graph): The dual graph to draw.
+        ax (Axes, optional): `matplotlib.axes.Axes` object. If not passed, a fresh
+            figure and axes are created.
+        pos (Mapping | None, optional): Explicit node-to-``(x, y)`` positions. When given,
+            the coordinate attribute keys are ignored. Defaults to None.
         x (str, optional): Vertex property used as the horizontal (E-W) coordinate.
         y (str, optional): Vertex property used as the vertical (N-S) coordinate.
-        components (bool, optional): If `True`, the graph is assumed to have
-            more than one connected component (e.g. Michigan) and is drawn
-            component-wise and rather than return a single `Axes` object, return
-            a list of `(Figure, Axes)` pairs. If something is passed to `ax`, the
-            same Axes instance is used for each new Figure.
         node_size (float, optional): Specifies the default size of a vertex.
         **kwargs (object): Additional keyword arguments passed to ``networkx.draw``.
 
     Returns:
-        A tuple of `matplotlib` `(Figure, Axes)` objects, or if `components` is
-        `True`, returns a list of `(Figure, Axes)` objects corresponding to each
-        component.
+        Axes: The axes the graph was drawn onto.
     """
-    # Create a mapping from identifiers to positions.
-    positions = {v: (properties[x], properties[y]) for v, properties in G.nodes(data=True)}
+    positions = _resolve_positions(graph, pos=pos, x=x, y=y)
+    if ax is None:
+        _, ax = plt.subplots()
+    # networkx.draw's stub types each forwarded kwarg; this pass-through surface is dynamic.
+    nx.draw(graph, ax=ax, pos=positions, node_size=node_size, **cast("dict[str, Any]", kwargs))
+    return ax
 
-    # If `components` is true, plot the graph component-wise. Otherwise plot
-    # normally. First, set some properties common to both graphs.
-    properties = {"pos": positions, "node_size": node_size}
 
-    # Initialize `pairs` to None.
-    pairs: list[tuple[Figure, Axes]] | None = None
+def draw_graph_components(
+    graph: nx.Graph,
+    *,
+    pos: Mapping[Hashable, tuple[float, float]] | None = None,
+    x: str = "INTPTLON20",
+    y: str = "INTPTLAT20",
+    node_size: float = 1,
+    **kwargs: object,
+) -> list[tuple[Figure, Axes]]:
+    """Draw each connected component of a dual graph on its own fresh figure.
 
-    if not components:
-        if not ax:
-            axes = plt.axes()
-        else:
-            axes = ax
-        nx.draw(G, ax=axes, **properties, **kwargs)
-    else:
-        # Create lists for figures and axes.
-        pairs = []
+    Args:
+        graph (Graph): The dual graph to draw.
+        pos (Mapping | None, optional): Explicit node-to-``(x, y)`` positions. When given,
+            the coordinate attribute keys are ignored. Defaults to None.
+        x (str, optional): Vertex property used as the horizontal (E-W) coordinate.
+        y (str, optional): Vertex property used as the vertical (N-S) coordinate.
+        node_size (float, optional): Specifies the default size of a vertex.
+        **kwargs (object): Additional keyword arguments passed to ``networkx.draw``.
 
-        connected_components = [c for c in nx.connected_components(G)]
-        for component in connected_components:
-            # Create a new Figure object for each component.
-            fig = plt.figure()
-            if not ax:
-                ax = plt.axes()
-
-            # Plot the graph.
-            subgraph = G.subgraph(component)
-            nx.draw(subgraph, ax=ax, **properties, **kwargs)
-
-            # Add them to their respective lists.
-            pairs.append((fig, ax))
-
-    return pairs if pairs else axes
+    Returns:
+        list[tuple[Figure, Axes]]: One ``(Figure, Axes)`` pair per connected component.
+    """
+    positions = _resolve_positions(graph, pos=pos, x=x, y=y)
+    pairs: list[tuple[Figure, Axes]] = []
+    for component in nx.connected_components(graph):
+        fig, component_ax = plt.subplots()
+        # networkx.draw's stub types each forwarded kwarg; this pass-through surface is dynamic.
+        nx.draw(
+            graph.subgraph(component),
+            ax=component_ax,
+            pos=positions,
+            node_size=node_size,
+            **cast("dict[str, Any]", kwargs),
+        )
+        pairs.append((fig, component_ax))
+    return pairs

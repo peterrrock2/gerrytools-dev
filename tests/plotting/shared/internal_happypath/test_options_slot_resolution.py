@@ -23,15 +23,15 @@ from gerrytools.plotting import (  # noqa: E402
     LineOptions,
     PointMarkerOptions,
     ScatterPlot,
-    SeaLevel,
     SeaLevelLineOptions,
-    SeatsVotes,
+    SeaLevelPlot,
     SeatsVotesLineOptions,
     SeatsVotesMarkerOptions,
+    SeatsVotesPlot,
     ViolinPlot,
     ViolinPlotOptions,
 )
-from gerrytools.plotting.data.boxplot import BoxPlotSetData  # noqa: E402
+from gerrytools.plotting.data.boxplot import _BoxPlotSetData  # noqa: E402
 
 # ----------------------------------------------------------------------
 # add_vertical_lines / add_horizontal_lines accept line_options=
@@ -46,8 +46,8 @@ class TestLineOptionsSlot:
             line_options=LineOptions(linecolor="red", linewidth=2.5),
         )
         line = plot._annotations.vertical_lines[0]
-        assert line.linecolor == "#ff0000"
-        assert line.linewidth == 2.5
+        assert line.style.linecolor == "#ff0000"
+        assert line.style.linewidth == 2.5
 
     def test_kwarg_overrides_options(self):
         plot = Histogram()
@@ -57,8 +57,8 @@ class TestLineOptionsSlot:
             linewidth=5.0,  # explicit override
         )
         line = plot._annotations.vertical_lines[0]
-        assert line.linecolor == "#ff0000"  # came from options
-        assert line.linewidth == 5.0  # came from explicit kwarg
+        assert line.style.linecolor == "#ff0000"  # came from options
+        assert line.style.linewidth == 5.0  # came from explicit kwarg
 
     def test_horizontal_lines_options_propagate(self):
         plot = Histogram()
@@ -67,8 +67,8 @@ class TestLineOptionsSlot:
             line_options=LineOptions(linecolor="blue", linestyle="--"),
         )
         line = plot._annotations.horizontal_lines[0]
-        assert line.linecolor == "#0000ff"
-        assert line.linestyle == "--"
+        assert line.style.linecolor == "#0000ff"
+        assert line.style.linestyle == "--"
 
 
 # ----------------------------------------------------------------------
@@ -85,8 +85,8 @@ class TestBandOptionsSlot:
             band_options=BandOptions(bandcolor="green", bandalpha=0.3),
         )
         band = plot._annotations.vertical_bands[0]
-        assert band.bandcolor == "#00ff00"
-        assert band.bandalpha == 0.3
+        assert band.style.bandcolor == "#00ff00"
+        assert band.style.bandalpha == 0.3
 
     def test_kwarg_overrides_options(self):
         plot = Histogram()
@@ -97,8 +97,8 @@ class TestBandOptionsSlot:
             bandcolor="red",  # explicit override
         )
         band = plot._annotations.vertical_bands[0]
-        assert band.bandcolor == "#ff0000"  # explicit kwarg won
-        assert band.bandalpha == 0.3  # came from options
+        assert band.style.bandcolor == "#ff0000"  # explicit kwarg won
+        assert band.style.bandalpha == 0.3  # came from options
 
 
 # ----------------------------------------------------------------------
@@ -109,24 +109,24 @@ class TestBandOptionsSlot:
 class TestHistogramOptionsSlot:
     def test_options_alone_propagates(self):
         plot = Histogram()
-        plot.add_histogram(
+        plot.add_dataset(
             [1.0, 2.0, 3.0, 2.0, 1.0],
             options=HistogramOptions(facecolor="red", edgecolor="blue", edgewidth=1.5),
         )
         hist = plot._hist_data_dict["overlay"][0]
-        assert hist.facecolor == "#ff0000"
-        assert hist.edgecolor == "#0000ff"
-        assert hist.edgewidth == 1.5
+        assert hist.style.facecolor == "#ff0000"
+        assert hist.style.edgecolor == "#0000ff"
+        assert hist.style.edgewidth == 1.5
 
     def test_kwarg_overrides_options(self):
         plot = Histogram()
-        plot.add_histogram(
+        plot.add_dataset(
             [1.0, 2.0, 3.0],
             options=HistogramOptions(facecolor="red"),
             facecolor="green",  # explicit
         )
         hist = plot._hist_data_dict["overlay"][0]
-        assert hist.facecolor == "#00ff00"
+        assert hist.style.facecolor == "#00ff00"
 
 
 # ----------------------------------------------------------------------
@@ -137,24 +137,24 @@ class TestHistogramOptionsSlot:
 class TestBoxPlotOptionsSlot:
     def test_options_alone_propagates(self):
         plot = BoxPlot()
-        plot.add_boxplot_dataset(
+        plot.add_dataset(
             {"A": [1.0, 2.0, 3.0]},
             options=BoxPlotOptions(facecolor="red", percentiles=(5, 95)),
         )
         bp = plot._boxplot_data_list[0]
-        assert isinstance(bp, BoxPlotSetData)
-        assert bp.facecolor == "#ff0000"
-        assert bp.percentiles == (5, 95)
+        assert isinstance(bp, _BoxPlotSetData)
+        assert bp.style.facecolor == "#ff0000"
+        assert bp.style.percentiles == (5, 95)
 
     def test_kwarg_overrides_options(self):
         plot = BoxPlot()
-        plot.add_boxplot_dataset(
+        plot.add_dataset(
             {"A": [1.0, 2.0, 3.0]},
             options=BoxPlotOptions(facecolor="red"),
             facecolor="blue",
         )
         bp = plot._boxplot_data_list[0]
-        assert bp.facecolor == "#0000ff"
+        assert bp.style.facecolor == "#0000ff"
 
 
 # ----------------------------------------------------------------------
@@ -165,13 +165,13 @@ class TestBoxPlotOptionsSlot:
 class TestViolinPlotOptionsSlot:
     def test_options_alone_propagates(self):
         plot = ViolinPlot()
-        plot.add_violinplot_datasets(
+        plot.add_dataset(
             {"A": [1.0, 2.0, 3.0, 4.0, 5.0]},
             options=ViolinPlotOptions(facecolor="red", edgewidth=1.2),
         )
         vp = plot._violinplot_data_list[0]
-        assert vp.facecolor == "#ff0000"
-        assert vp.edgewidth == 1.2
+        assert vp.style.facecolor == "#ff0000"
+        assert vp.style.edgewidth == 1.2
 
 
 # ----------------------------------------------------------------------
@@ -182,7 +182,7 @@ class TestViolinPlotOptionsSlot:
 class TestScatterMarkerOptionsSlot:
     def test_options_alone_propagates(self):
         plot = ScatterPlot()
-        plot.add_scatter(
+        plot.add_series(
             x=[0, 1],
             y=[0, 1],
             marker_options=PointMarkerOptions(
@@ -195,7 +195,7 @@ class TestScatterMarkerOptionsSlot:
 
     def test_kwarg_overrides_marker_options(self):
         plot = ScatterPlot()
-        plot.add_scatter(
+        plot.add_series(
             x=[0, 1],
             y=[0, 1],
             marker_options=PointMarkerOptions(
@@ -209,66 +209,64 @@ class TestScatterMarkerOptionsSlot:
 
 
 # ----------------------------------------------------------------------
-# SeatsVotes line_options + marker_options
+# SeatsVotesPlot line_options + marker_options
 # ----------------------------------------------------------------------
 
 
 class TestSeatsVotesOptionsSlots:
     def test_line_options_propagate(self):
-        plot = SeatsVotes()
-        plot.add_seat_votes_data(
+        plot = SeatsVotesPlot()
+        plot.add_election(
             np.array([0.4, 0.5, 0.6]),
             np.array([1.0, 1.0, 1.0]),
             line_options=SeatsVotesLineOptions(linecolor="red", linewidth=3.5),
         )
         sv = plot._sv_data_list[0]
-        assert sv.linecolor == "#ff0000"
-        assert sv.linewidth == 3.5
+        assert sv.line_style.linecolor == "#ff0000"
+        assert sv.line_style.linewidth == 3.5
 
     def test_marker_options_propagate(self):
-        plot = SeatsVotes()
-        plot.add_seat_votes_data(
+        plot = SeatsVotesPlot()
+        plot.add_election(
             np.array([0.4, 0.5, 0.6]),
             np.array([1.0, 1.0, 1.0]),
             marker_options=SeatsVotesMarkerOptions(markerfacecolor="green", markersize=15.0),
         )
         sv = plot._sv_data_list[0]
-        assert sv.markerfacecolor == "#00ff00"
-        assert sv.markersize == 15.0
+        assert sv.marker_style.markerfacecolor == "#00ff00"
+        assert sv.marker_style.markersize == 15.0
 
     def test_kwarg_overrides_marker_options(self):
-        # SeatsVotesData itself doesn't resolve colors (pre-existing behavior),
-        # so use hex form directly to test propagation unambiguously.
-        plot = SeatsVotes()
-        plot.add_seat_votes_data(
+        plot = SeatsVotesPlot()
+        plot.add_election(
             np.array([0.4, 0.5, 0.6]),
             np.array([1.0, 1.0, 1.0]),
             marker_options=SeatsVotesMarkerOptions(markerfacecolor="#00ff00"),
             markerfacecolor="#ff0000",
         )
         sv = plot._sv_data_list[0]
-        assert sv.markerfacecolor == "#ff0000"
+        assert sv.marker_style.markerfacecolor == "#ff0000"
 
 
 # ----------------------------------------------------------------------
-# SeaLevel line_options + marker_options
+# SeaLevelPlot line_options + marker_options
 # ----------------------------------------------------------------------
 
 
 class TestSeaLevelOptionsSlots:
     def test_line_options_propagate(self):
-        plot = SeaLevel()
-        plot.add_sealevel_set(
+        plot = SeaLevelPlot()
+        plot.add_dataset(
             {"A": 1.0, "B": 2.0},
             line_options=SeaLevelLineOptions(linecolor="red", linewidth=3.5),
         )
         sl = plot._sealevel_data_list[0]
-        assert sl.linecolor == "#ff0000"
-        assert sl.linewidth == 3.5
+        assert sl.style.linecolor == "#ff0000"
+        assert sl.style.linewidth == 3.5
 
     def test_marker_options_propagate(self):
-        plot = SeaLevel()
-        plot.add_sealevel_set(
+        plot = SeaLevelPlot()
+        plot.add_dataset(
             {"A": 1.0, "B": 2.0},
             marker_options=PointMarkerOptions(
                 markerfacecolor="blue", markersize=10.0, markeredgecolor="black"

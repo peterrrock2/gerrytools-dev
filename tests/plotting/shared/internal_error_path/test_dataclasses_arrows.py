@@ -1,12 +1,15 @@
 import pytest
 
 from gerrytools.plotting.data._gerryplot_dataclasses import (
-    ArrowData,
     ArrowPlacement,
     ArrowTextStyle,
+    LabelArrowOptions,
     LabelArrowStyle,
     TextArrowStyle,
+    _LabelArrowData,
+    _TextArrowData,
 )
+from tests.plotting._typing_utils import as_any
 
 
 # ==============
@@ -16,7 +19,7 @@ class TestArrowTextStyle:
     def test_default_construction(self):
         ts = ArrowTextStyle()
         assert ts.fontsize == 10.0
-        assert ts.fontcolor == "#ffffff"
+        assert ts.fontcolor == "#000000"
         assert ts.fontoutlinewidth == 0.5
 
     def test_negative_fontsize_raises_valueerror(self):
@@ -112,11 +115,19 @@ class TestLabelArrowStyle:
         assert style.arrowstyle == "-|>"
         assert style.arrowhead_scale == 12.0
 
-    def test_negative_mutation_scale_raises_valueerror(self):
+    def test_arrowhead_scale_coerces_to_float_on_the_real_field(self):
+        # Regression: the coerced value used to be written to a nonexistent "mutation_scale"
+        # attribute, so the float coercion never landed on arrowhead_scale.
+        style = LabelArrowStyle(arrowhead_scale=12)
+        assert style.arrowhead_scale == 12.0
+        assert isinstance(style.arrowhead_scale, float)
+        assert not hasattr(style, "mutation_scale")
+
+    def test_negative_arrowhead_scale_raises_valueerror(self):
         with pytest.raises(ValueError, match="nonnegative"):
             LabelArrowStyle(arrowhead_scale=-1.0)
 
-    def test_infinite_mutation_scale_raises_valueerror(self):
+    def test_infinite_arrowhead_scale_raises_valueerror(self):
         with pytest.raises(ValueError, match="finite"):
             LabelArrowStyle(arrowhead_scale=float("inf"))
 
@@ -197,8 +208,37 @@ class TestArrowPlacement:
         assert ap.text_offset == (1.0, 2.0)
 
     def test_zorder_coerced_to_int(self):
-        ap = ArrowPlacement(zorder=10.8)  # ty: ignore[invalid-argument-type]
+        ap = ArrowPlacement(zorder=as_any(10.8))
         assert isinstance(ap.zorder, int)
+
+
+# =======================
+# == LABELARROWOPTIONS ==
+# =======================
+
+
+class TestLabelArrowOptions:
+    def test_defaults_match_axis_label_arrow_defaults(self):
+        options = LabelArrowOptions()
+        assert options.arrow_length is None
+        assert options.placement.tail_length == 0.04
+        assert isinstance(options.style, LabelArrowStyle)
+
+    def test_arrow_length_is_coerced_to_float(self):
+        options = LabelArrowOptions(arrow_length=25)
+        assert options.arrow_length == 25.0
+
+    @pytest.mark.parametrize("arrow_length", [-1, 101, float("nan"), float("inf")])
+    def test_invalid_arrow_length_raises_valueerror(self, arrow_length):
+        with pytest.raises(ValueError, match="arrow_length"):
+            LabelArrowOptions(arrow_length=arrow_length)
+
+    def test_arrow_length_rejects_explicit_tail(self):
+        with pytest.raises(ValueError, match="cannot be set"):
+            LabelArrowOptions(
+                arrow_length=25,
+                placement=ArrowPlacement(arrowtail=(0.1, 0.2)),
+            )
 
 
 # ===============
@@ -207,141 +247,79 @@ class TestArrowPlacement:
 
 
 class TestArrowData:
-    def test_text_arrow_defaults_to_textarrowstyle(self):
-        ad = ArrowData(arrowtip=(0.5, 0.5), direction="right", arrowtype="text")
-        assert ad.textarrowstyle is not None
-        assert ad.labelarrowstyle is None
+    """The text/label split makes the old cross-type misconfigurations unrepresentable."""
 
-    def test_label_arrow_defaults_to_labelarrowstyle(self):
-        ad = ArrowData(arrowtip=(0.5, 0.5), direction="up", arrowtype="label")
-        assert ad.labelarrowstyle is not None
-        assert ad.textarrowstyle is None
+    def test_text_arrow_has_text_style(self):
+        arrow = _TextArrowData(arrowtip=(0.5, 0.5), direction="right")
+        assert isinstance(arrow.style, TextArrowStyle)
+
+    def test_label_arrow_has_label_style(self):
+        arrow = _LabelArrowData(arrowtip=(0.5, 0.5), direction="up")
+        assert isinstance(arrow.style, LabelArrowStyle)
 
     def test_non_finite_arrowtip_raises_valueerror(self):
         with pytest.raises(ValueError, match="finite"):
-            ArrowData(arrowtip=(float("nan"), 0.5), direction="right")
+            _TextArrowData(arrowtip=(float("nan"), 0.5), direction="right")
+        with pytest.raises(ValueError, match="finite"):
+            _LabelArrowData(arrowtip=(float("nan"), 0.5), direction="right")
 
     def test_arrowtip_coerced_to_float_tuple(self):
-        ad = ArrowData(arrowtip=(1, 2), direction="right")
-        assert ad.arrowtip == (1.0, 2.0)
-
-    def test_text_arrow_rejects_labelarrowstyle(self):
-        with pytest.raises(ValueError, match="cannot set labelarrowstyle"):
-            ArrowData(
-                arrowtip=(0.5, 0.5),
-                direction="right",
-                arrowtype="text",
-                labelarrowstyle=LabelArrowStyle(),
-            )
-
-    def test_text_arrow_rejects_arrow_length_percentage(self):
-        with pytest.raises(ValueError, match="cannot set arrow_length_percentage"):
-            ArrowData(
-                arrowtip=(0.5, 0.5),
-                direction="right",
-                arrowtype="text",
-                arrow_length_percentage=50.0,
-            )
-
-    def test_text_arrow_rejects_label_position(self):
-        with pytest.raises(ValueError, match="cannot set label_position"):
-            ArrowData(
-                arrowtip=(0.5, 0.5),
-                direction="right",
-                arrowtype="text",
-                label_position=(0.5, 0.5),
-            )
-
-    def test_text_arrow_rejects_labelfont_options(self):
-        from gerrytools.plotting.mpl.label_text_options import LabelFontOptions
-
-        with pytest.raises(ValueError, match="cannot set labelfont_options"):
-            ArrowData(
-                arrowtip=(0.5, 0.5),
-                direction="right",
-                arrowtype="text",
-                labelfont_options=LabelFontOptions(),
-            )
-
-    def test_text_arrow_rejects_labelbox_options(self):
-        from gerrytools.plotting.mpl.label_text_options import LabelBoxOptions
-
-        with pytest.raises(ValueError, match="cannot set labelbox_options"):
-            ArrowData(
-                arrowtip=(0.5, 0.5),
-                direction="right",
-                arrowtype="text",
-                labelbox_options=LabelBoxOptions(),
-            )
-
-    def test_label_arrow_rejects_textarrowstyle(self):
-        with pytest.raises(ValueError, match="cannot set textarrowstyle"):
-            ArrowData(
-                arrowtip=(0.5, 0.5),
-                direction="right",
-                arrowtype="label",
-                textarrowstyle=TextArrowStyle(),
-            )
+        arrow = _TextArrowData(arrowtip=(1, 2), direction="right")
+        assert arrow.arrowtip == (1.0, 2.0)
 
     def test_label_arrow_rejects_arrow_length_with_explicit_tail(self):
-        with pytest.raises(ValueError, match="cannot set placement.arrowtail"):
-            ArrowData(
+        with pytest.raises(ValueError, match="cannot be set when"):
+            _LabelArrowData(
                 arrowtip=(0.5, 0.5),
                 direction="up",
-                arrowtype="label",
                 arrow_length_percentage=50.0,
                 placement=ArrowPlacement(arrowtail=(0.5, 0.3)),
             )
 
     def test_arrow_length_percentage_out_of_range_raises_valueerror(self):
         with pytest.raises(ValueError, match="must be in"):
-            ArrowData(
+            _LabelArrowData(
                 arrowtip=(0.5, 0.5),
                 direction="up",
-                arrowtype="label",
                 arrow_length_percentage=101.0,
             )
 
     def test_arrow_length_percentage_negative_raises_valueerror(self):
         with pytest.raises(ValueError, match="must be in"):
-            ArrowData(
+            _LabelArrowData(
                 arrowtip=(0.5, 0.5),
                 direction="up",
-                arrowtype="label",
                 arrow_length_percentage=-1.0,
             )
 
     def test_non_finite_label_position_raises_valueerror(self):
         with pytest.raises(ValueError, match="finite"):
-            ArrowData(
+            _LabelArrowData(
                 arrowtip=(0.5, 0.5),
                 direction="up",
-                arrowtype="label",
                 label_position=(float("inf"), 0.5),
             )
 
     def test_arrow_length_percentage_zero_is_valid(self):
-        ad = ArrowData(
+        arrow = _LabelArrowData(
             arrowtip=(0.5, 0.5),
             direction="up",
-            arrowtype="label",
             arrow_length_percentage=0.0,
         )
-        assert ad.arrow_length_percentage == 0.0
+        assert arrow.arrow_length_percentage == 0.0
 
     def test_arrow_length_percentage_100_is_valid(self):
-        ad = ArrowData(
+        arrow = _LabelArrowData(
             arrowtip=(0.5, 0.5),
             direction="up",
-            arrowtype="label",
             arrow_length_percentage=100.0,
         )
-        assert ad.arrow_length_percentage == 100.0
+        assert arrow.arrow_length_percentage == 100.0
 
     def test_all_four_directions_are_valid(self):
         for direction in ("right", "left", "up", "down"):
-            ad = ArrowData(arrowtip=(0.5, 0.5), direction=direction)
-            assert ad.direction == direction
+            arrow = _TextArrowData(arrowtip=(0.5, 0.5), direction=direction)
+            assert arrow.direction == direction
 
 
 # ====================

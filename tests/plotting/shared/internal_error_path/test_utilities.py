@@ -1,7 +1,7 @@
 """Tests for plotting utility functions.
 
-Covers: _coerce_real_iter, sort_elections, resolve_numpy_rng, spawn_child_seeds,
-line_segment_through_unit_square, build_legend_options, save_legend_handles,
+Covers: _coerce_real_iter, resolve_numpy_rng, spawn_child_seeds,
+line_segment_through_unit_square, LegendOptions defaults, save_legend_handles,
 _coerce_to_1d_float_array, _coerce_values_and_weights.
 """
 
@@ -14,15 +14,16 @@ import pytest
 from numpy.random import Generator
 
 from gerrytools._geometry import line_segment_through_unit_square
-from gerrytools.plotting._legend_utils import build_legend_options, save_legend_handles
+from gerrytools.plotting._legend_utils import save_legend_handles
 from gerrytools.plotting._rng import resolve_numpy_rng, spawn_child_seeds
-from gerrytools.plotting.data.histogram import (
+from gerrytools.plotting.mpl.legend_options import LegendOptions
+from gerrytools.plotting.utils import (
+    _coerce_real_iter,
     _coerce_to_1d_finite_float_array,
     _coerce_to_1d_float_array,
     _coerce_values_and_weights,
 )
-from gerrytools.plotting.mpl.legend_options import LegendOptions
-from gerrytools.plotting.utils import _coerce_real_iter, sort_elections
+from tests.plotting._typing_utils import as_any
 
 
 # ======================
@@ -45,7 +46,7 @@ class TestCoerceRealIter:
 
     def test_string_input_raises_typeerror(self):
         with pytest.raises(TypeError, match="string"):
-            _coerce_real_iter("hello", field="x")  # ty: ignore[invalid-argument-type]
+            _coerce_real_iter(as_any("hello"), field="x")
 
     def test_bytes_input_raises_typeerror(self):
         with pytest.raises(TypeError, match="string"):
@@ -61,11 +62,11 @@ class TestCoerceRealIter:
 
     def test_list_containing_string_raises_typeerror(self):
         with pytest.raises(TypeError, match="real numbers"):
-            _coerce_real_iter([1.0, "two"], field="x")  # ty: ignore[invalid-argument-type]
+            _coerce_real_iter(as_any([1.0, "two"]), field="x")
 
     def test_non_iterable_non_numeric_raises_typeerror(self):
         with pytest.raises(TypeError, match="must be a number"):
-            _coerce_real_iter(object(), field="x")  # ty: ignore[invalid-argument-type]
+            _coerce_real_iter(as_any(object()), field="x")
 
     def test_empty_list_returns_empty(self):
         assert _coerce_real_iter([], field="x") == []
@@ -80,31 +81,6 @@ class TestCoerceRealIter:
     def test_generator_expression_is_accepted(self):
         result = _coerce_real_iter((x for x in [1, 2, 3]), field="x")
         assert result == [1.0, 2.0, 3.0]
-
-
-# ====================
-# == SORT ELECTIONS ==
-# ====================
-class TestSortElections:
-    def test_sorts_by_year_suffix(self):
-        result = sort_elections(["SEN20", "PRES16", "GOV18"])
-        assert result == ["PRES16", "GOV18", "SEN20"]
-
-    def test_single_election_returns_unchanged(self):
-        assert sort_elections(["SEN22"]) == ["SEN22"]
-
-    def test_empty_list_returns_empty(self):
-        assert sort_elections([]) == []
-
-    def test_same_year_preserves_alphabetical_order(self):
-        result = sort_elections(["GOV20", "SEN20", "PRES20"])
-        # All have suffix "20", sorted by full name first then by year
-        assert all(e.endswith("20") for e in result)
-
-    def test_two_digit_year_ordering_wraps_correctly(self):
-        # 02 < 18 < 20 in two-digit year comparison
-        result = sort_elections(["SEN20", "GOV02", "PRES18"])
-        assert result == ["GOV02", "PRES18", "SEN20"]
 
 
 # =======================
@@ -137,11 +113,11 @@ class TestResolveNumpyRng:
 
     def test_float_seed_raises_typeerror(self):
         with pytest.raises(TypeError, match="integer"):
-            resolve_numpy_rng(seed=3.14)  # ty: ignore[invalid-argument-type]
+            resolve_numpy_rng(seed=as_any(3.14))
 
     def test_string_seed_raises_typeerror(self):
         with pytest.raises(TypeError, match="integer"):
-            resolve_numpy_rng(seed="42")  # ty: ignore[invalid-argument-type]
+            resolve_numpy_rng(seed=as_any("42"))
 
     def test_same_seed_produces_identical_generators(self):
         rng1, _ = resolve_numpy_rng(seed=99)
@@ -154,10 +130,9 @@ class TestResolveNumpyRng:
         assert rng1.random() != rng2.random()
 
     def test_negative_seed_is_not_accepted(self):
-        # numpy does allow negative seeds
+        # numpy's default_rng rejects negative seeds; the ValueError propagates from numpy.
         with pytest.raises(ValueError, match="expected non-negative integer"):
-            rng, seed = resolve_numpy_rng(seed=-1)
-            assert isinstance(rng, Generator)
+            resolve_numpy_rng(seed=-1)
 
     def test_zero_seed_is_accepted(self):
         rng, seed = resolve_numpy_rng(seed=0)
@@ -261,22 +236,12 @@ class TestLineSegmentThroughUnitSquare:
             assert 0.0 <= val <= 1.0
 
 
-# ==========================
-# == BUILD LEGEND OPTIONS ==
-# ==========================
-class TestBuildLegendOptions:
-    def test_returns_legend_options_instance(self):
-        lo = build_legend_options()
-        assert isinstance(lo, LegendOptions)
-
-    def test_default_values(self):
-        lo = build_legend_options()
-        assert lo.loc == "center left"
-        assert lo.bbox_to_anchor == (1.01, 0.5)
-        assert lo.ncols == 1
-
+# ====================
+# == LEGEND OPTIONS ==
+# ====================
+class TestLegendOptionsDefaults:
     def test_custom_values_propagated(self):
-        lo = build_legend_options(
+        lo = LegendOptions(
             loc="upper right",
             ncols=2,
             fontsize=12.0,
@@ -307,7 +272,7 @@ class TestSaveLegendHandles:
         filepath = str(tmp_path / "legend.png")
         save_legend_handles(
             handles=[handle],
-            legend_options=build_legend_options(),
+            legend_options=LegendOptions(),
             filepath=filepath,
         )
         assert (tmp_path / "legend.png").exists()
@@ -363,7 +328,7 @@ class TestCoerceTo1dFloatArray:
 
     def test_none_input_raises_valueerror(self):
         with pytest.raises(ValueError, match="None"):
-            _coerce_to_1d_float_array(None, field="test")  # ty: ignore[invalid-argument-type]
+            _coerce_to_1d_float_array(as_any(None), field="test")
 
     def test_generator_input_coerced(self):
         arr = _coerce_to_1d_float_array((x for x in [1, 2, 3]), field="test")
@@ -376,7 +341,7 @@ class TestCoerceTo1dFloatArray:
 
     def test_non_iterable_raises_typeerror(self):
         with pytest.raises(TypeError, match="iterable"):
-            _coerce_to_1d_float_array(object(), field="test")  # ty: ignore[invalid-argument-type]
+            _coerce_to_1d_float_array(as_any(object()), field="test")
 
 
 # =====================================
@@ -460,6 +425,63 @@ class TestShowFigure:
         finally:
             plt.close(fig)
 
+    def test_show_figure_non_pyplot_figure_falls_back_to_save(self, monkeypatch, tmp_path):
+        # GUI backend active but the figure has no pyplot number: fall back to saving
+        # rather than raising AttributeError on ``fig.number``.
+        import matplotlib
+        from matplotlib.figure import Figure
+
+        from gerrytools.plotting._figure_io import show_figure
+
+        monkeypatch.setattr(matplotlib, "get_backend", lambda: "TkAgg")
+        fig = Figure()
+        fig.add_subplot(111)
+        out_path = str(tmp_path / "no_number.png")
+        show_figure(fig, non_gui_filename=out_path, non_gui_prefix="Test")
+        assert (tmp_path / "no_number.png").exists()
+
+
+class TestBackendGuiClassification:
+    def _classify(self, monkeypatch, backend_name: str, fig) -> bool:
+        import matplotlib
+
+        from gerrytools.plotting._figure_io import _is_gui_capable_backend
+
+        monkeypatch.setattr(matplotlib, "get_backend", lambda: backend_name)
+        return _is_gui_capable_backend(fig)
+
+    def test_canonical_cased_interactive_backend_is_gui_capable(self, monkeypatch):
+        # ``get_backend`` may report "TkAgg" while the registry lists "tkagg".
+        from matplotlib.figure import Figure
+
+        assert self._classify(monkeypatch, "TkAgg", Figure()) is True
+
+    def test_agg_backend_is_not_gui_capable(self, monkeypatch):
+        import matplotlib.pyplot as plt
+
+        fig = plt.figure()
+        try:
+            # A pyplot Agg figure has a canvas manager, but the builtin
+            # non-interactive list must win over the capability signal.
+            assert self._classify(monkeypatch, "agg", fig) is False
+            assert self._classify(monkeypatch, "Agg", fig) is False
+        finally:
+            plt.close(fig)
+
+    def test_third_party_backend_without_manager_is_not_gui_capable(self, monkeypatch):
+        from matplotlib.figure import Figure
+
+        assert self._classify(monkeypatch, "module://custom_backend", Figure()) is False
+
+    def test_third_party_backend_with_manager_is_gui_capable(self, monkeypatch):
+        import matplotlib.pyplot as plt
+
+        fig = plt.figure()
+        try:
+            assert self._classify(monkeypatch, "module://custom_backend", fig) is True
+        finally:
+            plt.close(fig)
+
 
 class TestSaveFigure:
     def test_save_figure_writes_nonempty_file(self):
@@ -493,16 +515,21 @@ class TestSaveFigure:
             plt.close(fig)
             os.unlink(tmppath)
 
-    def test_save_figure_default_bbox_inches_is_tight(self):
+    def test_save_figure_default_bbox_inches_is_tight(self, monkeypatch, tmp_path):
         import matplotlib.pyplot as plt
 
         from gerrytools.plotting._figure_io import save_figure
 
         fig = plt.figure()
-        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
-            tmppath = f.name
+        calls = []
+
+        def record_savefig(filepath, **kwargs):
+            calls.append((filepath, kwargs))
+
+        monkeypatch.setattr(fig, "savefig", record_savefig)
         try:
-            save_figure(fig, tmppath)
+            output = str(tmp_path / "figure.png")
+            save_figure(fig, output)
+            assert calls == [(output, {"bbox_inches": "tight", "dpi": fig.dpi})]
         finally:
             plt.close(fig)
-            os.unlink(tmppath)

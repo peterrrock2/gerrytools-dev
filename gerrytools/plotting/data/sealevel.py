@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from numbers import Real
+from numbers import Integral, Real
+from typing import Sequence
 
 import numpy as np
 import pandas as pd
@@ -10,64 +11,47 @@ from matplotlib.axes import Axes
 from matplotlib.lines import Line2D
 from numpy.random import Generator
 
-from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
-from gerrytools.plotting._rng import resolve_numpy_rng
-from gerrytools.plotting.data.gerryplot import GerryPlotBase
+from gerrytools.plotting._axes_backed import deferred_axis_update
+from gerrytools.plotting._rng import resolve_numpy_rng, spawn_child_seeds
+from gerrytools.plotting.data._categorical_distribution_base import CategoricalDistributionPlotBase
 from gerrytools.plotting.data.options import SeaLevelLineOptions
 from gerrytools.plotting.mpl.marker_options import PointMarkerOptions
+from gerrytools.plotting.utils import _replace_non_none
 from gerrytools.typing import CategoryKey, Color, LegendHandle
 
 logger = get_logger(__name__)
 
 
 @dataclass(frozen=True)
-class SeaLevelSetData:
+class _SeaLevelSetData:
+    """One connected line of per-category scores; styling validates in the options classes."""
+
     name: str
     scores_dict: dict[str, float]
-    linecolor: Color
-    linealpha: float | None = None
-    linewidth: float = 2.0
-    linestyle: str = "-"
+    style: SeaLevelLineOptions = field(default_factory=SeaLevelLineOptions)
     markersettings: PointMarkerOptions = field(default_factory=PointMarkerOptions)
-    zorder: int = 1
-
-    def __post_init__(self) -> None:
-        lw = float(self.linewidth)
-        if not math.isfinite(lw):
-            raise ValueError("linewidth must be a finite number")
-        if lw < 0:
-            raise ValueError("linewidth must be nonnegative")
-        object.__setattr__(self, "linewidth", lw)
-
-        resolved_linecolor, resolved_linealpha = resolve_color_and_alpha(
-            self.linecolor,
-            alpha=self.linealpha,
-            allow_none=True,
-            field="linecolor",
-            owner=f"SeaLevelSetData {self.name}",
-            logger=logger,
-        )
-        object.__setattr__(self, "linecolor", resolved_linecolor)
-        object.__setattr__(self, "linealpha", resolved_linealpha)
-        object.__setattr__(self, "zorder", int(self.zorder))
 
 
-class SeaLevel(GerryPlotBase):
+class SeaLevelPlot(CategoricalDistributionPlotBase):
+    """Connected per-category score lines ("sea levels") across categorical x positions."""
+
+    _dataset_noun = "sealevel set"
+
     def __init__(
         self,
+        *,
         figure_size: tuple[float, float] | None = None,
         dpi: int | None = None,
-        *,
         ax: Axes | None = None,
-        include_legend: bool = True,
+        legend: bool | None = None,
         xlabel: str | None = None,
         ylabel: str | None = None,
         title: str | None = None,
         jitter_rng_seed: int | None = None,
         jitter_rng: Generator | None = None,
     ) -> None:
-        """Initialize a SeaLevel instance.
+        """Initialize a SeaLevelPlot instance.
 
         Args:
             figure_size (tuple[float, float] | None, optional): The size of the
@@ -76,56 +60,51 @@ class SeaLevel(GerryPlotBase):
                 Defaults to ``300`` when ``ax`` is not provided.
             ax (matplotlib.axes.Axes | None, optional): Render onto an existing
                 matplotlib ``Axes`` instead of creating a fresh figure. Defaults to None.
-            include_legend (bool, optional): Whether to include a legend in the plot.
-                Defaults to True.
+            legend (bool | None, optional): Whether to include a legend in the plot.
+                ``None`` selects the class default (True). Defaults to None.
+            xlabel (str | None, optional): The label for the x-axis. Defaults to None.
+            ylabel (str | None, optional): The label for the y-axis. Defaults to None.
+            title (str | None, optional): The title of the plot. Defaults to None.
             jitter_rng_seed (int | None, optional): Seed for reproducible jitter placement.
                 Defaults to None.
             jitter_rng (Generator | None, optional): Explicit NumPy generator to use for
                 jitter instead of constructing one from ``jitter_rng_seed``. Defaults to None.
 
-        To toggle the grid or suppress warnings, call :meth:`enable_grid` /
-        :meth:`disable_grid` and :meth:`suppress_warnings` / :meth:`show_warnings`
-        after construction.
+        Toggle the grid with :meth:`display_grid` after construction.
         """
         super().__init__(
             figure_size=figure_size,
             dpi=dpi,
             ax=ax,
-            include_legend=include_legend,
+            legend=legend,
             xlabel=xlabel,
             ylabel=ylabel,
             title=title,
+            group_width=0.7,
+            width_scale=0.8,
         )
 
-        self.hide_warnings = False
-        self.grid = False
-
-        self._sealevel_data_list: list[SeaLevelSetData] = []
-        self._labels: list[str] | None = None
-        self._maximum_vertical_jitter_per_category: dict[str, float] = {}
-        self._maximum_horizontal_jitter_per_category: dict[str, float] = {}
+        self._sealevel_data_list: list[_SeaLevelSetData] = []
+        self._maximum_vertical_jitter_per_category: float | dict[str, float] = {}
+        self._maximum_horizontal_jitter_per_category: float | dict[str, float] = {}
 
         self._jitter_rng, self._jitter_rng_seed = resolve_numpy_rng(
             seed=jitter_rng_seed,
             rng=jitter_rng,
             field_name="jitter_rng_seed",
         )
+        self._jitter_base_seed = self._derive_jitter_base_seed()
 
-    def enable_grid(self) -> None:
-        """Show a matplotlib grid on the plot."""
-        self.grid = True
+    def _derive_jitter_base_seed(self) -> int:
+        """One per-plot base seed so every rebuild replays the same jitter stream.
 
-    def disable_grid(self) -> None:
-        """Hide the matplotlib grid (the default)."""
-        self.grid = False
-
-    def suppress_warnings(self) -> None:
-        """Suppress warnings about potentially problematic configuration."""
-        self.hide_warnings = True
-
-    def show_warnings(self) -> None:
-        """Re-enable warnings about potentially problematic configuration."""
-        self.hide_warnings = False
+        With an explicit seed the stream is fully reproducible across processes; with a
+        user-supplied generator (or neither) the base seed is drawn once from it, so
+        rebuilds of this plot stay identical while distinct plots still differ.
+        """
+        if self._jitter_rng_seed is not None:
+            return self._jitter_rng_seed
+        return spawn_child_seeds(self._jitter_rng, 1)[0]
 
     @property
     def jitter_rng_seed(self) -> int | None:
@@ -137,6 +116,7 @@ class SeaLevel(GerryPlotBase):
         return self._jitter_rng_seed
 
     @jitter_rng_seed.setter
+    @deferred_axis_update
     def jitter_rng_seed(self, seed: int | None) -> None:
         """Set the RNG seed used for deterministic jitter placement.
 
@@ -153,6 +133,7 @@ class SeaLevel(GerryPlotBase):
             seed=seed,
             field_name="jitter_rng_seed",
         )
+        self._jitter_base_seed = self._derive_jitter_base_seed()
 
     def _validate_jitter_per_category(self, jitter: dict[str, float]) -> None:
         """Validate a per-category jitter dictionary against the current labels."""
@@ -172,15 +153,16 @@ class SeaLevel(GerryPlotBase):
                 f"All keys in jitter must be among the existing labels. Extra keys: {extra_keys}"
             )
 
-    def _coerce_jitter(self, jitter: float | dict[str, float]) -> dict[str, float]:
-        """Resolve a uniform-or-per-category jitter input into a per-category dict.
+    def _coerce_jitter(self, jitter: float | dict[str, float]) -> float | dict[str, float]:
+        """Validate and copy a uniform-or-per-category jitter input.
 
         - ``dict[str, float]`` is validated and returned as-is.
-        - A scalar float is broadcast to every existing label.
+        - A scalar float applies to current and future labels.
         """
         if isinstance(jitter, dict):
             self._validate_jitter_per_category(jitter)
-            return jitter
+            # Do not let later caller mutation change rendered positions.
+            return dict(jitter)
         if not isinstance(jitter, Real):
             raise TypeError(
                 "jitter must be a float or a dictionary mapping labels to floats; "
@@ -191,8 +173,9 @@ class SeaLevel(GerryPlotBase):
         jit = float(jitter)
         if not math.isfinite(jit) or jit < 0:
             raise ValueError("jitter must be a finite nonnegative number.")
-        return {label: jit for label in self._labels or []}
+        return jit
 
+    @deferred_axis_update
     def set_vertical_jitter(self, jitter: float | dict[str, float]) -> None:
         """Set the maximum vertical jitter applied to category points.
 
@@ -209,6 +192,7 @@ class SeaLevel(GerryPlotBase):
         """
         self._maximum_vertical_jitter_per_category = self._coerce_jitter(jitter)
 
+    @deferred_axis_update
     def set_horizontal_jitter(self, jitter: float | dict[str, float]) -> None:
         """Set the maximum horizontal jitter applied to category points.
 
@@ -225,15 +209,18 @@ class SeaLevel(GerryPlotBase):
     def _convert_score_data_to_dictionary(
         self,
         scores: dict[str, int | float] | list[int | float] | pd.Series | pd.DataFrame,
-        scores_labels: list[str] | None = None,
+        category_labels: list[str] | None = None,
         df_row_index: CategoryKey | None = None,
     ) -> dict[str, float]:
         """Convert supported score inputs into a label-to-value dictionary.
 
+        DataFrame input selects one *row* via ``df_row_index`` (each column is a category);
+        every other input converts via the shared point-set conversion.
+
         Args:
             scores (dict[str, int | float] | list[int | float] | pd.Series | pd.DataFrame):
-                Input scores. Lists require ``scores_labels``; DataFrames require ``df_row_index``.
-            scores_labels (list[str] | None, optional): Labels for list input. Defaults to None.
+                Input scores. Lists require ``category_labels``; DataFrames require ``df_row_index``.
+            category_labels (list[str] | None, optional): Labels for list input. Defaults to None.
             df_row_index (CategoryKey | None, optional): Row selector for DataFrame input.
                 Defaults to None.
 
@@ -244,20 +231,7 @@ class SeaLevel(GerryPlotBase):
             ValueError: If conversion fails, inputs are empty, or values are non-finite.
             TypeError: If ``scores`` uses an unsupported input type.
         """
-        out_dict: dict[str, float] = {}
-        if isinstance(scores, dict):
-            out_dict = {str(k): float(v) for k, v in scores.items()}
-        elif isinstance(scores, list):
-            if scores_labels is None:
-                raise ValueError(
-                    "If scores is a list, scores_labels must be provided to map values to labels."
-                )
-            if len(scores) != len(scores_labels):
-                raise ValueError("Length of scores list must match length of scores_labels list.")
-            out_dict = {str(label): float(value) for label, value in zip(scores_labels, scores)}
-        elif isinstance(scores, pd.Series):
-            out_dict = {str(idx): float(value) for idx, value in scores.items()}
-        elif isinstance(scores, pd.DataFrame):
+        if isinstance(scores, pd.DataFrame):
             if df_row_index is None:
                 raise ValueError(
                     "If scores is a DataFrame, df_row_index must be provided to select the row."
@@ -271,30 +245,29 @@ class SeaLevel(GerryPlotBase):
                     "Please provide a df_row_index that selects a single row."
                 )
             out_dict = {str(idx): float(value) for idx, value in row.items()}
+        else:
+            # Without explicit labels, list input falls back to the plot's existing labels
+            # (matching the other categorical plots); only a label-less plot must raise.
+            if isinstance(scores, list) and category_labels is None and self._labels is None:
+                raise ValueError(
+                    "If scores is a list, category_labels must be provided to map values to labels."
+                )
+            out_dict = self._convert_pointset_to_dict(scores, category_labels)
 
-        if out_dict:
-            if any(not math.isfinite(v) for v in out_dict.values()):
-                raise ValueError("All score values must be finite numbers.")
-            return out_dict
-
-        if isinstance(scores, (dict, list, pd.Series, pd.DataFrame)):
+        if not out_dict:
             raise ValueError(
                 "Could not convert scores to dictionary. Please check that the input is not empty."
             )
+        if any(not math.isfinite(v) for v in out_dict.values()):
+            raise ValueError("All score values must be finite numbers.")
+        return out_dict
 
-        raise TypeError(
-            "Could not convert scores to dictionary. "
-            "Scores must be a dict, list, pd.Series, or pd.DataFrame. "
-            "If a list is provided, scores_labels must also be provided. "
-            "If a DataFrame is provided, df_row_index must also be provided."
-        )
-
-    def add_sealevel_set(
+    def add_dataset(
         self,
         scores: dict[str, float] | list[float] | pd.Series | pd.DataFrame,
         name: str | None = None,
         *,
-        scores_labels: list[str] | None = None,
+        category_labels: list[str] | None = None,
         df_row_index: CategoryKey | None = None,
         line_options: SeaLevelLineOptions | None = None,
         marker_options: PointMarkerOptions | None = None,
@@ -310,6 +283,7 @@ class SeaLevel(GerryPlotBase):
         markeredgealpha: float | None = None,
         markeredgewidth: float | None = None,
         zorder: int | None = None,
+        add_extra_labels: bool = False,
     ) -> None:
         """Add a set of points to the figure.
 
@@ -317,14 +291,21 @@ class SeaLevel(GerryPlotBase):
             scores (dict[str, float] | list[float] | pd.Series | pd.DataFrame):
                 The pointset values. Can be a dictionary mapping labels to values,
                 a list of values, a Series, or a DataFrame.
-            scores_labels (list[str] | None, optional): The labels corresponding to the
-                scores list, if scores is provided as a list. Ignored if scores is a dict,
+            category_labels (list[str] | None, optional): The labels corresponding to the
+                scores list, if scores is provided as a list. When omitted, list input falls
+                back to the plot's existing category labels. Ignored if scores is a dict,
                 Series, or DataFrame. Defaults to None.
             df_row_index (CategoryKey | None, optional): The row index to select if scores is a
                 DataFrame.
                 Defaults to None.
             name (str | None, optional): The name of the point set for the legend.
                 Defaults to None.
+            line_options (SeaLevelLineOptions | None, optional): Pre-built line styling. Any
+                line styling kwarg passed explicitly overrides the corresponding field.
+                Defaults to None.
+            marker_options (PointMarkerOptions | None, optional): Pre-built marker styling. Any
+                marker styling kwarg passed explicitly overrides the corresponding field. When
+                None, markers inherit the resolved line color. Defaults to None.
             linecolor (Color, optional): The color of the line connecting the points.
                 Defaults to "black".
             linealpha (float | None, optional): The alpha transparency of the line.
@@ -344,163 +325,120 @@ class SeaLevel(GerryPlotBase):
             markeredgewidth (float, optional): The width of the marker edge. Defaults to 0.8.
             zorder (int, optional): The z-order for layering the plot elements.
                 Defaults to 2.
+            add_extra_labels (bool, optional): Whether to merge unseen incoming labels into
+                existing category labels. Defaults to False.
+
+        Note:
+            Markers ride the connecting ``Line2D``, so they always draw at the line's
+            ``zorder``; a ``zorder`` set on ``marker_options`` is ignored.
 
         Returns:
             None
         """
-        scores_dict = self._convert_score_data_to_dictionary(scores, scores_labels, df_row_index)
+        scores_dict = self._convert_score_data_to_dictionary(scores, category_labels, df_row_index)
 
-        # Resolve line styling: kwargs override line_options, which falls back to defaults.
         line_base = line_options if line_options is not None else SeaLevelLineOptions()
-        resolved_linecolor = linecolor if linecolor is not None else line_base.linecolor
-        resolved_linealpha = linealpha if linealpha is not None else line_base.linealpha
-        resolved_linewidth = linewidth if linewidth is not None else line_base.linewidth
-        resolved_linestyle = linestyle if linestyle is not None else line_base.linestyle
-        resolved_zorder = zorder if zorder is not None else line_base.zorder
+        line_style = _replace_non_none(
+            line_base,
+            linecolor=linecolor,
+            linealpha=linealpha,
+            linewidth=linewidth,
+            linestyle=linestyle,
+            zorder=zorder,
+        )
 
-        # Resolve marker styling: kwargs override marker_options, which falls back to a
-        # set of defaults that mimic the previous "marker inherits from line" semantics
-        # (face=linecolor, edge=face, etc.) when neither is explicitly provided.
+        # When no marker options are given, markers inherit the resolved line color: the edge
+        # follows the (possibly kwarg-overridden) face; a user-supplied marker_options is
+        # honored verbatim, so an explicit black edge stays black.
         marker_base = (
             marker_options
             if marker_options is not None
             else PointMarkerOptions(
-                markerfacecolor=resolved_linecolor,
-                markerfacealpha=resolved_linealpha,
+                markerfacecolor=line_style.linecolor,
+                markerfacealpha=line_style.linealpha,
                 marker="o",
                 markersize=7.0,
-                markeredgecolor=resolved_linecolor,
-                markeredgealpha=resolved_linealpha,
+                markeredgecolor=(
+                    markerfacecolor if markerfacecolor is not None else line_style.linecolor
+                ),
+                markeredgealpha=(
+                    markerfacealpha if markerfacealpha is not None else line_style.linealpha
+                ),
                 markeredgewidth=0.8,
             )
         )
-        resolved_markerfacecolor = (
-            markerfacecolor if markerfacecolor is not None else marker_base.markerfacecolor
-        )
-        resolved_markerfacealpha = (
-            markerfacealpha if markerfacealpha is not None else marker_base.markerfacealpha
-        )
-        resolved_marker = marker if marker is not None else marker_base.marker
-        resolved_markersize = markersize if markersize is not None else marker_base.markersize
-        resolved_markeredgecolor = (
-            markeredgecolor
-            if markeredgecolor is not None
-            else (
-                marker_base.markeredgecolor
-                if marker_base.markeredgecolor != "black"  # PointMarkerOptions default
-                else resolved_markerfacecolor
-            )
-        )
-        resolved_markeredgealpha = (
-            markeredgealpha if markeredgealpha is not None else marker_base.markeredgealpha
-        )
-        resolved_markeredgewidth = (
-            markeredgewidth if markeredgewidth is not None else marker_base.markeredgewidth
+        marker_style = _replace_non_none(
+            marker_base,
+            markerfacecolor=markerfacecolor,
+            markerfacealpha=markerfacealpha,
+            marker=marker,
+            markersize=markersize,
+            markeredgecolor=markeredgecolor,
+            markeredgealpha=markeredgealpha,
+            markeredgewidth=markeredgewidth,
         )
 
-        if self._labels is None:
-            self._labels = list(scores_dict.keys())
-        else:
-            incoming = list(scores_dict.keys())
-            if incoming != self._labels:
-                raise ValueError(
-                    "All sets must use the same labels in the same order.\n"
-                    f"Expected: {self._labels}\nGot:      {incoming}\n"
-                    "If you want to allow for additional labels, set add_extra_labels=True."
-                )
+        self._sync_labels(
+            list(scores_dict.keys()),
+            add_extra_labels=add_extra_labels,
+            item_name="sealevel set",
+        )
 
         set_name = name or f"Set {len(self._sealevel_data_list) + 1}"
         self._sealevel_data_list.append(
-            SeaLevelSetData(
+            _SeaLevelSetData(
                 name=set_name,
                 scores_dict=scores_dict,
-                linecolor=resolved_linecolor,
-                linealpha=resolved_linealpha,
-                linewidth=resolved_linewidth,
-                linestyle=resolved_linestyle,
-                markersettings=PointMarkerOptions(
-                    markerfacecolor=resolved_markerfacecolor,
-                    markerfacealpha=resolved_markerfacealpha,
-                    marker=resolved_marker,
-                    markersize=resolved_markersize,
-                    markeredgecolor=resolved_markeredgecolor,
-                    markeredgealpha=resolved_markeredgealpha,
-                    markeredgewidth=resolved_markeredgewidth,
-                ),
-                zorder=resolved_zorder,
+                style=line_style,
+                markersettings=marker_style,
             )
         )
         self._claim_legend_if_named(name)
 
     @property
-    def _sealevel_centers(self) -> np.ndarray:
-        """Calculate the x-axis centers for each sealevel category."""
-        if self._labels is None:
-            return np.array([])
+    def _datasets(self) -> Sequence[object]:
+        return self._sealevel_data_list
 
-        n_categories = len(self._labels)
-        centers = 1.0 + np.arange(n_categories, dtype=float)
-        return centers
-
-    def _default_x_tick_locations(self) -> list[float] | None:
-        """Get default x-tick locations at the center of each sealevel group."""
-        return list(self._sealevel_centers)
-
-    def _default_x_tick_labels(self, tick_locations: list[float]) -> list[str] | None:
-        """Get default x-tick labels for sealevel categories.
-
-        Args:
-            tick_locations (list[float]): Candidate x-tick positions.
-
-        Returns:
-            list[str] | None: Category labels when the lengths match; otherwise ``None``.
-        """
-        assert self._labels is not None, (
-            "Internal error: _labels should be set before _default_x_tick_labels is called."
-        )
-        # Only apply category labels when lengths match; if the user overrides locations to
-        # something else, leave labels alone unless they explicitly set them.
-        if len(tick_locations) == len(self._labels):
-            return list(self._labels)
-        return None
-
-    def _draw_sealevels(self) -> None:
+    def _draw_datasets(self) -> None:
         """Draw the sealevel sets on the plot."""
-        centers = self._sealevel_centers
+        centers = self._category_centers
 
-        assert self._labels is not None, (
-            "Internal error: _labels should be set before _draw_sealevels is called."
-        )
+        # A fresh generator per build, seeded from the per-plot base seed, keeps rebuilds
+        # identical in both the explicit-seed and user-generator modes.
+        jitter_rng = np.random.default_rng(self._jitter_base_seed)
+
         for sealevel_set in self._sealevel_data_list:
             x_positions = []
             y_positions = []
-            for idx, label in enumerate(self._labels or []):
-                hoizontal_jitter = self._maximum_horizontal_jitter_per_category.get(label, 0.0)
-                x_center = centers[idx] + self._jitter_rng.uniform(
-                    low=-hoizontal_jitter,
-                    high=hoizontal_jitter,
+            for label, value, x_center in self._present_positions(
+                sealevel_set.scores_dict, centers
+            ):
+                horizontal_jitter = self._maximum_horizontal_jitter_per_category
+                if isinstance(horizontal_jitter, dict):
+                    horizontal_jitter = horizontal_jitter.get(label, 0.0)
+                x_positions.append(
+                    x_center + jitter_rng.uniform(low=-horizontal_jitter, high=horizontal_jitter)
                 )
-                x_positions.append(x_center)
 
-                vertical_jitter = self._maximum_vertical_jitter_per_category.get(label, 0.0)
-                y_center = sealevel_set.scores_dict[label] + self._jitter_rng.uniform(
-                    low=-vertical_jitter,
-                    high=vertical_jitter,
+                vertical_jitter = self._maximum_vertical_jitter_per_category
+                if isinstance(vertical_jitter, dict):
+                    vertical_jitter = vertical_jitter.get(label, 0.0)
+                y_positions.append(
+                    value + jitter_rng.uniform(low=-vertical_jitter, high=vertical_jitter)
                 )
-                y_positions.append(y_center)
 
             markersettings = sealevel_set.markersettings.to_mpl_settings_dict()
             sealevel_artists = self._ax.plot(
                 x_positions,
                 y_positions,
-                linestyle=sealevel_set.linestyle,
+                linestyle=sealevel_set.style.linestyle,
                 color=self._resolved_rgba(
-                    sealevel_set.linecolor,
-                    sealevel_set.linealpha,
+                    sealevel_set.style.linecolor,
+                    sealevel_set.style.linealpha,
                     field="linecolor",
                 ),
-                linewidth=sealevel_set.linewidth,
-                zorder=sealevel_set.zorder,
+                linewidth=sealevel_set.style.linewidth,
+                zorder=sealevel_set.style.zorder,
                 label=sealevel_set.name,
                 markerfacecolor=markersettings["markerfacecolor"],
                 marker=markersettings["marker"],
@@ -510,22 +448,8 @@ class SeaLevel(GerryPlotBase):
             )
             self._artists.track(sealevel_artists)
 
-    def _build_plot(self) -> None:
-        """Build the sealevel figure."""
-        if self._labels is None or len(self._labels) == 0:
-            raise ValueError("No labels defined yet.")
-
-        if len(self._sealevel_data_list) == 0:
-            raise ValueError("No sealevel sets added yet.")
-
-        self._draw_sealevels()
-
-    def _get_sealevel_legend_handles(self) -> list[LegendHandle]:
-        """Generate legend handles for sealevel sets.
-
-        Returns:
-            list[LegendHandle]: A list of legend handles for the sealevel sets.
-        """
+    def _dataset_legend_handles(self) -> list[LegendHandle]:
+        """Legend handles for the sealevel sets."""
         handles: list[LegendHandle] = []
 
         for sealevel_data in self._sealevel_data_list:
@@ -534,15 +458,15 @@ class SeaLevel(GerryPlotBase):
                 Line2D(
                     [0],
                     [0],
-                    linestyle=sealevel_data.linestyle,
+                    linestyle=sealevel_data.style.linestyle,
                     color=self._resolved_rgba(
-                        sealevel_data.linecolor,
-                        sealevel_data.linealpha,
+                        sealevel_data.style.linecolor,
+                        sealevel_data.style.linealpha,
                         field="linecolor",
                     ),
-                    linewidth=sealevel_data.linewidth,
+                    linewidth=sealevel_data.style.linewidth,
                     label=sealevel_data.name,
-                    zorder=sealevel_data.zorder,
+                    zorder=sealevel_data.style.zorder,
                     markerfacecolor=markersettings["markerfacecolor"],
                     marker=markersettings["marker"],
                     markersize=markersettings["markersize"],
@@ -554,7 +478,11 @@ class SeaLevel(GerryPlotBase):
         return handles
 
     def format_ylabels_as_fractions(
-        self, denominator: int, *, minimum_numerator: int = 0, maximum_numerator: int | None = None
+        self,
+        denominator: int | np.integer,
+        *,
+        minimum_numerator: int = 0,
+        maximum_numerator: int | None = None,
     ) -> None:
         """Format y-axis labels as fractions out of the given denominator.
 
@@ -567,8 +495,9 @@ class SeaLevel(GerryPlotBase):
         Returns:
             None
         """
-        if not isinstance(denominator, int):
+        if not isinstance(denominator, Integral) or isinstance(denominator, (bool, np.bool_)):
             raise TypeError("denominator must be an integer.")
+        denominator = int(denominator)
         if denominator <= 0:
             raise ValueError("denominator must be a positive integer.")
 
@@ -588,17 +517,7 @@ class SeaLevel(GerryPlotBase):
                 )
             raise ValueError("minimum_numerator cannot exceed maximum_numerator.")
 
-        self.update_ytick_labels(
-            locations=[n / denominator for n in range(minimum_numerator, maximum_numerator + 1)],
+        self.set_yticks(
+            [n / denominator for n in range(minimum_numerator, maximum_numerator + 1)],
             labels=[f"{n}/{denominator}" for n in range(minimum_numerator, maximum_numerator + 1)],
         )
-
-    @property
-    def _legend_handles(self) -> list[LegendHandle]:
-        """Generated legend handles for sealevel sets."""
-        handles: list[LegendHandle] = []
-        handles.extend(self._get_sealevel_legend_handles())
-        handles.extend(self._get_named_line_legend_handles())
-        handles.extend(self._get_named_band_legend_handles())
-
-        return handles

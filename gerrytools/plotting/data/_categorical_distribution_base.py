@@ -1,18 +1,31 @@
 from __future__ import annotations
 
+import math
+from abc import abstractmethod
 from numbers import Real
-from typing import Mapping, Sequence, cast
+from typing import Iterable, Iterator, Mapping, Sequence, TypeVar, cast, final
 
 import numpy as np
 import pandas as pd
 from matplotlib.axes import Axes
-from matplotlib.lines import Line2D
+from matplotlib.patches import Patch
 from numpy.typing import NDArray
 
-from gerrytools.plotting.data._gerryplot_dataclasses import LineData, PointSetData
+from gerrytools.plotting._axes_backed import deferred_axis_update
+from gerrytools.plotting.data._gerryplot_dataclasses import _PointSetData
 from gerrytools.plotting.data.gerryplot import GerryPlotBase
-from gerrytools.plotting.mpl.marker_options import PointMarkerOptions
+from gerrytools.plotting.data.options import LineOptions, _FaceEdgeStyle
+from gerrytools.plotting.mpl.marker_options import PointMarkerOptions, _marker_legend_handle
 from gerrytools.typing import Color, LegendHandle
+
+MappedT = TypeVar("MappedT")
+
+
+def _stringify_unique_labels(labels: Iterable[object]) -> list[str]:
+    string_labels = [str(label) for label in labels]
+    if len(set(string_labels)) != len(string_labels):
+        raise ValueError("Category labels must be unique after conversion to strings.")
+    return string_labels
 
 
 class CategoricalDistributionPlotBase(GerryPlotBase):
@@ -22,26 +35,29 @@ class CategoricalDistributionPlotBase(GerryPlotBase):
     and default x-axis tick behavior used by plots such as ``BoxPlot`` and ``ViolinPlot``.
     """
 
+    # Human-readable dataset noun used in "No <noun>s added yet." build errors.
+    _dataset_noun: str = "data set"
+
     def __init__(
         self,
         *,
         figure_size: tuple[float, float] | None,
         dpi: int | None,
         ax: Axes | None,
-        include_legend: bool,
+        legend: bool | None,
         xlabel: str | None,
         ylabel: str | None,
         title: str | None,
         group_width: float,
         width_scale: float,
-        include_group_vlines: bool,
     ) -> None:
         """Initialize shared categorical distribution plot state.
 
         Args:
             figure_size (tuple[float, float]): Figure size in inches.
             dpi (int): Figure resolution in dots per inch.
-            include_legend (bool): Whether legend rendering is enabled.
+            ax (Axes | None): Existing axes to bind, or None to create a figure.
+            legend (bool): Whether legend rendering is enabled.
             xlabel (str | None): X-axis label text. Defaults to None.
             ylabel (str | None): Y-axis label text. Defaults to None.
             title (str | None): Plot title text. Defaults to None.
@@ -49,40 +65,60 @@ class CategoricalDistributionPlotBase(GerryPlotBase):
                 Must be in ``(0, 1]``.
             width_scale (float): Relative width scaling for grouped artists.
                 Must be in ``(0, 1]``.
-            include_group_vlines (bool): Whether to show center guide lines at each category.
+
+        Category-center guide lines start disabled; toggle them with
+        :meth:`display_group_separators`.
         """
         super().__init__(
             figure_size=figure_size,
             dpi=dpi,
             ax=ax,
-            include_legend=include_legend,
+            legend=legend,
             xlabel=xlabel,
             ylabel=ylabel,
             title=title,
         )
 
-        if group_width <= 0:
-            raise ValueError("group_width must be positive.")
-        if group_width > 1.0:
-            raise ValueError("group_width must be <= 1.0 when centers are integers.")
-        if not 0.0 < width_scale <= 1.0:
-            raise ValueError("width_scale must be in (0.0, 1.0].")
+        self.group_width = group_width
+        self.width_scale = width_scale
 
-        self.group_width = float(group_width)
-        self.width_scale = float(width_scale)
-
-        self._pointset_data_list: list[PointSetData] = []
+        self._pointset_data_list: list[_PointSetData] = []
         self._labels: list[str] | None = None
 
-        self._include_group_vlines = include_group_vlines
-        self._group_vline_settings = LineData(
-            values=float("inf"),  # placeholder
+        self._include_group_vlines = False
+        self._group_vline_settings = LineOptions(
             linecolor="#cccccc",
             linealpha=1.0,
             linestyle="-",
             linewidth=0.8,
             zorder=-3,
         )
+
+    @property
+    def group_width(self) -> float:
+        """Width allocated to each categorical group."""
+        return self._group_width
+
+    @group_width.setter
+    @deferred_axis_update
+    def group_width(self, value: float) -> None:
+        if value <= 0:
+            raise ValueError("group_width must be positive.")
+        if value > 1.0:
+            raise ValueError("group_width must be <= 1.0 when centers are integers.")
+        self._group_width = float(value)
+
+    @property
+    def width_scale(self) -> float:
+        """Relative width of artists within each categorical slot."""
+        return self._width_scale
+
+    @width_scale.setter
+    @deferred_axis_update
+    def width_scale(self, value: float) -> None:
+        if not 0.0 < value <= 1.0:
+            raise ValueError("width_scale must be in (0.0, 1.0].")
+        self._width_scale = float(value)
 
     @staticmethod
     def _convert_distribution_data_to_dictionary(
@@ -93,15 +129,15 @@ class CategoricalDistributionPlotBase(GerryPlotBase):
             | pd.DataFrame
             | NDArray
         ),
-        scores_labels: list[str] | None = None,
+        category_labels: list[str] | None = None,
     ) -> dict[str, list[float]]:
         """Convert distribution input to a dictionary mapping labels to score lists.
 
         Args:
             scores (dict[str, list[float]] | list[float] | list[list[float]] | pd.DataFrame):
                 Distribution values. DataFrames use each column as a category and dicts use
-                their keys; list/array input is labeled by ``scores_labels`` or auto-numbered.
-            scores_labels (list[str] | None, optional): Labels for list/array input. When None,
+                their keys; list/array input is labeled by ``category_labels`` or auto-numbered.
+            category_labels (list[str] | None, optional): Labels for list/array input. When None,
                 categories are auto-numbered ``"0", "1", ...`` (0-indexed). Defaults to None.
 
         Returns:
@@ -130,17 +166,25 @@ class CategoricalDistributionPlotBase(GerryPlotBase):
                 labels = [str(index) for index in range(len(rows))]
             elif len(labels) != len(rows):
                 raise ValueError(
-                    f"scores_labels has length {len(labels)} but you provided "
+                    f"category_labels has length {len(labels)} but you provided "
                     f"{len(rows)} score lists."
                 )
-            return {str(label): row for label, row in zip(labels, rows, strict=True)}
+            string_labels = _stringify_unique_labels(labels)
+            return dict(zip(string_labels, rows, strict=True))
 
-        if isinstance(scores, dict):
-            typed_scores = cast(dict[str, Sequence[float]], scores)
-            return {str(k): list(v) for k, v in typed_scores.items()}
+        if isinstance(scores, Mapping):
+            typed_scores = cast("Mapping[str, Sequence[float]]", scores)
+            return _to_labeled_dict(
+                [list(values) for values in typed_scores.values()], list(typed_scores)
+            )
 
         if isinstance(scores, pd.DataFrame):
-            return {str(col): scores[col].dropna().tolist() for col in scores.columns}
+            if not scores.columns.is_unique:
+                raise ValueError("Category labels must be unique after conversion to strings.")
+            return _to_labeled_dict(
+                [scores.iloc[:, index].dropna().tolist() for index in range(scores.shape[1])],
+                list(scores.columns),
+            )
 
         if isinstance(scores, Sequence):
             if len(scores) == 0:
@@ -179,17 +223,17 @@ class CategoricalDistributionPlotBase(GerryPlotBase):
                 # A flat sequence of scalars is a single category.
                 flat = cast(Sequence[float], scores)
                 rows = [list(flat)]
-            return _to_labeled_dict(rows, scores_labels)
+            return _to_labeled_dict(rows, category_labels)
 
         if isinstance(scores, np.ndarray):
             if scores.ndim == 1:
-                # Each scalar becomes its own single-value category.
-                rows = [[float(score)] for score in scores]
+                # A flat array of scalars is a single category, just like a flat list.
+                rows = [[float(score) for score in scores]]
             elif scores.ndim == 2:
                 rows = [[float(score) for score in row] for row in scores]
             else:
                 raise ValueError("scores array must be 1D or 2D.")
-            return _to_labeled_dict(rows, scores_labels)
+            return _to_labeled_dict(rows, category_labels)
 
         raise TypeError(
             "Scores must be a dict[str, list[float]], list[float], list[list[float]], "
@@ -248,10 +292,22 @@ class CategoricalDistributionPlotBase(GerryPlotBase):
             dict[str, float]: Category label to point value mapping.
         """
         if isinstance(values, dict):
-            return {str(k): float(v) for k, v in values.items()}
+            return dict(
+                zip(
+                    _stringify_unique_labels(values),
+                    map(float, values.values()),
+                    strict=True,
+                )
+            )
 
         if isinstance(values, pd.Series):
-            return {str(k): float(v) for k, v in values.items()}
+            return dict(
+                zip(
+                    _stringify_unique_labels(values.index),
+                    map(float, values),
+                    strict=True,
+                )
+            )
 
         if isinstance(values, pd.DataFrame):
             if column is None:
@@ -261,8 +317,16 @@ class CategoricalDistributionPlotBase(GerryPlotBase):
                     )
                 ser = values.iloc[:, 0]
             else:
+                if column not in values.columns:
+                    raise ValueError(f"column {column!r} not found in DataFrame.")
                 ser = values[column]
-            return {str(k): float(v) for k, v in ser.items()}
+            return dict(
+                zip(
+                    _stringify_unique_labels(ser.index),
+                    map(float, ser),
+                    strict=True,
+                )
+            )
 
         vals = list(values)
         if labels is None:
@@ -277,7 +341,7 @@ class CategoricalDistributionPlotBase(GerryPlotBase):
             raise ValueError(
                 f"Point set values length {len(vals)} does not match labels length {len(labels)}."
             )
-        return dict(zip(labels, map(float, vals), strict=True))
+        return dict(zip(_stringify_unique_labels(labels), map(float, vals), strict=True))
 
     def add_pointset(
         self,
@@ -319,14 +383,21 @@ class CategoricalDistributionPlotBase(GerryPlotBase):
             zorder (int, optional): Matplotlib z-order. Defaults to ``2``.
             add_extra_labels (bool, optional): If True, allows this point set to introduce
                 additional labels beyond the current label set. Defaults to ``False``.
+
+        Raises:
+            ValueError: If ``x_offset`` is not finite.
         """
+        if x_offset is not None:
+            x_offset = float(x_offset)
+            if not math.isfinite(x_offset):
+                raise ValueError(f"x_offset must be finite; got {x_offset!r}.")
         values_dict = self._convert_pointset_to_dict(values, labels, column=column)
         incoming = list(values_dict.keys())
         self._sync_labels(incoming, add_extra_labels=add_extra_labels, item_name="point set")
 
         set_name = name or f"Point Set {len(self._pointset_data_list) + 1}"
         self._pointset_data_list.append(
-            PointSetData(
+            _PointSetData(
                 name=set_name,
                 values_dict=values_dict,
                 point_data=PointMarkerOptions(
@@ -344,10 +415,7 @@ class CategoricalDistributionPlotBase(GerryPlotBase):
         )
         self._claim_legend_if_named(name)
 
-    def remove_group_vlines(self) -> None:
-        """Disable vertical guide lines at category centers."""
-        self._include_group_vlines = False
-
+    @deferred_axis_update
     def update_group_vline_settings(
         self,
         *,
@@ -359,6 +427,10 @@ class CategoricalDistributionPlotBase(GerryPlotBase):
     ) -> None:
         """Update vertical guide-line style for category centers.
 
+        Calling this also enables the separators, as if by
+        ``display_group_separators(True)``; use that method to toggle them without
+        restyling.
+
         Args:
             linecolor (Color, optional): Guide line color. Defaults to ``"#cccccc"``.
             linealpha (float, optional): Guide line alpha in ``[0, 1]``. Defaults to ``1.0``.
@@ -367,8 +439,7 @@ class CategoricalDistributionPlotBase(GerryPlotBase):
             zorder (int, optional): Matplotlib z-order. Defaults to ``-3``.
         """
         self._include_group_vlines = True
-        self._group_vline_settings = LineData(
-            values=float("inf"),
+        self._group_vline_settings = LineOptions(
             linecolor=linecolor,
             linealpha=linealpha,
             linestyle=linestyle,
@@ -376,31 +447,115 @@ class CategoricalDistributionPlotBase(GerryPlotBase):
             zorder=zorder,
         )
 
+    @deferred_axis_update
     def clear_verticals(self) -> None:
         """Clear all vertical overlays and disable category-center guide lines."""
         self._include_group_vlines = False
         self._annotations.clear_verticals()
+
+    @deferred_axis_update
+    def display_group_separators(self, enabled: bool) -> None:
+        """Set whether vertical category-group separators are displayed."""
+        self._include_group_vlines = enabled
+
+    def _grouped_layout(self, n_sets: int) -> tuple[np.ndarray, np.ndarray, float]:
+        """Compute the side-by-side grouped layout for ``n_sets`` datasets.
+
+        Returns:
+            tuple[np.ndarray, np.ndarray, float]: Category centers, the per-set x offsets
+            from those centers, and the width each drawn artist should use.
+        """
+        centers = self._category_centers
+        slot_width = self.group_width / n_sets
+        offsets = (np.arange(n_sets) - (n_sets - 1) / 2.0) * slot_width
+        artist_width = slot_width * self.width_scale
+        return centers, offsets, artist_width
+
+    def _present_positions(
+        self,
+        mapping: Mapping[str, MappedT],
+        positions: np.ndarray,
+    ) -> Iterator[tuple[str, MappedT, float]]:
+        """Yield ``(label, value, x)`` triples for the categories present in ``mapping``.
+
+        Iterates the plot's labels in order, pairing each with its position and skipping
+        categories the mapping does not provide.
+        """
+        assert self._labels is not None
+        for label, x in zip(self._labels, positions, strict=True):
+            if label in mapping:
+                yield label, mapping[label], float(x)
+
+    def _patch_legend_handles(
+        self, entries: Iterable[tuple[str, _FaceEdgeStyle]]
+    ) -> list[LegendHandle]:
+        """Build one Patch legend handle per ``(name, style)`` dataset entry."""
+        return [
+            Patch(
+                facecolor=self._resolved_rgba(
+                    style.facecolor,
+                    style.facealpha,
+                    field="facecolor",
+                ),
+                edgecolor=self._resolved_rgba(
+                    style.edgecolor,
+                    style.edgealpha,
+                    field="edgecolor",
+                ),
+                linewidth=style.edgewidth,
+                label=name,
+            )
+            for name, style in entries
+        ]
+
+    @property
+    @abstractmethod
+    def _datasets(self) -> Sequence[object]:
+        """The plot's stored datasets, used for the empty-plot guard."""
+
+    @abstractmethod
+    def _draw_datasets(self) -> None:
+        """Draw this plot's datasets onto the axes."""
+
+    @final
+    def _build_plot(self) -> None:
+        """Build the figure: guards, datasets, point sets, then optional group guides."""
+        if self._labels is None or len(self._labels) == 0:
+            raise ValueError("No labels defined yet.")
+        if len(self._datasets) == 0:
+            raise ValueError(f"No {self._dataset_noun}s added yet.")
+
+        self._draw_datasets()
+        self._draw_pointset(self._category_centers)
+        if self._include_group_vlines:
+            self._draw_group_vlines()
 
     def _default_x_tick_locations(self) -> list[float] | None:
         """Get default x-tick locations at the center of each category group."""
         return list(self._category_centers)
 
     def _default_x_tick_labels(self, tick_locations: list[float]) -> list[str] | None:
-        """Get default x-tick labels for categories when lengths align.
+        """Place category labels only at their category centers.
 
         Args:
             tick_locations (list[float]): Candidate x-tick positions.
 
         Returns:
-            list[str] | None: Category labels when lengths align; otherwise None.
+            list[str] | None: One label or an empty string for each tick.
         """
         if (
             self._labels is None
         ):  # pragma: no cover - _labels is always set before tick helpers are called
             return None  # pragma: no cover
-        if len(tick_locations) == len(self._labels):
-            return list(self._labels)
-        return None
+        labels = []
+        for location in tick_locations:
+            category = int(location) - 1
+            labels.append(
+                self._labels[category]
+                if location == category + 1 and 0 <= category < len(self._labels)
+                else ""
+            )
+        return labels
 
     def _draw_group_vlines(self) -> None:
         """Draw vertical guide lines at each category center."""
@@ -426,13 +581,11 @@ class CategoricalDistributionPlotBase(GerryPlotBase):
         n_categories = len(self._labels)
         return 1.0 + np.arange(n_categories, dtype=float)
 
-    def _draw_pointset(self, centers: np.ndarray, *, span: float | None = None) -> None:
+    def _draw_pointset(self, centers: np.ndarray) -> None:
         """Draw all configured point sets on the plot.
 
         Args:
             centers (np.ndarray): X-axis category centers.
-            span (float | None, optional): Total horizontal span used to distribute multiple
-                point sets within each category. Defaults to None.
 
         Returns:
             None
@@ -441,10 +594,9 @@ class CategoricalDistributionPlotBase(GerryPlotBase):
             return
 
         n = len(self._pointset_data_list)
-        if span is None:
-            span = min(self.group_width * 0.8, 0.8)
+        span = min(self.group_width * 0.8, 0.8)
 
-        auto_offsets = (np.arange(n) - (n - 1) / 2.0) * (span / max(n, 1))
+        auto_offsets = (np.arange(n) - (n - 1) / 2.0) * (span / n)
 
         for i, sdata in enumerate(self._pointset_data_list):
             offset = float(sdata.x_offset) if sdata.x_offset is not None else float(auto_offsets[i])
@@ -464,19 +616,9 @@ class CategoricalDistributionPlotBase(GerryPlotBase):
             )
             self._artists.track(point_lines)
 
-    def _get_pointset_legend_handles(self) -> list[LegendHandle]:
+    def _pointset_legend_handles(self) -> list[LegendHandle]:
         """Generate legend handles for all point sets."""
-        handles: list[LegendHandle] = []
-
-        for sdata in self._pointset_data_list:
-            handles.append(
-                Line2D(
-                    [0],
-                    [0],
-                    linestyle="none",
-                    label=sdata.name,
-                    **sdata.point_data.to_mpl_settings_dict(),
-                )
-            )
-
-        return handles
+        return [
+            _marker_legend_handle(sdata.point_data, sdata.name)
+            for sdata in self._pointset_data_list
+        ]

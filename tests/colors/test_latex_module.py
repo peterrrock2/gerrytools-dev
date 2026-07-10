@@ -1,11 +1,11 @@
 import pytest
 
 from gerrytools.colors.latex import (
-    _hex_to_rgb,
-    _norm_hex,
     _rgb_to_hex,
     _xcolor_mix_hex,
     get_color_from_latex_string,
+    hex_to_rgb,
+    normalize_hex_color,
 )
 
 # =========================
@@ -14,23 +14,23 @@ from gerrytools.colors.latex import (
 
 
 class TestNormalizeHex:
-    def test_norm_hex_expands_three_digit_values(self):
-        assert _norm_hex("#AbC") == "#aabbcc"
+    def test_normalize_hex_color_expands_three_digit_values(self):
+        assert normalize_hex_color("#AbC") == "#aabbcc"
 
-    def test_norm_hex_lowercases_six_digit_values(self):
-        assert _norm_hex("A1B2C3") == "#a1b2c3"
+    def test_normalize_hex_color_lowercases_six_digit_values(self):
+        assert normalize_hex_color("A1B2C3") == "#a1b2c3"
 
-    def test_norm_hex_warns_and_strips_alpha_for_four_digit_values(self):
+    def test_normalize_hex_color_warns_and_strips_alpha_for_four_digit_values(self):
         with pytest.warns(UserWarning, match="Ignoring alpha channel"):
-            assert _norm_hex("#abcd") == "#aabbcc"
+            assert normalize_hex_color("#abcd") == "#aabbcc"
 
-    def test_norm_hex_warns_and_strips_alpha_for_eight_digit_values(self):
+    def test_normalize_hex_color_warns_and_strips_alpha_for_eight_digit_values(self):
         with pytest.warns(UserWarning, match="Ignoring alpha channel"):
-            assert _norm_hex("#11223344") == "#112233"
+            assert normalize_hex_color("#11223344") == "#112233"
 
-    def test_norm_hex_invalid_value_raises(self):
+    def test_normalize_hex_color_invalid_value_raises(self):
         with pytest.raises(ValueError, match="Not a valid hex color"):
-            _norm_hex("xyz")
+            normalize_hex_color("xyz")
 
 
 # ======================
@@ -40,7 +40,7 @@ class TestNormalizeHex:
 
 class TestHexRgbHelpers:
     def test_hex_to_rgb_returns_rgb_tuple(self):
-        assert _hex_to_rgb("#123456") == (18, 52, 86)
+        assert hex_to_rgb("#123456") == (18, 52, 86)
 
     def test_rgb_to_hex_rounds_and_clamps_components(self):
         assert _rgb_to_hex((255.0, 127.6, -5.0)) == "#ff8000"
@@ -56,6 +56,40 @@ class TestHexRgbHelpers:
 # ========================
 # == LATEX RESOLUTION ==
 # ========================
+
+
+class TestTokenizeXcolorExpression:
+    def test_names_and_percents_split_by_position(self):
+        from gerrytools.colors import tokenize_xcolor_expression
+
+        names, percents = tokenize_xcolor_expression("denim!25!amber!50!white")
+        assert names == ["denim", "amber", "white"]
+        assert percents == [25.0, 50.0]
+
+    def test_trailing_percent_is_reported_by_parity(self):
+        from gerrytools.colors import tokenize_xcolor_expression
+
+        names, percents = tokenize_xcolor_expression("red!50")
+        assert len(names) == len(percents) == 1
+
+    def test_empty_segment_is_rejected_not_repaired(self):
+        # "red!!50" used to be silently repaired to "red!50".
+        from gerrytools.colors import tokenize_xcolor_expression
+
+        with pytest.raises(ValueError, match="empty segment"):
+            tokenize_xcolor_expression("red!!50")
+
+    def test_non_numeric_percent_rejected(self):
+        from gerrytools.colors import tokenize_xcolor_expression
+
+        with pytest.raises(ValueError, match="not a percentage"):
+            tokenize_xcolor_expression("red!blue!green!yellow")
+
+    def test_out_of_range_percent_rejected(self):
+        from gerrytools.colors import tokenize_xcolor_expression
+
+        with pytest.raises(ValueError, match=r"\[0,100\]"):
+            tokenize_xcolor_expression("red!150!blue")
 
 
 class TestGetColorFromLatexString:

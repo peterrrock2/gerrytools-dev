@@ -21,12 +21,12 @@ GerryTools uses:
 
 - [uv](https://astral.sh/uv/) for environment and dependency management
 - [go-task](https://taskfile.dev/) for common development commands
-- [ruff](https://astral.sh/ruff/) for linting
-- [black](https://black.readthedocs.io/en/stable/) for formatting
-- [isort](https://pycqa.github.io/isort/) for import sorting
+- [Ruff](https://docs.astral.sh/ruff/) for formatting, import sorting, and linting
 - [ty](https://github.com/astral-sh/ty) for type checking
+- [Pyright](https://github.com/microsoft/pyright) for type checking
 - [pytest](https://docs.pytest.org/) for tests
 - [pre-commit](https://pre-commit.com/) for local quality checks
+- [maturin](https://www.maturin.rs/) and a stable Rust toolchain to build the scoring engine
 
 Recommended setup:
 
@@ -44,6 +44,22 @@ uv python install 3.11
 uv --managed-python sync --locked --all-groups --all-extras --python 3.11
 uv run pre-commit install
 ```
+
+### The Rust scoring engine
+
+`gerrytools.scoring` is backed by a compiled extension module (`gerrytools._scoring_engine`) whose
+source lives in `rust/`. The package builds with the maturin backend, so `uv sync` compiles the
+crate for you and a stable Rust toolchain must be on your `PATH`.
+
+`task setup` does **not** install Rust. If you do not have it, install it from
+[rustup.rs](https://rustup.rs/) and add the components CI uses:
+
+```bash
+rustup component add clippy rustfmt
+```
+
+You only need this section if you touch `rust/`. Contributors working purely in Python can rely on
+`uv sync` and skip ahead.
 
 ## Contributor workflow
 
@@ -69,6 +85,7 @@ Use descriptive branch names such as:
 Preferred `task` commands:
 
 ```bash
+task all-checks           # format-check, lint, typecheck, and the Rust checks
 task format
 task lint
 task typecheck
@@ -79,26 +96,59 @@ task coverage
 task docs
 ```
 
+`task all-checks` is the closest single command to what CI gates on. `task check` runs only
+formatting and linting, so it will not catch type or Rust failures.
+
 If you already have `uv` on your `PATH`, the equivalent direct commands are:
 
 ```bash
-uv run black src tests
-uv run isort src tests
-uv run ruff check src tests
-uv run ty check src tests
+uv run ruff check --select I --fix gerrytools tests
+uv run ruff format gerrytools tests
+uv run ruff check gerrytools tests
+uv run ty check gerrytools tests
+uv run pyright gerrytools tests
 uv run pytest tests
-uv run pytest tests --runslow
-uv run pytest tests --cov=src/votekit --cov-report=term-missing
+uv run pytest tests --cov=gerrytools --cov-branch --cov-report=term-missing
 uv run pre-commit run --all-files
 ```
 
+### Rust checks
+
+If you change anything under `rust/`, run:
+
+```bash
+task rust-check           # cargo fmt --check and clippy with warnings denied
+task test-rust            # cargo test --locked --all-features
+task coverage-rust        # cargo llvm-cov against the 85% line threshold
+```
+
+`task coverage-rust` needs `cargo-llvm-cov`, which is not part of `task setup`:
+
+```bash
+cargo install cargo-llvm-cov --version 0.8.4 --locked
+```
+
+That is the version CI pins, so matching it avoids threshold surprises.
+
+**Run cargo through `uv run` when you pass `--all-features`.** That flag enables the `python`
+feature, which links the test binary against `libpython`, and a bare invocation will fail to start:
+
+```console
+$ cargo test --manifest-path rust/Cargo.toml --all-features
+error while loading shared libraries: libpython3.13.so.1.0: cannot open shared object file
+```
+
+`uv run` puts the managed interpreter's shared library on the loader path, which is why
+`task test-rust` works. The other cargo commands do not enable that feature and run fine on their
+own.
+
 Notes:
 
-- Slow tests are marked with `@pytest.mark.slow` and only run when you pass `--runslow`.
 - To scope a Task-based test run, use `task test -- tests/<path>` or `task test:tests/<path>`.
-- `task coverage` runs the default test suite with a terminal coverage summary for `src/votekit`.
+- `task coverage` runs the default test suite with a terminal coverage summary for `gerrytools`.
 - If you change public documentation or tutorial content, run `task docs`.
-- If you touch plotting or animation behavior, check the relevant snapshot tests.
+- If you touch plotting behavior, run `task snapshots-verify`.
+- If you touch LaTeX rendering, run `task snapshots-latex-verify`.
 
 ## Pull request expectations
 
@@ -107,20 +157,24 @@ Before opening a pull request, make sure that:
 - the change is scoped to a single topic
 - code, tests, and docs are updated together when needed
 - new behavior is covered by tests
-- linting, formatting, and type checks pass locally
+- linting, formatting, and type checks pass locally (`task all-checks`)
+- Rust changes pass `task rust-check` and `task test-rust`
+- user-facing changes are recorded under `## [Unreleased]` in `CHANGELOG.md`, in the
+  [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) section that fits (`Added`, `Changed`,
+  `Deprecated`, `Removed`, `Fixed`, or `Security`)
 - the PR description explains the user-facing impact and any notable tradeoffs
 
 Small pull requests are much easier to review and merge than large mixed changes.
 
 ## Code style guidelines
 
-GerryTools is a Python 3.11+ codebase. When contributing, prefer the current conventions below and 
+GerryTools is a Python 3.11+ codebase. When contributing, prefer the current conventions below and
 avoid style-only churn in unrelated files.
 
-- Follow the repo tooling first: `black`, `isort`, and `ruff` define the baseline style.
+- Follow the repo tooling first: Ruff defines the baseline formatting, import, and lint style.
 - Keep lines at roughly 100 characters to match the configured formatter and linter settings.
-- Add type annotations for function parameters and return values. Run `uv run ty check src tests`
-  on changes that add or reshape APIs.
+- Add type annotations for function parameters and return values. Run `task typecheck` on changes
+  that add or reshape APIs.
 - Prefer modern type syntax in new or substantially updated code, such as `str | None` instead of
   `Optional[str]`. Older files still contain pre-3.10 style hints, and you do not need to rewrite
   them unless you are already editing that area for a substantive reason.
@@ -162,8 +216,8 @@ def foo(arg1: str | None, arg2: int = 3) -> str:
 
 Docstring conventions used throughout the repository:
 
-- Docstrings should be no more than 100 cahracters per line (including indents) to match the 
-    configured formatter settings.
+- Docstrings should be no more than 100 characters per line (including indents) to match the
+  configured formatter settings.
 - Include `Args`, `Returns`, and `Raises` when they apply.
 - Document optional parameters and default behavior explicitly.
 - Add examples only when they help clarify non-obvious usage.
@@ -180,7 +234,13 @@ Tests are required for behavior changes.
   match=...)`.
 - Include edge cases that are natural for the change: empty inputs, invalid candidate data,
   malformed rankings, tie handling, or zero-weight behavior.
-- Mark long-running tests with `@pytest.mark.slow`.
+- Mark image regression tests with `@pytest.mark.snapshot` and LaTeX-dependent tests with
+  `@pytest.mark.latex`. Both are opt-in: a plain `pytest` run skips them, and they need
+  `--with-snapshot` or `--with-latex` (or `task snapshots-verify` / `task snapshots-latex-verify`).
+  Selecting such a test by path rather than by `-m` currently skips it and still exits 0, so check
+  for `s` in the output before trusting a green run.
+- Rust tests live beside the crate in `rust/src/tests/`. Add coverage there for engine changes;
+  the Python suite does not count toward the Rust coverage threshold.
 
 ## Documentation guidelines
 
@@ -188,7 +248,7 @@ If your change affects public behavior, update the relevant documentation alongs
 Depending on the change, that may include:
 
 - docstrings in `gerrytools/`
-- narrative docs under `docs/`
+- narrative docs under `user_guide/`
 - tutorial notebooks or generated tutorial pages
 - examples or README references
 
@@ -199,5 +259,5 @@ abide by the expectations in [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
 ## Questions
 
-If anything in the contribution process is unclear, please feel free to reach out to 
-`code@mggg.org` with questions. Thanks! 
+If anything in the contribution process is unclear, please feel free to reach out to
+`code@mggg.org` with questions. Thanks!

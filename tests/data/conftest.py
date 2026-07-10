@@ -1,7 +1,17 @@
 import httpx
 import pytest
 
+import gerrytools.data.uscensus._api as census_api
 from tests.data._helpers import MockHTTP
+
+
+@pytest.fixture(autouse=True)
+def recorded_retry_sleeps(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    """Record retry backoff sleeps instead of waiting, keeping retry-path tests instant."""
+
+    recorded: list[float] = []
+    monkeypatch.setattr(census_api, "_sleep", recorded.append)
+    return recorded
 
 
 @pytest.fixture

@@ -1,5 +1,6 @@
 import pytest
 
+import gerrytools.colors.seaborn as seaborn_palettes
 from gerrytools.colors.seaborn import flare, greenpurplecmap, greens, purples, redbluecmap
 
 
@@ -55,6 +56,22 @@ class TestDivergingPaletteHelpers:
 
 
 class TestSequentialPaletteHelpers:
+    @pytest.mark.parametrize(
+        ("helper", "palette_name"),
+        [(flare, "flare"), (purples, "Purples"), (greens, "Greens")],
+    )
+    def test_helpers_select_their_named_palette(self, monkeypatch, helper, palette_name):
+        calls = []
+
+        def fake_palette(name, n, *, reverse=False):
+            calls.append((name, n, reverse))
+            return [(0.1, 0.2, 0.3)] * n
+
+        monkeypatch.setattr(seaborn_palettes, "_seaborn_palette", fake_palette)
+
+        assert helper(3) == [(0.1, 0.2, 0.3)] * 3
+        assert calls == [(palette_name, 3, False)]
+
     def test_flare_returns_unit_rgb_triples(self):
         colors = flare(3)
         assert len(colors) == 3

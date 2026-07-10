@@ -2,15 +2,13 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-import os
-
 from gerrytools.plotting.data.scatterplot import ScatterPlot
 
 
 def _make_plot():
     """Create a minimal ScatterPlot with some data for testing base methods."""
     sp = ScatterPlot()
-    sp.add_scatter(x=[0.0, 1.0], y=[0.0, 1.0])
+    sp.add_series(x=[0.0, 1.0], y=[0.0, 1.0])
     return sp
 
 
@@ -19,12 +17,16 @@ def _make_plot():
 # ====================
 class TestLegendConfiguration:
     def test_include_legend_flag(self):
-        sp = ScatterPlot(include_legend=False)
-        assert sp.include_legend is False
+        sp = ScatterPlot(legend=False)
+        assert sp.legend is False
 
-    def test_legend_options_accessible(self):
-        sp = _make_plot()
-        assert sp._legend_options is not None
+    def test_set_legend_options_title_shows_on_built_legend(self):
+        sp = ScatterPlot(legend=True)
+        sp.add_series(x=[0.0, 1.0], y=[0.0, 1.0], name="data")
+        sp.set_legend_options(title="Series key")
+        legend = sp.ax.get_legend()
+        assert legend is not None
+        assert legend.get_title().get_text() == "Series key"
 
 
 # =================================
@@ -83,8 +85,8 @@ class TestSaveLegend:
     def test_save_legend_creates_file(self, tmp_path):
         from gerrytools.plotting.data.boxplot import BoxPlot
 
-        bp = BoxPlot(include_legend=True)
-        bp.add_boxplot_dataset({"A": [1.0, 2.0, 3.0]}, name="Dataset 1")
+        bp = BoxPlot(legend=True)
+        bp.add_dataset({"A": [1.0, 2.0, 3.0]}, name="Dataset 1")
         legend_path = str(tmp_path / "legend.png")
         bp.save_legend(legend_path)
         assert (tmp_path / "legend.png").exists()
@@ -103,10 +105,10 @@ class TestUpdateLegendEmptyHandles:
         # Add data without a name (auto-name will be set, but that is included in handles)
         # Use ScatterPlot instead which allows no data
         sp = ScatterPlot()
-        sp.add_scatter(x=[0.0, 1.0], y=[0.0, 1.0])
-        # ScatterPlot uses default legend=True but no named entries
+        sp.add_series(x=[0.0, 1.0], y=[0.0, 1.0])
+        # ScatterPlot has no named entries and legends are disabled by default.
         ax = sp.ax
-        assert ax is not None
+        assert ax.get_legend() is None
 
 
 # =================
@@ -117,17 +119,14 @@ class TestUpdateLegendEmptyHandles:
 class TestShowMethod:
     """The non-GUI show path writes an image file."""
 
-    def test_show_builds_and_saves(self, tmp_path):
-
+    def test_show_builds_and_saves(self, tmp_path, monkeypatch):
         from gerrytools.plotting.data.boxplot import BoxPlot
 
-        bp = BoxPlot(include_legend=False)
-        bp.add_boxplot_dataset({"A": [1.0, 2.0, 3.0]})
-        # show() always writes to "gerrytools_plot.png" in cwd for non-GUI backends
+        monkeypatch.chdir(tmp_path)
+        bp = BoxPlot(legend=False)
+        bp.add_dataset({"A": [1.0, 2.0, 3.0]})
         bp.show()
-        out_file = "gerrytools_plot.png"
-        if os.path.exists(out_file):
-            os.unlink(out_file)
+        assert (tmp_path / "gerrytools_plot.png").exists()
 
 
 # ==================
@@ -139,8 +138,8 @@ class TestNamedBandWithNoEdge:
     """Bands with `linecolor=None` still produce legend handles."""
 
     def test_named_band_no_linecolor_gives_none_edgecolor(self):
-        plot = ScatterPlot(include_legend=True)
-        plot.add_scatter(x=[0.0, 1.0], y=[0.0, 1.0], label="data")
+        plot = ScatterPlot(legend=True)
+        plot.add_series(x=[0.0, 1.0], y=[0.0, 1.0], name="data")
         plot.add_vertical_band(0.2, 0.4, name="Shaded Region", linecolor=None)
         handles = plot._get_named_band_legend_handles()
         assert len(handles) >= 1

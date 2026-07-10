@@ -78,7 +78,7 @@ class TestColorFromString:
             with pytest.raises(ValueError):
                 _Color.from_any("mystery-color", logger=diagnostic_logger)
 
-        assert "not a known Matplotlib named color string" in caplog.text
+        assert "not a named color in any gerrytools color source" in caplog.text
         assert "not parsable as a LaTeX color string" in caplog.text
         assert "not parseable by Matplotlib" in caplog.text
 
@@ -157,6 +157,32 @@ class TestColorFromAnyValidationErrors:
     def test_rgba_tuple_alpha_over_255_raises(self):
         with pytest.raises(ValueError, match="Alpha must be <=255"):
             _Color.from_any((255, 0, 0, 256))
+
+    def test_rgba_tuple_ambiguous_alpha_raises(self):
+        # Regression: alpha strictly between 1 and 2 used to be silently divided by 255,
+        # turning (255, 0, 0, 1.5) into a nearly transparent color.
+        with pytest.raises(ValueError, match="Ambiguous alpha"):
+            _Color.from_any((255, 0, 0, 1.5))
+
+    def test_rgba_tuple_mixed_scales_raise(self):
+        # 0-1 RGB components with a 0-255 alpha is a mixed-scale tuple, not a valid color.
+        with pytest.raises(ValueError, match="Mixed-scale RGBA tuple"):
+            _Color.from_any((0.5, 0.5, 0.5, 200))
+
+    def test_byte_rgb_rejects_fractional_alpha(self):
+        with pytest.raises(ValueError, match="alpha must be an integer"):
+            _Color.from_any((200, 100, 50, 0.5))
+
+    def test_rgba_tuple_255_scale_allows_zero_and_one_alpha(self):
+        # 0 and 1 are legitimate (nearly transparent) byte values in a 255-scale tuple.
+        assert _Color.from_any((255, 0, 0, 0)).alpha == 0.0
+        assert _Color.from_any((255, 0, 0, 1)).alpha == pytest.approx(1 / 255.0)
+
+    def test_rgb_tuple_component_of_exactly_two_is_ambiguous(self):
+        # The ambiguity boundary is inclusive: exactly 2.0 raises instead of flipping to
+        # the 255 scale and producing near-black #020202.
+        with pytest.raises(ValueError, match="Ambiguous RGB tuple"):
+            _Color.from_any((2.0, 2.0, 2.0))
 
     def test_base_alpha_pair_with_invalid_alpha_raises(self):
         with pytest.raises(ValueError, match="alpha in \\(base, alpha\\) color tuple"):

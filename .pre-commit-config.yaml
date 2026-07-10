@@ -6,6 +6,13 @@ repos:
       - id: debug-statements
   - repo: local
     hooks:
+      - id: clear-notebook-outputs
+        name: Clear documentation notebook outputs
+        entry: >-
+          uv run --no-default-groups --group docs-exec
+          python user_guide/_clear_notebook_outputs.py
+        language: system
+        files: ^user_guide/user/.*\.ipynb$
       - id: format-check
         name: format-check
         entry: sh -c 'uv run ruff check --select I --diff "$@" && uv run ruff format --check "$@"' --

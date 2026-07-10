@@ -1,5 +1,7 @@
 from string import hexdigits
 
+import pytest
+
 from gerrytools.colors.districtr import DISTRICTR_COLOR_DICT, districtr, hexshift
 
 # ==================
@@ -26,6 +28,25 @@ class TestHexshift:
         # Different seeds should (almost certainly) produce different outputs
         assert a != b
 
+    def test_hexshift_uppercase_input_changes_the_color_value(self):
+        # Regression: an uppercase input could pass the inequality guard with a case-only
+        # change (e.g. "#FFCA5D" -> "#ffCA5D"), returning the same color value.
+        for seed in range(25):
+            shifted = hexshift("#FFCA5D", seed=seed)
+            assert shifted == shifted.lower()
+            assert shifted != "#ffca5d"
+
+    def test_hexshift_normalizes_missing_hash_prefix(self):
+        # Regression: without the leading "#", the digit selection was off by one and the
+        # result lacked the prefix.
+        assert hexshift("ffca5d", seed=11) == hexshift("#ffca5d", seed=11)
+
+    @pytest.mark.parametrize("bad_color", ["red", "#fff", "#ffca5d00", "", 0xFFCA5D, None])
+    def test_hexshift_rejects_non_hex_input(self, bad_color):
+        # Regression: hexshift("red") happily returned "r3d".
+        with pytest.raises(ValueError, match="six-digit hex color"):
+            hexshift(bad_color)
+
 
 # =======================
 # == DISTRICTR PALETTE ==
@@ -39,6 +60,10 @@ class TestDistrictrPalette:
 
     def test_districtr_returns_empty_list_for_zero(self):
         assert districtr(0) == []
+
+    def test_districtr_rejects_negative_size(self):
+        with pytest.raises(ValueError, match="nonnegative"):
+            districtr(-1)
 
     def test_districtr_returns_full_base_palette_at_exact_boundary(self):
         # N == len(base) — tail is empty, no hexshifting occurs
@@ -62,3 +87,15 @@ class TestDistrictrPalette:
 
     def test_districtr_extension_is_deterministic(self):
         assert districtr(200) == districtr(200)
+
+
+def test_districtr_raises_instead_of_padding_with_duplicates(monkeypatch):
+    # The exhaustion escape hatch used to append silent duplicates. The module is fetched via
+    # importlib because the package re-exports the districtr *function* under the same name.
+    import importlib
+
+    districtr_module = importlib.import_module("gerrytools.colors.districtr")
+    monkeypatch.setattr(districtr_module, "hexshift", lambda color, *, seed: "#0099cd")
+    n = len(districtr_module.DISTRICTR_COLOR_DICT) + 1
+    with pytest.raises(RuntimeError, match="distinct districtr colors"):
+        districtr_module.districtr(n)

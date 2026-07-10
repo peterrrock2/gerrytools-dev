@@ -20,44 +20,21 @@ def pytest_addoption(parser):
         default=False,
         help="Include tests marked 'snapshot'.",
     )
-    group.addoption(
-        "--marked-only",
-        action="store_true",
-        default=False,
-        help="When using additive gerrytools markers, run only the marked tests.",
-    )
 
 
-def _opt_in_markers_from_expression(markexpr: str) -> set[str]:
-    tokens = _MARKEXPR_TOKEN_RE.findall(markexpr)
-    if len(tokens) == 0 or "not" in tokens:
-        return set()
-
-    non_operators = {token for token in tokens if token not in {"and", "or"}}
-    if len(non_operators) == 0:
-        return set()
-    if not non_operators.issubset(set(OPT_IN_MARKERS)):
-        return set()
-
-    return non_operators
-
-
-def pytest_configure(config):
-    markexpr = (config.option.markexpr or "").strip()
-    opt_in_markers = _opt_in_markers_from_expression(markexpr)
-    if len(opt_in_markers) == 0:
-        return
-
-    if "latex" in opt_in_markers:
-        config.option.with_latex = True
-    if "snapshot" in opt_in_markers:
-        config.option.with_snapshot = True
-
-    if config.getoption("--marked-only"):
-        return
-
-    baseline_expr = " and ".join(f"not {marker}" for marker in OPT_IN_MARKERS)
-    config.option.markexpr = f"({baseline_expr}) or ({markexpr})"
+def pytest_runtestloop(session):
+    markexpr = (session.config.option.markexpr or "").strip()
+    mentioned_markers = set(_MARKEXPR_TOKEN_RE.findall(markexpr)).intersection(OPT_IN_MARKERS)
+    missing_flags = [
+        marker
+        for marker in mentioned_markers
+        if not session.config.getoption(f"--with-{marker}")
+        and not (marker == "snapshot" and session.config.getoption("--with-latex"))
+        and any(item.get_closest_marker(marker) is not None for item in session.items)
+    ]
+    if missing_flags:
+        flags = " ".join(f"--with-{marker}" for marker in sorted(missing_flags))
+        raise pytest.UsageError(f"-m selected opt-in tests; pass {flags} to run them")
 
 
 def pytest_collection_modifyitems(config, items):

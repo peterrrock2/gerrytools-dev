@@ -12,13 +12,23 @@ the caller passed.
 
 from __future__ import annotations
 
-import logging
-import math
+import dataclasses
 from dataclasses import dataclass, field
+from typing import Any
 
-from gerrytools.colors import resolve_color_and_alpha
+from matplotlib.artist import Artist
+from matplotlib.axes import Axes
+
+from gerrytools.colors import resolve_color_and_alpha, resolve_rgba, validate_alpha
 from gerrytools.logging import get_logger
 from gerrytools.plotting.mpl.marker_options import PointMarkerOptions
+from gerrytools.plotting.utils import (
+    UNSET,
+    Unset,
+    _resolve_alpha_override,
+    _resolve_color_clamped_width,
+    _validated_nonneg_finite,
+)
 from gerrytools.typing import Color, HistType
 
 logger = get_logger(__name__)
@@ -28,6 +38,41 @@ logger = get_logger(__name__)
 # color with zero width draws nothing, so asking for a color is taken to mean "draw the
 # edge": the width falls back to this default rather than forcing the caller to set both.
 DEFAULT_EDGE_WIDTH = 0.8
+
+
+class _DefaultZorder(int):
+    """Internal marker that survives ``dataclasses.replace``."""
+
+
+_DEFAULT_ANNOTATION_ZORDER = _DefaultZorder(3)
+
+
+def _resolve_annotation_zorder(value: int | float | Unset) -> tuple[int, bool]:
+    if isinstance(value, Unset):
+        return _DEFAULT_ANNOTATION_ZORDER, True
+    if isinstance(value, _DefaultZorder):
+        return value, True
+    return int(value), False
+
+
+def _needs_default_edge_width(
+    *,
+    edgewidth_given: bool,
+    resolved_edgewidth: float,
+    resolved_edgecolor: Color | None,
+) -> bool:
+    """Whether an unset edge width should fall back to ``DEFAULT_EDGE_WIDTH``.
+
+    A visible edge color with zero width draws nothing, so naming an edge color while
+    leaving the width unset is taken to mean "draw the edge". An explicit width of 0
+    still hides it.
+    """
+    return (
+        not edgewidth_given
+        and resolved_edgewidth == 0.0
+        and resolved_edgecolor is not None
+        and str(resolved_edgecolor).strip().lower() != "none"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -44,45 +89,37 @@ class LineOptions:
         linealpha (float | None): Optional alpha override.
         linestyle (str): Matplotlib linestyle. Defaults to "-".
         linewidth (float): Line width in points. Defaults to 1.0.
-        zorder (int): Z-order for layering. Defaults to 3.
+        zorder (int | float): Z-order for layering; coerced to int. Defaults to 3, but the
+            annotation add methods substitute their documented orientation default
+            (3 for vertical, 4 for horizontal) when this is left unset.
     """
 
     linecolor: Color = "#cccccc"
     linealpha: float | None = None
     linestyle: str = "-"
     linewidth: float = 1.0
-    zorder: int = 3
+    zorder: int | float | Unset = UNSET
+    # True when the constructor received no explicit zorder; consumed (before any merge)
+    # by the annotation add methods to substitute their orientation default.
+    _zorder_defaulted: bool = field(init=False, compare=False, repr=False)
 
     def __post_init__(self) -> None:
-        line_width_value = float(self.linewidth)
-        if not math.isfinite(line_width_value):
-            raise ValueError("linewidth must be finite.")
-        if line_width_value < 0:
-            raise ValueError("linewidth must be nonnegative.")
-        object.__setattr__(self, "linewidth", line_width_value)
-
-        resolved_linecolor, resolved_linealpha = resolve_color_and_alpha(
+        owner = type(self).__name__
+        line_width_value = _validated_nonneg_finite(self.linewidth, field="linewidth")
+        resolved_linecolor, resolved_linealpha, line_width_value = _resolve_color_clamped_width(
             self.linecolor,
             self.linealpha,
-            allow_none=True,
-            field="linecolor",
-            owner="LineOptions",
-            logger=logger,
+            line_width_value,
+            color_field="linecolor",
+            width_field="linewidth",
+            owner=owner,
         )
         object.__setattr__(self, "linecolor", resolved_linecolor)
         object.__setattr__(self, "linealpha", resolved_linealpha)
-
-        if resolved_linecolor.lower() == "none" and line_width_value > 0:
-            logger.log(
-                level=logging.DEBUG,
-                msg=(
-                    "LineOptions: linecolor is 'none' but "
-                    f"linewidth is {line_width_value}>0; setting linewidth to 0."
-                ),
-            )
-            object.__setattr__(self, "linewidth", 0.0)
-
-        object.__setattr__(self, "zorder", int(self.zorder))
+        object.__setattr__(self, "linewidth", line_width_value)
+        zorder, defaulted = _resolve_annotation_zorder(self.zorder)
+        object.__setattr__(self, "zorder", zorder)
+        object.__setattr__(self, "_zorder_defaulted", defaulted)
 
 
 @dataclass(frozen=True)
@@ -92,12 +129,15 @@ class BandOptions:
     Attributes:
         bandcolor (Color): The fill color of the band. Defaults to "#cccccc".
         bandalpha (float | None): Optional alpha override for the fill.
-        linecolor (Color | None): Optional bounding-line color. If ``None``, falls back
-            to ``bandcolor``.
+        linecolor (Color | None): Optional bounding-line color. ``None`` falls back to
+            ``bandcolor`` (or ``"#cccccc"`` when the band fill is "none"), so the resolved
+            value is always a concrete color.
         linealpha (float | None): Optional alpha override for the bounding lines.
         linestyle (str): Bounding-line linestyle. Defaults to "-".
         linewidth (float): Bounding-line width in points. Defaults to 1.0.
-        zorder (int): Z-order for layering. Defaults to 3.
+        zorder (int | float): Z-order for layering; coerced to int. Defaults to 3, but the
+            annotation add methods substitute their documented orientation default
+            (3 for vertical, 4 for horizontal) when this is left unset.
     """
 
     bandcolor: Color = "#cccccc"
@@ -106,14 +146,13 @@ class BandOptions:
     linealpha: float | None = None
     linestyle: str = "-"
     linewidth: float = 1.0
-    zorder: int = 3
+    zorder: int | float | Unset = UNSET
+    # True when the constructor received no explicit zorder; consumed (before any merge)
+    # by the annotation add methods to substitute their orientation default.
+    _zorder_defaulted: bool = field(init=False, compare=False, repr=False)
 
     def __post_init__(self) -> None:
-        line_width_value = float(self.linewidth)
-        if not math.isfinite(line_width_value):
-            raise ValueError("linewidth must be finite.")
-        if line_width_value < 0:
-            raise ValueError("linewidth must be nonnegative.")
+        line_width_value = _validated_nonneg_finite(self.linewidth, field="linewidth")
         object.__setattr__(self, "linewidth", line_width_value)
 
         resolved_bandcolor, resolved_bandalpha = resolve_color_and_alpha(
@@ -127,31 +166,145 @@ class BandOptions:
         object.__setattr__(self, "bandcolor", resolved_bandcolor)
         object.__setattr__(self, "bandalpha", resolved_bandalpha)
 
-        if self.linecolor is not None:
-            resolved_linecolor, resolved_linealpha = resolve_color_and_alpha(
-                self.linecolor,
-                self.linealpha,
-                allow_none=True,
-                field="linecolor",
-                owner="BandOptions",
-                logger=logger,
-            )
-            object.__setattr__(self, "linecolor", resolved_linecolor)
-            object.__setattr__(self, "linealpha", resolved_linealpha)
+        # Bounding lines default to the band fill; a transparent fill falls back to the
+        # neutral default so the band still has a visible boundary color.
+        line_color_input = self.linecolor
+        if line_color_input is None:
+            line_color_input = resolved_bandcolor
+            if isinstance(line_color_input, str) and line_color_input.lower() == "none":
+                line_color_input = "#cccccc"
+        resolved_linecolor, resolved_linealpha, line_width_value = _resolve_color_clamped_width(
+            line_color_input,
+            self.linealpha,
+            line_width_value,
+            color_field="linecolor",
+            width_field="linewidth",
+            owner="BandOptions",
+        )
+        object.__setattr__(self, "linecolor", resolved_linecolor)
+        object.__setattr__(self, "linealpha", resolved_linealpha)
+        object.__setattr__(self, "linewidth", line_width_value)
+        zorder, defaulted = _resolve_annotation_zorder(self.zorder)
+        object.__setattr__(self, "zorder", zorder)
+        object.__setattr__(self, "_zorder_defaulted", defaulted)
 
-        object.__setattr__(self, "zorder", int(self.zorder))
+    def resolved_edgecolor(
+        self, *, owner: str = "BandOptions"
+    ) -> str | tuple[float, float, float, float]:
+        """Edge color to draw the band's bounding lines with.
+
+        Encodes the one shared drawing rule: zero-width bounding lines resolve to
+        ``"none"`` so matplotlib's default hairline edge never appears.
+        """
+        if self.linewidth == 0.0:
+            return "none"
+        return resolve_rgba(self.linecolor, self.linealpha, field="linecolor", owner=owner)
 
 
 # ---------------------------------------------------------------------------
-# Histogram, BoxPlot, ViolinPlot.
+# Histogram, BarPlot, BoxPlot, ViolinPlot.
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
-class HistogramOptions:
-    """Styling for a single histogram series added via ``Histogram.add_histogram``.
+class _FaceEdgeStyle:
+    """Shared face/edge styling block with one validation pass.
 
-    Defaults mirror the previous ``add_histogram`` kwargs: a filled bar with no
+    The four distribution-family options classes inherit this: resolved colors, the
+    edge-width checks, the invisible-edge clamp, and zorder coercion live here once.
+
+    Attributes:
+        facecolor (Color): Fill color.
+        facealpha (float | None): Optional alpha override for the fill.
+        edgecolor (Color): Edge color.
+        edgealpha (float | None): Optional alpha override for the edge.
+        edgewidth (float): Edge line width in points.
+        zorder (int | float): Z-order for layering; coerced to int.
+    """
+
+    facecolor: Color = "default_grey"
+    facealpha: float | None = None
+    edgecolor: Color = "black"
+    edgealpha: float | None = None
+    edgewidth: float = 0.8
+    zorder: int | float = 1
+
+    def __post_init__(self) -> None:
+        owner = type(self).__name__
+
+        edge_width_value = _validated_nonneg_finite(self.edgewidth, field="edgewidth")
+        object.__setattr__(self, "edgewidth", edge_width_value)
+
+        resolved_facecolor, resolved_facealpha = resolve_color_and_alpha(
+            self.facecolor,
+            self.facealpha,
+            allow_none=True,
+            field="facecolor",
+            owner=owner,
+            logger=logger,
+        )
+        object.__setattr__(self, "facecolor", resolved_facecolor)
+        object.__setattr__(self, "facealpha", resolved_facealpha)
+
+        resolved_edgecolor, resolved_edgealpha, edge_width_value = _resolve_color_clamped_width(
+            self.edgecolor,
+            self.edgealpha,
+            edge_width_value,
+            color_field="edgecolor",
+            width_field="edgewidth",
+            owner=owner,
+        )
+        object.__setattr__(self, "edgecolor", resolved_edgecolor)
+        object.__setattr__(self, "edgealpha", resolved_edgealpha)
+        object.__setattr__(self, "edgewidth", edge_width_value)
+
+        object.__setattr__(self, "zorder", int(self.zorder))
+
+    def merged(
+        self,
+        *,
+        facecolor: Color | None | Unset = UNSET,
+        facealpha: float | None = None,
+        edgecolor: Color | None | Unset = UNSET,
+        edgealpha: float | None = None,
+        **other: Any,
+    ) -> Any:
+        """Copy this style with the caller's explicit overrides applied.
+
+        Encodes the color/alpha pairing rule once: an explicit alpha always wins; overriding
+        only a color keeps the base alpha unless the base color was the fully transparent
+        "none", whose 0.0 alpha would render the override invisibly. Colors use the ``UNSET``
+        sentinel so an explicit ``None`` means "none" while an omitted kwarg inherits; every
+        other field treats ``None`` as "inherit". The merged result re-runs validation.
+
+        Use this for the face/edge options classes; ``_replace_non_none`` in
+        :mod:`gerrytools.plotting.utils` is the plain None-inherits merge for every other
+        options dataclass, where ``None`` is never a meaningful field value.
+
+        Returns:
+            A new instance of the same options class (``self`` when nothing was overridden).
+        """
+        updates: dict[str, Any] = {key: value for key, value in other.items() if value is not None}
+        if facecolor is not UNSET or facealpha is not None:
+            updates["facecolor"] = self.facecolor if facecolor is UNSET else facecolor
+            updates["facealpha"] = _resolve_alpha_override(
+                facecolor is not UNSET, facealpha, self.facecolor, self.facealpha
+            )
+        if edgecolor is not UNSET or edgealpha is not None:
+            updates["edgecolor"] = self.edgecolor if edgecolor is UNSET else edgecolor
+            updates["edgealpha"] = _resolve_alpha_override(
+                edgecolor is not UNSET, edgealpha, self.edgecolor, self.edgealpha
+            )
+        if not updates:
+            return self
+        return dataclasses.replace(self, **updates)
+
+
+@dataclass(frozen=True)
+class HistogramOptions(_FaceEdgeStyle):
+    """Styling for a single histogram series added via ``Histogram.add_dataset``.
+
+    Defaults mirror the previous ``add_dataset`` kwargs: a filled bar with no
     visible edge. For ``histtype="outline"`` the method itself enforces the
     sensible-outline overrides (positive ``edgewidth``, ``facecolor="none"``,
     ``edgecolor="black"``).
@@ -162,64 +315,34 @@ class HistogramOptions:
         edgecolor (Color): Edge color for histogram bars.
         edgealpha (float | None): Optional alpha override for the edge.
         edgewidth (float): Edge line width in points.
-        histtype (HistType): One of "overlay", "stack", "weave", "outline".
+        histtype (HistType): One of "overlay", "stack", "grouped", "outline".
         zorder (int): Z-order for layering.
     """
 
-    facecolor: Color = "denim"
-    facealpha: float | None = None
     edgecolor: Color = "none"
-    edgealpha: float | None = None
     edgewidth: float = 0.0
     histtype: HistType = "overlay"
     zorder: int = 2
 
-    def __post_init__(self) -> None:
-        edge_width_value = float(self.edgewidth)
-        if not math.isfinite(edge_width_value):
-            raise ValueError("edgewidth must be finite.")
-        if edge_width_value < 0:
-            raise ValueError("edgewidth must be nonnegative.")
-        object.__setattr__(self, "edgewidth", edge_width_value)
 
-        resolved_facecolor, resolved_facealpha = resolve_color_and_alpha(
-            self.facecolor,
-            self.facealpha,
-            allow_none=True,
-            field="facecolor",
-            owner="HistogramOptions",
-            logger=logger,
-        )
-        object.__setattr__(self, "facecolor", resolved_facecolor)
-        object.__setattr__(self, "facealpha", resolved_facealpha)
+@dataclass(frozen=True)
+class BarPlotOptions(_FaceEdgeStyle):
+    """Styling for a single bar dataset added via ``BarPlot.add_dataset`` or
+    ``BarPlot.add_counts_dataset``.
 
-        resolved_edgecolor, resolved_edgealpha = resolve_color_and_alpha(
-            self.edgecolor,
-            self.edgealpha,
-            allow_none=True,
-            field="edgecolor",
-            owner="HistogramOptions",
-            logger=logger,
-        )
-        object.__setattr__(self, "edgecolor", resolved_edgecolor)
-        object.__setattr__(self, "edgealpha", resolved_edgealpha)
-
-        if resolved_edgecolor.lower() == "none" and edge_width_value > 0:
-            logger.log(
-                level=logging.DEBUG,
-                msg=(
-                    "HistogramOptions: edgecolor is 'none' but "
-                    f"edgewidth is {edge_width_value}>0; setting edgewidth to 0."
-                ),
-            )
-            object.__setattr__(self, "edgewidth", 0.0)
-
-        object.__setattr__(self, "zorder", int(self.zorder))
+    Attributes:
+        facecolor (Color): Fill color for bars.
+        facealpha (float | None): Optional alpha override for the fill.
+        edgecolor (Color): Edge color for bars.
+        edgealpha (float | None): Optional alpha override for the edge.
+        edgewidth (float): Edge line width.
+        zorder (int): Z-order for layering.
+    """
 
 
 @dataclass(frozen=True)
-class BoxPlotOptions:
-    """Styling for a single boxplot dataset added via ``BoxPlot.add_boxplot_dataset``.
+class BoxPlotOptions(_FaceEdgeStyle):
+    """Styling for a single boxplot dataset added via ``BoxPlot.add_dataset``.
 
     Attributes:
         facecolor (Color): Fill color for boxes.
@@ -234,15 +357,9 @@ class BoxPlotOptions:
         zorder (int): Z-order for layering.
     """
 
-    facecolor: Color = "denim"
-    facealpha: float | None = None
-    edgecolor: Color = "black"
-    edgealpha: float | None = None
-    edgewidth: float = 0.8
     percentiles: tuple[float, float] = (1, 99)
     showfliers: bool = False
     flier_options: PointMarkerOptions = field(default_factory=PointMarkerOptions)
-    zorder: int = 1
 
     def __post_init__(self) -> None:
         percentile_low, percentile_high = self.percentiles
@@ -252,52 +369,14 @@ class BoxPlotOptions:
             raise ValueError("percentiles must be within [0, 100].")
         if not (percentile_low < percentile_high):
             raise ValueError("percentiles must satisfy low < high.")
+        object.__setattr__(self, "percentiles", (percentile_low, percentile_high))
 
-        edge_width_value = float(self.edgewidth)
-        if not math.isfinite(edge_width_value):
-            raise ValueError("edgewidth must be finite.")
-        if edge_width_value < 0:
-            raise ValueError("edgewidth must be nonnegative.")
-        object.__setattr__(self, "edgewidth", edge_width_value)
-
-        resolved_facecolor, resolved_facealpha = resolve_color_and_alpha(
-            self.facecolor,
-            self.facealpha,
-            allow_none=True,
-            field="facecolor",
-            owner="BoxPlotOptions",
-            logger=logger,
-        )
-        object.__setattr__(self, "facecolor", resolved_facecolor)
-        object.__setattr__(self, "facealpha", resolved_facealpha)
-
-        resolved_edgecolor, resolved_edgealpha = resolve_color_and_alpha(
-            self.edgecolor,
-            self.edgealpha,
-            allow_none=True,
-            field="edgecolor",
-            owner="BoxPlotOptions",
-            logger=logger,
-        )
-        object.__setattr__(self, "edgecolor", resolved_edgecolor)
-        object.__setattr__(self, "edgealpha", resolved_edgealpha)
-
-        if resolved_edgecolor.lower() == "none" and edge_width_value > 0:
-            logger.log(
-                level=logging.DEBUG,
-                msg=(
-                    "BoxPlotOptions: edgecolor is 'none' but "
-                    f"edgewidth is {edge_width_value}>0; setting edgewidth to 0."
-                ),
-            )
-            object.__setattr__(self, "edgewidth", 0.0)
-
-        object.__setattr__(self, "zorder", int(self.zorder))
+        super().__post_init__()
 
 
 @dataclass(frozen=True)
-class ViolinPlotOptions:
-    """Styling for a single violin dataset added via ``ViolinPlot.add_violinplot_datasets``.
+class ViolinPlotOptions(_FaceEdgeStyle):
+    """Styling for a single violin dataset added via ``ViolinPlot.add_dataset``.
 
     Attributes:
         facecolor (Color): Fill color for violins.
@@ -308,64 +387,15 @@ class ViolinPlotOptions:
         zorder (int): Z-order for layering.
     """
 
-    facecolor: Color = "denim"
-    facealpha: float | None = None
-    edgecolor: Color = "black"
-    edgealpha: float | None = None
-    edgewidth: float = 0.8
-    zorder: int = 1
-
-    def __post_init__(self) -> None:
-        edge_width_value = float(self.edgewidth)
-        if not math.isfinite(edge_width_value):
-            raise ValueError("edgewidth must be finite.")
-        if edge_width_value < 0:
-            raise ValueError("edgewidth must be nonnegative.")
-        object.__setattr__(self, "edgewidth", edge_width_value)
-
-        resolved_facecolor, resolved_facealpha = resolve_color_and_alpha(
-            self.facecolor,
-            self.facealpha,
-            allow_none=True,
-            field="facecolor",
-            owner="ViolinPlotOptions",
-            logger=logger,
-        )
-        object.__setattr__(self, "facecolor", resolved_facecolor)
-        object.__setattr__(self, "facealpha", resolved_facealpha)
-
-        resolved_edgecolor, resolved_edgealpha = resolve_color_and_alpha(
-            self.edgecolor,
-            self.edgealpha,
-            allow_none=True,
-            field="edgecolor",
-            owner="ViolinPlotOptions",
-            logger=logger,
-        )
-        object.__setattr__(self, "edgecolor", resolved_edgecolor)
-        object.__setattr__(self, "edgealpha", resolved_edgealpha)
-
-        if resolved_edgecolor.lower() == "none" and edge_width_value > 0:
-            logger.log(
-                level=logging.DEBUG,
-                msg=(
-                    "ViolinPlotOptions: edgecolor is 'none' but "
-                    f"edgewidth is {edge_width_value}>0; setting edgewidth to 0."
-                ),
-            )
-            object.__setattr__(self, "edgewidth", 0.0)
-
-        object.__setattr__(self, "zorder", int(self.zorder))
-
 
 # ---------------------------------------------------------------------------
-# SeatsVotes — line and marker subsets.
+# SeatsVotesPlot — line and marker subsets.
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class SeatsVotesLineOptions:
-    """Styling for the seats-votes curve line in ``SeatsVotes.add_seat_votes_data``.
+    """Styling for the seats-votes curve line in ``SeatsVotesPlot.add_election``.
 
     Fields ``linewidth`` and ``linealpha`` may be ``None`` to inherit from
     plot-level defaults.
@@ -375,29 +405,23 @@ class SeatsVotesLineOptions:
         linealpha (float | None): Optional alpha override.
         linestyle (str): Matplotlib linestyle. Defaults to "-".
         linewidth (float | None): Optional width override; ``None`` inherits.
-        zorder (int): Z-order for the curve.
+        zorder (int | float): Z-order for the curve; coerced to int.
     """
 
     linecolor: Color | None = None
     linealpha: float | None = None
     linestyle: str = "-"
     linewidth: float | None = None
-    zorder: int = 1
+    zorder: int | float = 1
 
     def __post_init__(self) -> None:
         if self.linealpha is not None:
-            line_alpha_value = float(self.linealpha)
-            if not (0.0 <= line_alpha_value <= 1.0):
-                raise ValueError("linealpha must be in [0, 1].")
-            object.__setattr__(self, "linealpha", line_alpha_value)
+            object.__setattr__(self, "linealpha", validate_alpha(self.linealpha, field="linealpha"))
 
         if self.linewidth is not None:
-            line_width_value = float(self.linewidth)
-            if not math.isfinite(line_width_value):
-                raise ValueError("linewidth must be finite.")
-            if line_width_value < 0.0:
-                raise ValueError("linewidth must be nonnegative.")
-            object.__setattr__(self, "linewidth", line_width_value)
+            object.__setattr__(
+                self, "linewidth", _validated_nonneg_finite(self.linewidth, field="linewidth")
+            )
 
         if self.linecolor is not None:
             resolved_linecolor, resolved_linealpha = resolve_color_and_alpha(
@@ -416,7 +440,7 @@ class SeatsVotesLineOptions:
 
 @dataclass(frozen=True)
 class SeatsVotesMarkerOptions:
-    """Styling for the election-result marker in ``SeatsVotes.add_seat_votes_data``.
+    """Styling for the election-result marker in ``SeatsVotesPlot.add_election``.
 
     Attributes:
         markerfacecolor (Color | None): Marker fill color; ``None`` inherits from
@@ -428,7 +452,7 @@ class SeatsVotesMarkerOptions:
             to the marker face color at render time.
         markeredgealpha (float | None): Optional alpha override for the edge.
         markeredgewidth (float): Marker edge width.
-        markerzorder (int): Z-order for the marker.
+        marker_zorder (int | float): Z-order for the marker; coerced to int.
     """
 
     markerfacecolor: Color | None = None
@@ -438,35 +462,33 @@ class SeatsVotesMarkerOptions:
     markeredgecolor: Color | None = None
     markeredgealpha: float | None = None
     markeredgewidth: float = 0.0
-    markerzorder: int = 2
+    marker_zorder: int | float = 2
 
     def __post_init__(self) -> None:
         if self.markerfacealpha is not None:
-            face_alpha_value = float(self.markerfacealpha)
-            if not (0.0 <= face_alpha_value <= 1.0):
-                raise ValueError("markerfacealpha must be in [0, 1].")
-            object.__setattr__(self, "markerfacealpha", face_alpha_value)
+            object.__setattr__(
+                self,
+                "markerfacealpha",
+                validate_alpha(self.markerfacealpha, field="markerfacealpha"),
+            )
 
         if self.markersize is not None:
-            marker_size_value = float(self.markersize)
-            if not math.isfinite(marker_size_value):
-                raise ValueError("markersize must be finite.")
-            if marker_size_value < 0.0:
-                raise ValueError("markersize must be nonnegative.")
-            object.__setattr__(self, "markersize", marker_size_value)
+            object.__setattr__(
+                self, "markersize", _validated_nonneg_finite(self.markersize, field="markersize")
+            )
 
         if self.markeredgealpha is not None:
-            edge_alpha_value = float(self.markeredgealpha)
-            if not (0.0 <= edge_alpha_value <= 1.0):
-                raise ValueError("markeredgealpha must be in [0, 1].")
-            object.__setattr__(self, "markeredgealpha", edge_alpha_value)
+            object.__setattr__(
+                self,
+                "markeredgealpha",
+                validate_alpha(self.markeredgealpha, field="markeredgealpha"),
+            )
 
-        marker_edge_width_value = float(self.markeredgewidth)
-        if not math.isfinite(marker_edge_width_value):
-            raise ValueError("markeredgewidth must be finite.")
-        if marker_edge_width_value < 0.0:
-            raise ValueError("markeredgewidth must be nonnegative.")
-        object.__setattr__(self, "markeredgewidth", marker_edge_width_value)
+        object.__setattr__(
+            self,
+            "markeredgewidth",
+            _validated_nonneg_finite(self.markeredgewidth, field="markeredgewidth"),
+        )
 
         if self.markerfacecolor is not None:
             resolved_face, resolved_face_alpha = resolve_color_and_alpha(
@@ -492,49 +514,102 @@ class SeatsVotesMarkerOptions:
             object.__setattr__(self, "markeredgecolor", resolved_edge)
             object.__setattr__(self, "markeredgealpha", resolved_edge_alpha)
 
-        object.__setattr__(self, "markerzorder", int(self.markerzorder))
+        object.__setattr__(self, "marker_zorder", int(self.marker_zorder))
 
 
 # ---------------------------------------------------------------------------
-# SeaLevel — line subset only (markers reuse PointMarkerOptions).
+# SeaLevelPlot — line subset only (markers reuse PointMarkerOptions).
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
-class SeaLevelLineOptions:
-    """Styling for the connecting line in ``SeaLevel.add_sealevel_set``.
+class SeaLevelLineOptions(LineOptions):
+    """Styling for the connecting line in ``SeaLevelPlot.add_dataset``.
+
+    A ``LineOptions`` overriding only the defaults: a black, slightly heavier line drawn
+    above the sea-level markers.
 
     Attributes:
-        linecolor (Color): Line color.
+        linecolor (Color): Line color. Defaults to "black".
         linealpha (float | None): Optional alpha override.
-        linewidth (float): Line width in points.
         linestyle (str): Matplotlib linestyle.
-        zorder (int): Z-order for the line.
+        linewidth (float): Line width in points. Defaults to 1.5.
+        zorder (int | float): Z-order for the line; coerced to int. Defaults to 2.
     """
 
     linecolor: Color = "black"
-    linealpha: float | None = None
     linewidth: float = 1.5
-    linestyle: str = "-"
-    zorder: int = 2
+    zorder: int | float = 2
+
+
+@dataclass(frozen=True, slots=True)
+class _CrosshairStyle:
+    """Center crosshair guides at (0.5, 0.5), shared by SeatsVotesPlot and PaintballPlot.
+
+    Widths are data-space band widths; the color resolves at draw time.
+
+    Attributes:
+        color (Color): Crosshair color. Defaults to "lightgrey".
+        alpha (float): Crosshair alpha in [0, 1]. Defaults to 1.0.
+        x_width (float): Width of the vertical band in data units. Defaults to 0.02.
+        y_width (float): Width of the horizontal band in data units. Defaults to 0.02.
+        zorder (int): Draw order. Defaults to -2.
+    """
+
+    color: Color = "lightgrey"
+    alpha: float = 1.0
+    x_width: float = 0.02
+    y_width: float = 0.02
+    zorder: int = -2
 
     def __post_init__(self) -> None:
-        line_width_value = float(self.linewidth)
-        if not math.isfinite(line_width_value):
-            raise ValueError("linewidth must be finite.")
-        if line_width_value < 0:
-            raise ValueError("linewidth must be nonnegative.")
-        object.__setattr__(self, "linewidth", line_width_value)
+        object.__setattr__(self, "alpha", validate_alpha(self.alpha, field="alpha"))
+        object.__setattr__(self, "x_width", _validated_nonneg_finite(self.x_width, field="x_width"))
+        object.__setattr__(self, "y_width", _validated_nonneg_finite(self.y_width, field="y_width"))
 
-        resolved_linecolor, resolved_linealpha = resolve_color_and_alpha(
-            self.linecolor,
-            self.linealpha,
-            allow_none=True,
-            field="linecolor",
-            owner="SeaLevelLineOptions",
-            logger=logger,
+    def draw(self, ax: Axes) -> list[Artist]:
+        """Draw the two crosshair spans onto ``ax`` and return the created artists."""
+        color = resolve_rgba(
+            self.color, self.alpha, field="crosshair_color", owner="_CrosshairStyle"
         )
-        object.__setattr__(self, "linecolor", resolved_linecolor)
-        object.__setattr__(self, "linealpha", resolved_linealpha)
+        vspan = ax.axvspan(
+            xmin=0.5 - self.x_width / 2,
+            xmax=0.5 + self.x_width / 2,
+            color=color,
+            zorder=self.zorder,
+        )
+        hspan = ax.axhspan(
+            ymin=0.5 - self.y_width / 2,
+            ymax=0.5 + self.y_width / 2,
+            color=color,
+            zorder=self.zorder,
+        )
+        return [vspan, hspan]
 
-        object.__setattr__(self, "zorder", int(self.zorder))
+
+@dataclass(frozen=True, slots=True)
+class _PaintballHullStyle:
+    """Horizontal-hull styling for ``PaintballPlot``; None colors inherit the marker style.
+
+    Attributes:
+        facecolor (Color | None): Hull fill color; None inherits the marker face color.
+        facealpha (float | None): Hull fill alpha; None inherits the marker face alpha.
+        edgecolor (Color | None): Hull edge color; None inherits the marker edge color.
+        edgealpha (float | None): Hull edge alpha; None inherits the marker edge alpha.
+        edgewidth (float): Hull edge width in points. Defaults to 2.0.
+    """
+
+    facecolor: Color | None = None
+    facealpha: float | None = None
+    edgecolor: Color | None = None
+    edgealpha: float | None = None
+    edgewidth: float = 2.0
+
+    def __post_init__(self) -> None:
+        if self.facealpha is not None:
+            object.__setattr__(self, "facealpha", validate_alpha(self.facealpha, field="alpha"))
+        if self.edgealpha is not None:
+            object.__setattr__(self, "edgealpha", validate_alpha(self.edgealpha, field="edgealpha"))
+        object.__setattr__(
+            self, "edgewidth", _validated_nonneg_finite(self.edgewidth, field="edgewidth")
+        )

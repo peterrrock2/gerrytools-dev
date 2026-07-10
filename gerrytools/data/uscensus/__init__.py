@@ -10,14 +10,18 @@ from .acs import acs, acs_full, cvap
 from .block_cvap import block_cvap_estimates
 from .census import census
 from .census_tables import (
+    ACSAgeTableInfo,
     ACSCVAPTableInfo,
     ACSHispByRaceTableInfo,
+    ACSNamedTableInfo,
+    ACSRacePopTableInfo,
     ACSTableInfo,
     ACSTotPopTableInfo,
     ACSVAPTableInfo,
     PLBlockVAPTableInfo,
     PLTableInfo,
-    pl_pop_table,
+    census_column_name,
+    pl_table,
 )
 
 __all__ = [
@@ -29,14 +33,18 @@ __all__ = [
     "block_cvap_estimates",
     # ACS table definitions
     "ACSTableInfo",
+    "ACSNamedTableInfo",
     "ACSTotPopTableInfo",
+    "ACSRacePopTableInfo",
+    "ACSAgeTableInfo",
     "ACSVAPTableInfo",
     "ACSCVAPTableInfo",
     "ACSHispByRaceTableInfo",
     # Decennial PL table definitions
     "PLTableInfo",
     "PLBlockVAPTableInfo",
-    "pl_pop_table",
+    "pl_table",
+    "census_column_name",
     # Errors
     "CensusRateLimitError",
 ]

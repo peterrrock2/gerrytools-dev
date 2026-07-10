@@ -7,7 +7,47 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from matplotlib.patches import Rectangle
 
+from gerrytools.colors.core import resolve_rgba
 from gerrytools.typing import Color
+
+
+def _resolve_rgb_triple(color: Color) -> tuple[float, float, float]:
+    """Resolve any gerrytools color input to an opaque RGB triple for swatch fills."""
+    red, green, blue, _alpha = resolve_rgba(color)
+    return (red, green, blue)
+
+
+def _swatch_text_color(rgb: tuple[float, float, float]) -> str:
+    """Black or white, whichever contrasts with a swatch of the given fill.
+
+    Uses the Rec. 601 luma weights rather than a raw channel sum, so a saturated
+    green swatch (bright to the eye) gets black text while a saturated blue one
+    (dark to the eye) gets white.
+    """
+    r, g, b = rgb
+    luminance = 0.299 * r + 0.587 * g + 0.114 * b
+    return "black" if luminance > 0.5 else "white"
+
+
+def _annotate_swatch(
+    ax: Axes,
+    x: float,
+    y: float,
+    text: str,
+    rgb: tuple[float, float, float],
+    *,
+    fontsize: float,
+) -> None:
+    """Write centered annotation text on one swatch in a contrasting color."""
+    ax.text(
+        x,
+        y,
+        text,
+        ha="center",
+        va="center",
+        fontsize=fontsize,
+        color=_swatch_text_color(rgb),
+    )
 
 
 def preview_palette(
@@ -21,20 +61,24 @@ def preview_palette(
     Preview a color palette as horizontal swatches.
 
     Args:
-        colors: Sequence of colors. Each can be a hex string (e.g. "#ff0000")
-            or an RGB triple with components in [0, 1].
-        figsize: Size of the figure (width, height). Ignored when ``ax`` is
-            provided.
+        colors: Sequence of colors. Each can be anything the gerrytools resolver accepts: a
+            package color name (e.g. "citizen_blue"), a hex string (e.g. "#ff0000"), or an RGB
+            triple.
+        figsize: Size of the figure (width, height). Ignored when ``ax`` is provided.
         show_indices: If True, annotate each swatch with its index.
         show_hex: If True, annotate each swatch with its hex code.
-        ax: Optional existing axes to draw onto. If None, a fresh figure and
-            axes are created.
+        ax: Optional existing axes to draw onto. If None, a fresh figure and axes are created.
 
     Returns:
         The Matplotlib figure and axes.
+
+    Raises:
+        ValueError: If ``colors`` is empty or a color cannot be resolved.
     """
-    # Normalize to RGB triples
-    rgb_colors = [mcolors.to_rgb(c) for c in colors]
+    if len(colors) == 0:
+        raise ValueError("No colors provided.")
+
+    rgb_colors = [_resolve_rgb_triple(c) for c in colors]
     n = len(rgb_colors)
 
     if ax is None:
@@ -61,15 +105,7 @@ def preview_palette(
                 if text:
                     text += "\n"
                 text += mcolors.to_hex(c)
-            ax.text(
-                i + 0.5,
-                0.5,
-                text,
-                ha="center",
-                va="center",
-                fontsize=8,
-                color="black" if sum(c) > 1.5 else "white",
-            )
+            _annotate_swatch(ax, i + 0.5, 0.5, text, c, fontsize=8)
 
     ax.set_xlim(0, n)
     ax.set_ylim(0, 1)
@@ -91,10 +127,9 @@ def compare_palettes(
     Compare multiple color palettes as horizontal rows.
 
     Args:
-        palettes:
-            - If dict: {name: [colors...], ...}
-            - If list/tuple: [[colors...], [colors...], ...] (rows will be named 0, 1, 2...)
-          Colors can be hex strings or RGB triples in [0, 1].
+        palettes: A mapping from palette names to color sequences, or a sequence of color
+            sequences whose rows will be named 0, 1, 2, and so on. Colors can be anything the
+            gerrytools resolver accepts: package color names, hex strings, or RGB triples.
         figsize: Matplotlib figure size (width, height). If None, chosen based
           on number of palettes and max length.
         show_hex: If True, write hex codes inside swatches (can get busy).
@@ -114,7 +149,7 @@ def compare_palettes(
     norm_palettes: list[tuple[str, list[tuple[float, float, float]]]] = []
     max_len = 0
     for name, colors in items:
-        rgb_colors = [mcolors.to_rgb(c) for c in colors]
+        rgb_colors = [_resolve_rgb_triple(c) for c in colors]
         norm_palettes.append((name, rgb_colors))
         max_len = max(max_len, len(rgb_colors))
 
@@ -136,16 +171,7 @@ def compare_palettes(
             ax.add_patch(rect)
 
             if show_hex:
-                hex_code = mcolors.to_hex(c)
-                ax.text(
-                    col_idx + 0.5,
-                    y + 0.5,
-                    hex_code,
-                    ha="center",
-                    va="center",
-                    fontsize=6,
-                    color="black" if sum(c) > 1.5 else "white",
-                )
+                _annotate_swatch(ax, col_idx + 0.5, y + 0.5, mcolors.to_hex(c), c, fontsize=6)
 
         # Palette label on the left
         ax.text(

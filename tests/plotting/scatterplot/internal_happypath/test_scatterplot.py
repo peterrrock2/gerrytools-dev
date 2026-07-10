@@ -1,6 +1,6 @@
 """Tests for ScatterPlot behavior.
 
-Covers: add_scatter input modes, add_point, validation, build,
+Covers: add_series input modes, add_point, validation, build,
 legend handles.
 """
 
@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 
 from gerrytools.plotting.data.scatterplot import ScatterPlot
+from gerrytools.plotting.mpl.marker_options import PointMarkerOptions
 
 
 # ==================
@@ -21,7 +22,7 @@ class TestScatterPlotConstruction:
     def test_default_construction(self):
         sp = ScatterPlot()
         assert sp._scatter_data_list == []
-        assert sp.include_legend is True
+        assert sp.legend is False
 
 
 # =================
@@ -30,12 +31,12 @@ class TestScatterPlotConstruction:
 class TestAddScatter:
     def test_add_scatter_with_x_and_y(self):
         sp = ScatterPlot()
-        sp.add_scatter(x=[1.0, 2.0], y=[3.0, 4.0])
+        sp.add_series(x=[1.0, 2.0], y=[3.0, 4.0])
         assert len(sp._scatter_data_list) == 1
 
     def test_add_scatter_with_xy_pairs(self):
         sp = ScatterPlot()
-        sp.add_scatter(xy_pairs=[(1.0, 2.0), (3.0, 4.0)])
+        sp.add_series(xy_pairs=[(1.0, 2.0), (3.0, 4.0)])
         assert len(sp._scatter_data_list) == 1
         sd = sp._scatter_data_list[0]
         np.testing.assert_array_equal(sd.x, [1.0, 3.0])
@@ -44,51 +45,56 @@ class TestAddScatter:
     def test_add_scatter_xy_pairs_and_x_raises_valueerror(self):
         sp = ScatterPlot()
         with pytest.raises(ValueError, match="not both"):
-            sp.add_scatter(x=[1.0], xy_pairs=[(1.0, 2.0)])
+            sp.add_series(x=[1.0], xy_pairs=[(1.0, 2.0)])
+
+    def test_add_scatter_empty_xy_pairs_raises_valueerror(self):
+        sp = ScatterPlot()
+        with pytest.raises(ValueError, match="must not be empty"):
+            sp.add_series(xy_pairs=[])
 
     def test_add_scatter_xy_pairs_and_y_raises_valueerror(self):
         sp = ScatterPlot()
         with pytest.raises(ValueError, match="not both"):
-            sp.add_scatter(y=[1.0], xy_pairs=[(1.0, 2.0)])
+            sp.add_series(y=[1.0], xy_pairs=[(1.0, 2.0)])
 
     def test_add_scatter_neither_x_nor_xy_raises_valueerror(self):
         sp = ScatterPlot()
         with pytest.raises(ValueError, match="must be provided"):
-            sp.add_scatter()
+            sp.add_series()
 
     def test_add_scatter_x_only_no_y_raises_valueerror(self):
         sp = ScatterPlot()
         with pytest.raises(ValueError, match="must be provided"):
-            sp.add_scatter(x=[1.0])
+            sp.add_series(x=[1.0])
 
     def test_add_scatter_y_only_no_x_raises_valueerror(self):
         sp = ScatterPlot()
         with pytest.raises(ValueError, match="must be provided"):
-            sp.add_scatter(y=[1.0])
+            sp.add_series(y=[1.0])
 
     def test_add_scatter_mismatched_lengths_raises_valueerror(self):
         sp = ScatterPlot()
         with pytest.raises(ValueError, match="same shape"):
-            sp.add_scatter(x=[1.0, 2.0], y=[3.0])
+            sp.add_series(x=[1.0, 2.0], y=[3.0])
 
     def test_add_scatter_empty_arrays_raises_valueerror(self):
         sp = ScatterPlot()
         with pytest.raises(ValueError, match="not be empty"):
-            sp.add_scatter(x=[], y=[])
+            sp.add_series(x=[], y=[])
 
     def test_add_scatter_with_label(self):
         sp = ScatterPlot()
-        sp.add_scatter(x=[1.0], y=[2.0], label="Point A")
-        assert sp._scatter_data_list[0].label == "Point A"
+        sp.add_series(x=[1.0], y=[2.0], name="Point A")
+        assert sp._scatter_data_list[0].name == "Point A"
 
     def test_add_scatter_without_label(self):
         sp = ScatterPlot()
-        sp.add_scatter(x=[1.0], y=[2.0])
-        assert sp._scatter_data_list[0].label is None
+        sp.add_series(x=[1.0], y=[2.0])
+        assert sp._scatter_data_list[0].name is None
 
     def test_default_markeredgecolor_is_none_string(self):
         sp = ScatterPlot()
-        sp.add_scatter(x=[1.0], y=[2.0])
+        sp.add_series(x=[1.0], y=[2.0])
         # When markeredgecolor is None at the call site, it becomes "none"
         sd = sp._scatter_data_list[0]
         assert isinstance(sd.marker_options.markeredgecolor, str)
@@ -96,9 +102,24 @@ class TestAddScatter:
 
     def test_explicit_markeredgecolor_is_preserved(self):
         sp = ScatterPlot()
-        sp.add_scatter(x=[1.0], y=[2.0], markeredgecolor="red")
+        sp.add_series(x=[1.0], y=[2.0], markeredgecolor="red")
         sd = sp._scatter_data_list[0]
         assert sd.marker_options.markeredgecolor != "none"
+        assert sd.marker_options.markeredgewidth == 0.8
+
+    def test_explicit_zero_markeredgewidth_keeps_edge_hidden(self):
+        sp = ScatterPlot()
+        sp.add_series(x=[1.0], y=[2.0], markeredgecolor="red", markeredgewidth=0)
+        assert sp._scatter_data_list[0].marker_options.markeredgewidth == 0
+
+    def test_marker_options_are_snapshotted_when_added(self):
+        options = PointMarkerOptions(markersize=5)
+        sp = ScatterPlot()
+        sp.add_series(x=[1.0], y=[2.0], marker_options=options)
+
+        options.markersize = 99
+
+        assert sp._scatter_data_list[0].marker_options.markersize == 5
 
 
 # ===============
@@ -107,17 +128,17 @@ class TestAddScatter:
 class TestAddPoint:
     def test_add_single_point(self):
         sp = ScatterPlot()
-        sp.add_point(0.5, 0.5, label="Center")
+        sp.add_point(0.5, 0.5, name="Center")
         assert len(sp._scatter_data_list) == 1
         sd = sp._scatter_data_list[0]
         np.testing.assert_array_equal(sd.x, [0.5])
         np.testing.assert_array_equal(sd.y, [0.5])
-        assert sd.label == "Center"
+        assert sd.name == "Center"
 
     def test_add_multiple_points(self):
         sp = ScatterPlot()
-        sp.add_point(0.0, 0.0, label="Origin")
-        sp.add_point(1.0, 1.0, label="Corner")
+        sp.add_point(0.0, 0.0, name="Origin")
+        sp.add_point(1.0, 1.0, name="Corner")
         assert len(sp._scatter_data_list) == 2
 
 
@@ -125,15 +146,14 @@ class TestAddPoint:
 # == BUILD AND DRAWING ==
 # =======================
 class TestScatterPlotBuild:
-    def test_build_with_no_data_does_not_raise(self):
+    def test_build_with_no_data_raises(self):
         sp = ScatterPlot()
-        # ScatterPlot._build_plot calls _draw_points which early-returns on empty
-        ax = sp.ax  # should not raise
-        assert ax is not None
+        with pytest.raises(ValueError, match="No data added yet"):
+            _ = sp.ax
 
     def test_build_with_data_succeeds(self):
         sp = ScatterPlot()
-        sp.add_scatter(x=[1.0, 2.0, 3.0], y=[4.0, 5.0, 6.0], label="data")
+        sp.add_series(x=[1.0, 2.0, 3.0], y=[4.0, 5.0, 6.0], name="data")
         ax = sp.ax
         assert ax is not None
 
@@ -144,21 +164,21 @@ class TestScatterPlotBuild:
 class TestScatterPlotLegend:
     def test_labeled_scatter_appears_in_legend(self):
         sp = ScatterPlot()
-        sp.add_scatter(x=[1.0], y=[2.0], label="A")
+        sp.add_series(x=[1.0], y=[2.0], name="A")
         handles = sp._legend_handles
         labels = [h.get_label() for h in handles]
         assert "A" in labels
 
     def test_unlabeled_scatter_excluded_from_legend(self):
         sp = ScatterPlot()
-        sp.add_scatter(x=[1.0], y=[2.0])  # no label
+        sp.add_series(x=[1.0], y=[2.0])  # no label
         handles = sp._legend_handles
         assert len(handles) == 0
 
     def test_mix_of_labeled_and_unlabeled(self):
         sp = ScatterPlot()
-        sp.add_scatter(x=[1.0], y=[2.0], label="Labeled")
-        sp.add_scatter(x=[3.0], y=[4.0])  # no label
+        sp.add_series(x=[1.0], y=[2.0], name="Labeled")
+        sp.add_series(x=[3.0], y=[4.0])  # no label
         handles = sp._legend_handles
         assert len(handles) == 1
         assert handles[0].get_label() == "Labeled"

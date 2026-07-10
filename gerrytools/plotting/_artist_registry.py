@@ -14,15 +14,16 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from matplotlib.artist import Artist
+from matplotlib.container import Container
 
 
 class _ArtistRegistry:
     """Track and remove gerrytools-managed artists on an axes."""
 
     def __init__(self) -> None:
-        self._tracked: list[Artist] = []
+        self._tracked: list[Artist | Container] = []
 
-    def track(self, artist: Artist | Iterable[Artist] | None) -> None:
+    def track(self, artist: Artist | Container | Iterable[Artist] | None) -> None:
         """Record one or more artists as gerrytools-managed.
 
         Accepts ``None`` for ergonomics: callers can pass the return value of a
@@ -31,7 +32,7 @@ class _ArtistRegistry:
         """
         if artist is None:
             return
-        if isinstance(artist, Artist):
+        if isinstance(artist, (Artist, Container)):
             self._tracked.append(artist)
             return
         for item in artist:

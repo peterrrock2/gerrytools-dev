@@ -1,9 +1,6 @@
 [build-system]
-requires = ["setuptools>=80.0"]
-build-backend = "setuptools.build_meta"
-
-[tool.setuptools]
-packages = { find = { include = ["gerrytools*"], exclude = ["tests*"] } }
+requires = ["maturin>=1.9,<2"]
+build-backend = "maturin"
 
 [project]
 name = "gerrytools"
@@ -14,15 +11,13 @@ authors = [
   { name = "Data and Democracy Research Initiative", email = "code@mggg.org" },
 ]
 requires-python = ">=3.11"
-license = { text = "MIT" } 
+license = "BSD-3-Clause"
 
 dependencies = [
   # Working with graphs and ensembles
   "networkx>=3.5.0",
-  "gerrychain>=0.3.2",
-  "jsonlines>=4.0.0",
-  "maup>=2.0.3",
-  "binary-ensemble==1.0.0",
+  "gerrychain @ git+https://github.com/mggg/GerryChain.git@dbce5dfedda7bf6258cfd47feed38ad34d693a7c",
+  "binary-ensemble==2.0.0",
   # Data manipulation
   "pandas>=2.3.2",
   "scipy>=1.16.1",
@@ -30,6 +25,7 @@ dependencies = [
   "pyarrow>=22.0.0",
   # Geospatial libraries
   "geopandas>=1.1.1",
+  "pyproj>=3.6",
   "Shapely>=2.0.0",
   # Visualization
   "matplotlib>=3.10.6",
@@ -38,37 +34,33 @@ dependencies = [
   "us>=3.2.0",
   "httpx>=0.28.0",
   "frozendict>=2.4.0",
+  "tqdm>=4.67.0",
   # Misc
-  "sortedcontainers",
-  "pydantic>=2.11.7",
   "joblib>=1.5.3",
-  "joblib-progress>=1.0.6",
-  # Computer Vision?
-  "opencv-python-headless>=4.11.0.86",
-  "imageio>=2.37.0",
-  # REMOVE!!
-  "gurobipy>=12.0.3",
 ]
 
 [dependency-groups]
 dev = [
+  "docker>=7.1.0",
+  "hypothesis>=6.0",
   "ipykernel>=6.30.1",
   "ipywidgets>=8.1.7",
+  "pillow>=11.0",
   "pytest>=8.4.2",
   "pytest-cov>=6.3.0",
   "pytest-timeout>=2.4.0",
   "pre-commit>=4.3.0",
   "ruff>=0.14.9",
   "ty>=0.0.3",
-  "pyright>=1.1.409",
+  "pyright>=1.1.411",
 ]
-docs = [
-  "myst-parser>=4.0.1",
-  "sphinx>=8.2.3",
-  "sphinx-copybutton>=0.5.2",
-  "sphinx-rtd-theme>=3.0.2",
-  "recommonmark>=0.7.1,<0.8.0",
-  "nbconvert>=7.16.6,<8.0.0",
+docs-exec = [
+  "ipykernel>=6.30.1",
+  "jupyter-cache>=1.0.1",
+  "maup>=2.0.3",  # not imported by the package; taught in the geometry notebook
+  "nbclient>=0.10.0",
+  "nbformat>=5.10.0",
+  "pytest>=8.4.2",
 ]
 tex = [
     "pymupdf>=1.26.6",
@@ -81,29 +73,32 @@ tex = [
 mgrp = [
     "docker>=7.1.0",
 ]
+# Renders the hosted docs; an extra (not a dependency group) so Read the Docs can install it
+# via extra_requirements.
+docs = [
+  "furo>=2024.8.6",
+  "maup>=2.0.3",
+  "myst-nb>=1.4.0",
+  "sphinx>=8.2.3",
+  "sphinx-autobuild>=2024.10.3",
+  "sphinx-copybutton>=0.5.2",
+  "sphinx-design>=0.6.1",
+]
 
-[tool.black]
-line-length = 100
-
-[tool.isort]
-profile = "black"
-line_length = 100
-multi_line_output = 3
-include_trailing_comma = true
+[tool.uv]
+default-groups = ["dev", "docs-exec"]
 
 [tool.ruff]
 line-length = 100
 extend-exclude = [
-  "tests",
-  "**/__init__.py",
-  "gerrychain/vendor"
+  "dev_files"
 ]
 
 [tool.ruff.lint]
 select = ["E", "W", "F"]
 ignore = [
-    "E501",  # line length handled by black
-    "E203",  # whitespace before ':', handled by black
+    "E501",  # line length handled by Ruff's formatter
+    "E203",  # formatter-compatible whitespace before ':'
     "E731",  # do not assign lambda expression
     "F541",  # f-string is missing placeholders
 ]
@@ -125,9 +120,24 @@ output-format = "concise"
 python-version = "3.11"
 
 [tool.pytest.ini_options]
-# addopts = "--cov=gerrytools --cov-report=term-missing"
+testpaths = ["tests"]
+addopts = ["--strict-markers"]
 markers = [
-  "slow: marks tests as slow (deselect with '-m \"not slow\"')",
   "latex: marks tests that require LaTeX installation and are included with '--with-latex'",
   "snapshot: marks snapshot/image-regression tests and are included with '--with-snapshot'",
+  "mgrp_live: marks live mgrp Docker tests gated by MGRP_TEST_IMAGE",
 ]
+
+[tool.coverage.run]
+branch = true
+source = ["gerrytools"]
+
+[tool.coverage.report]
+fail_under = 95
+show_missing = true
+
+[tool.maturin]
+features = ["python"]
+manifest-path = "rust/Cargo.toml"
+module-name = "gerrytools._scoring_engine"
+python-source = "."

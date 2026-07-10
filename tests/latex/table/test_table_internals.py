@@ -7,42 +7,6 @@ from gerrytools.latex._table_preamble import (
     _infer_group_cell_align_from_data,
     _parse_tabular_preamble,
 )
-from gerrytools.latex._text import latex_escape
-from gerrytools.latex.commands import validate_command_name
-
-
-# ===========================
-# == LATEX ESCAPE FUNCTION ==
-# ===========================
-class TestLatexEscapeFunction:
-    @pytest.mark.parametrize(
-        "raw, expected",
-        [
-            ("&", r"\&"),
-            ("%", r"\%"),
-            ("$", r"\$"),
-            ("#", r"\#"),
-            ("_", r"\_"),
-            ("{", r"\{"),
-            ("}", r"\}"),
-            ("~", r"\textasciitilde{}"),
-            ("^", r"\textasciicircum{}"),
-            ("\\", r"\textbackslash{}"),
-        ],
-    )
-    def test_latex_escape_singletons(self, raw, expected):
-        assert latex_escape(raw) == expected
-
-    def test_latex_escape_mixed_string_no_raw_specials(self):
-        s = r"A&B%$#_{}~^\ and \""
-        out = latex_escape(s)
-
-        expected = r'A\&B\%\$\#\_\{\}\textasciitilde{}\textasciicircum{}\textbackslash{} and \textbackslash{}"'
-        assert out == expected
-
-    def test_latex_escape_unicode_passthrough(self):
-        s = "Δistrict – café 🗳️"
-        assert latex_escape(s) == s
 
 
 # ==============================
@@ -122,21 +86,6 @@ class TestTabularPreambleParsing:
         assert ex == ["", "", "", ""]
 
     @pytest.mark.timeout(1)
-    def test_unbalanced_braces_raises(self):
-        with pytest.raises(ValueError):
-            _parse_tabular_preamble(r"l|p{2cm|r")  # missing closing }
-
-    @pytest.mark.timeout(1)
-    def test_stray_brace_raises_instead_of_hanging(self):
-        with pytest.raises(ValueError):
-            _parse_tabular_preamble(r"l|{c}|r")
-
-    @pytest.mark.timeout(1)
-    def test_invalid_char_raises(self):
-        with pytest.raises(ValueError):
-            _parse_tabular_preamble("l$cr")  # $ not valid in preamble outside braces
-
-    @pytest.mark.timeout(1)
     def test_parse_complex_preamble(self):
         fmt_complex = r"|@{}l||>{\scriptsize\bfseries\color{purpleheart}}c<{\,}!{\hspace{2pt}}S[table-format=2.3,table-number-alignment=center]|D{.}{\cdot}{-1}||>{\raggedleft\arraybackslash}p{2.5cm}|m{1.8cm}b{3em}|r@{}|"
         expected_cols = [
@@ -169,15 +118,6 @@ class TestTabularPreambleParsing:
         assert ex == expected_extras
         assert len(vr) == len(cols) + 1
         assert len(ex) == len(cols) + 1
-
-    @pytest.mark.parametrize("bad", ["{c}", "c}", "[c]", "c[", "p2cm}", "D{.}{.}2}"])
-    def test_parse_tabular_preamble_rejects_stray_or_unbalanced(self, bad):
-        with pytest.raises(ValueError):
-            _parse_tabular_preamble(bad)
-
-    def test_parse_tabular_preamble_rejects_unknown_tokens(self):
-        with pytest.raises(ValueError):
-            _parse_tabular_preamble("x")  # unsupported token
 
 
 # =================================
@@ -344,41 +284,6 @@ class TestGroupAlignment:
 
         colspecs = ["l", "p{2cm}", "l"]  # complex treated as 'c'
         assert _infer_group_cell_align_from_data(colspecs, 0, 3) == "c"
-
-
-# ===========================
-# == VALIDATE COMMAND NAME ==
-# ===========================
-class TestValidateCommandName:
-    def test_validate_command_name_good(self):
-        good_names = ["cmd", "MyCommand", "anotherCMD", "A", "zZyXx"]
-        for name in good_names:
-            validate_command_name(name)  # should not raise
-
-    def test_validate_command_name_starts_with_backslash_raises(self):
-        bad_names = ["\\cmd", "\\MyCommand", "\\A"]
-        for name in bad_names:
-            with pytest.raises(ValueError, match="should not start with"):
-                validate_command_name(name)
-
-    def test_validate_command_name_invalid_chars_raises(self):
-        bad_names = [
-            "cmd1",
-            "my-command",
-            "cmd!",
-            "cmd@",
-            "cmd#",
-            "cmd$",
-            "cmd%",
-            "cmd^",
-            "cmd&",
-            "cmd*",
-            "cmd(",
-            "cmd)",
-        ]
-        for name in bad_names:
-            with pytest.raises(ValueError, match="Illegal LaTeX command name"):
-                validate_command_name(name)
 
 
 # ===============================

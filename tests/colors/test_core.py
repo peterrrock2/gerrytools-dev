@@ -13,6 +13,7 @@ from gerrytools.colors.core import (
     get_all_supported_colors_dict,
     get_named_color,
     resolve_color_and_alpha,
+    resolve_rgba,
 )
 
 # =====================
@@ -55,10 +56,6 @@ class TestNamedColorLookup:
     def test_get_named_color_returns_bright_green_for_green(self):
         # "green" is overridden to bright #00ff00 regardless of source dict
         assert get_named_color("green") == "#00ff00"
-
-    def test_get_named_color_resolves_latex_color_names(self):
-        # "red" is in LATEX_COLOR_DICT with lowercase key
-        assert get_named_color("red") == "#ff0000"
 
     def test_get_named_color_resolves_ensemble_color_names(self):
         # ensemble: prefixed colors live in GERRYTOOLS_EXTRA_COLORS_DICT
@@ -119,37 +116,11 @@ class TestConvertColorToHexaOrNone:
     def test_convert_none_base_with_alpha_tuple_becomes_transparent(self):
         assert convert_color_to_hexa_or_none(("none", 0.25)) == "none"
 
+    # The full validation error matrix lives in test_color_value.py; this representative pair
+    # just pins that _Color validation errors surface through the public wrapper.
     def test_convert_ambiguous_rgb_tuple_raises(self):
         with pytest.raises(ValueError, match="Ambiguous RGB tuple"):
             convert_color_to_hexa_or_none((1.5, 0.5, 0.25))
-
-    def test_convert_rgb_tuple_out_of_range_raises(self):
-        with pytest.raises(ValueError, match="<=255"):
-            convert_color_to_hexa_or_none((256, 0, 0))
-
-    def test_convert_rgba_tuple_negative_alpha_raises(self):
-        with pytest.raises(ValueError, match="Alpha must be non-negative"):
-            convert_color_to_hexa_or_none((1.0, 0.0, 0.0, -0.1))
-
-    def test_convert_rgba_tuple_negative_rgb_in_255_scale_raises(self):
-        with pytest.raises(ValueError, match="RGB values must be non-negative"):
-            convert_color_to_hexa_or_none((-1, 2, 3, 0.5))
-
-    def test_convert_rgba_tuple_over_255_raises(self):
-        with pytest.raises(ValueError, match="<=255"):
-            convert_color_to_hexa_or_none((256, 0, 0, 0.5))
-
-    def test_convert_rgba_tuple_ambiguous_scale_raises(self):
-        with pytest.raises(ValueError, match="Ambiguous RGB tuple"):
-            convert_color_to_hexa_or_none((1.5, 1.8, 0.5, 0.5))
-
-    def test_convert_rgba_tuple_alpha_over_255_raises(self):
-        with pytest.raises(ValueError, match="Alpha must be <=255"):
-            convert_color_to_hexa_or_none((255, 0, 0, 256))
-
-    def test_convert_rgb_tuple_negative_component_in_255_scale_raises(self):
-        with pytest.raises(ValueError, match="RGB values must be non-negative"):
-            convert_color_to_hexa_or_none((-1, 2, 3))
 
     def test_convert_base_and_alpha_tuple_with_invalid_alpha_raises(self):
         with pytest.raises(ValueError, match="alpha in \\(base, alpha\\) color tuple"):
@@ -162,7 +133,7 @@ class TestConvertColorToHexaOrNone:
             with pytest.raises(ValueError, match="Unknown color value"):
                 convert_color_to_hexa_or_none("mystery-color")
 
-        assert "not a known Matplotlib named color string" in caplog.text
+        assert "not a named color in any gerrytools color source" in caplog.text
         assert "not parsable as a LaTeX color string" in caplog.text
         assert "not parseable by Matplotlib" in caplog.text
 
@@ -233,14 +204,45 @@ class TestResolveColorAndAlpha:
     def test_resolve_none_returns_zero_alpha_when_allowed(self):
         assert resolve_color_and_alpha("none") == ("none", 0.0)
 
+    def test_resolve_none_with_valid_explicit_alpha_stays_transparent(self):
+        assert resolve_color_and_alpha("none", alpha=0.5) == ("none", 0.0)
+
+    def test_resolve_none_still_validates_explicit_alpha(self):
+        # Regression: the "none" early return used to skip alpha validation entirely.
+        with pytest.raises(ValueError, match=r"fillcolor alpha must be in \[0, 1\]"):
+            resolve_color_and_alpha("none", alpha=7.5, field="fillcolor")
+
     def test_resolve_none_raises_when_not_allowed(self):
         with pytest.raises(ValueError, match="cannot be 'none'"):
             resolve_color_and_alpha("none", allow_none=False, field="fillcolor")
 
     def test_resolve_invalid_explicit_alpha_raises(self):
-        with pytest.raises(ValueError, match="fillcolor alpha must be between 0.0 and 1.0"):
+        with pytest.raises(ValueError, match=r"fillcolor alpha must be in \[0, 1\]"):
             resolve_color_and_alpha("#123456", alpha=2.0, field="fillcolor")
 
     def test_resolve_nonfinite_explicit_alpha_raises(self):
         with pytest.raises(ValueError, match="fillcolor alpha must be finite"):
             resolve_color_and_alpha("#123456", alpha=float("nan"), field="fillcolor")
+
+
+# ==================
+# == RESOLVE RGBA ==
+# ==================
+
+
+class TestResolveRgba:
+    def test_resolve_rgba_uses_embedded_alpha_without_override(self):
+        rgba = resolve_rgba("#12345680")
+        assert rgba == pytest.approx((0x12 / 255, 0x34 / 255, 0x56 / 255, 128 / 255))
+
+    def test_resolve_rgba_explicit_alpha_overrides_embedded_alpha(self):
+        rgba = resolve_rgba("#12345680", alpha=0.25)
+        assert rgba == pytest.approx((0x12 / 255, 0x34 / 255, 0x56 / 255, 0.25))
+
+    def test_resolve_rgba_none_and_python_none_are_fully_transparent(self):
+        assert resolve_rgba("none") == (0.0, 0.0, 0.0, 0.0)
+        assert resolve_rgba(None) == (0.0, 0.0, 0.0, 0.0)
+
+    def test_resolve_rgba_invalid_alpha_raises_with_field_name(self):
+        with pytest.raises(ValueError, match="fillcolor alpha"):
+            resolve_rgba("#123456", alpha=2.0, field="fillcolor")

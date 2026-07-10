@@ -1,16 +1,18 @@
 import os
+import stat
+import tempfile
 
 import httpx
 import us
 from frozendict import frozendict
 
+from gerrytools.data._geometry_etags import GEOMETRY_ETAGS
 from gerrytools.logging import get_logger
 
 logger = get_logger(__name__)
 
-# data.mggg.org is served from an S3 static-website endpoint, which only supports HTTP (S3 website
-# hosting does not terminate TLS), so this base URL is intentionally http:// rather than https://.
-DATA_MGGG_BASE_URL = "http://data.mggg.org.s3-website.us-east-2.amazonaws.com"
+# The path-style S3 REST endpoint provides TLS for the public data.mggg.org bucket.
+DATA_MGGG_BASE_URL = "https://s3.us-east-2.amazonaws.com/data.mggg.org"
 
 _REQUEST_TIMEOUT = httpx.Timeout(120)
 
@@ -25,10 +27,13 @@ _DUALGRAPH_GEOMETRY_IDS = frozendict(
     }
 )
 
-# Census-2020 geometry levels mapped to their data.mggg.org identifiers.
+# Census-2020 geometry levels mapped to their data.mggg.org identifiers. Accepts the same
+# block-group spellings as the dual-graph ids.
 _CENSUS_GEOMETRY_IDS = frozendict(
     {
+        "bg": "bg",
         "block group": "bg",
+        "blockgroup": "bg",
         "block": "block",
         "congress": "cd116",
         "county": "county",
@@ -42,29 +47,61 @@ _CENSUS_GEOMETRY_IDS = frozendict(
 )
 
 
-def _download_to_file(url: str, filepath: str | os.PathLike[str]) -> None:
-    """Stream a GET response body to ``filepath``, raising on HTTP error.
+def _download_to_file(
+    object_key: str,
+    filepath: str | os.PathLike[str],
+) -> None:
+    """Stream a pinned S3 object to ``filepath`` atomically, raising on HTTP error.
 
     Streaming keeps memory use flat for large shapefile and dual-graph archives, and
     ``raise_for_status`` ensures an S3 error page is never written to disk in place of the
-    requested file.
+    requested file. ``If-Match`` makes S3 reject an object whose ETag has changed since this
+    package was released. The body streams to a temporary file beside the destination that is
+    renamed onto ``filepath`` only after the full body arrives, so a mid-download failure never
+    leaves a truncated destination behind.
 
     Args:
-        url (str): URL to download.
+        object_key (str): Object path within the public data.mggg.org bucket.
         filepath (str | os.PathLike): Destination path for the response body.
 
     Raises:
+        ValueError: If this package has no pinned ETag for ``object_key``.
         httpx.HTTPStatusError: If the server returns an error status.
     """
 
-    with (
-        httpx.Client(timeout=_REQUEST_TIMEOUT, follow_redirects=True) as client,
-        client.stream("GET", url) as response,
-    ):
-        response.raise_for_status()
-        with open(filepath, "wb") as output_file:
-            for chunk in response.iter_bytes():
-                output_file.write(chunk)
+    try:
+        etag = GEOMETRY_ETAGS[object_key]
+    except KeyError:
+        raise ValueError(f"No published checksum is available for {object_key!r}.") from None
+
+    url = f"{DATA_MGGG_BASE_URL}/{object_key}"
+    destination = os.fspath(filepath)
+    # Same directory as the destination so os.replace stays a same-filesystem atomic rename.
+    with tempfile.TemporaryDirectory(
+        dir=os.path.dirname(destination) or ".",
+        prefix=os.path.basename(destination) + ".",
+    ) as staging_dir:
+        temp_path = os.path.join(staging_dir, "download.part")
+        with open(temp_path, "xb") as output_file:
+            with (
+                httpx.Client(timeout=_REQUEST_TIMEOUT, follow_redirects=True) as client,
+                client.stream("GET", url, headers={"If-Match": f'"{etag}"'}) as response,
+            ):
+                if response.status_code == 412:
+                    raise RuntimeError(
+                        f"The published geometry {object_key!r} no longer matches this "
+                        "gerrytools release's pinned checksum."
+                    )
+                response.raise_for_status()
+                for chunk in response.iter_bytes():
+                    output_file.write(chunk)
+        try:
+            destination_mode = stat.S_IMODE(os.stat(destination).st_mode)
+        except FileNotFoundError:
+            pass
+        else:
+            os.chmod(temp_path, destination_mode)
+        os.replace(temp_path, destination)
 
 
 def dualgraphs20(
@@ -81,7 +118,8 @@ def dualgraphs20(
             ``"vtd"``. Defaults to ``"block group"``.
 
     Raises:
-        ValueError: If ``geometry`` is not an available dual-graph level.
+        ValueError: If ``geometry`` is not an available dual-graph level or the requested object
+            has no package-pinned checksum.
         httpx.HTTPStatusError: If the download request fails.
 
     Warning:
@@ -96,10 +134,10 @@ def dualgraphs20(
         )
 
     geometry_id = _DUALGRAPH_GEOMETRY_IDS[geometry_key]
-    url = f"{DATA_MGGG_BASE_URL}/dual-graphs/{state.abbr.lower()}-{geometry_id}-connected.json"
+    object_key = f"dual-graphs/{state.abbr.lower()}-{geometry_id}-connected.json"
 
     logger.info("Downloading %s %s dual graph to %s.", state.abbr, geometry_id, filepath)
-    _download_to_file(url, filepath)
+    _download_to_file(object_key, filepath)
 
 
 def vtds20(state: us.states.State, filepath: str | os.PathLike[str]) -> None:
@@ -110,16 +148,17 @@ def vtds20(state: us.states.State, filepath: str | os.PathLike[str]) -> None:
         filepath (str | os.PathLike): Destination path for the downloaded zipped shapefile.
 
     Raises:
+        ValueError: If the requested object has no package-pinned checksum.
         httpx.HTTPStatusError: If the download request fails.
 
     Warning:
         Writes the downloaded file to ``filepath``.
     """
 
-    url = f"{DATA_MGGG_BASE_URL}/vtd-shapefiles/{state.abbr.upper()}_vtd20.zip"
+    object_key = f"vtd-shapefiles/{state.abbr.upper()}_vtd20.zip"
 
     logger.info("Downloading %s VTD shapefile to %s.", state.abbr, filepath)
-    _download_to_file(url, filepath)
+    _download_to_file(object_key, filepath)
 
 
 def geometries20(
@@ -132,27 +171,30 @@ def geometries20(
     Args:
         state (us.states.State): State for which to retrieve data.
         filepath (str | os.PathLike): Destination path for the downloaded zipped shapefile.
-        geometry (str): Geometry level at which to retrieve data. One of ``"block group"``,
-            ``"block"``, ``"congress"``, ``"county"``, ``"cousub"``, ``"place"``, ``"senate"``,
-            ``"house"``, ``"tract"``, or ``"vtd"``. Defaults to ``"tract"``.
+        geometry (str): Geometry level at which to retrieve data. One of ``"bg"`` / ``"block
+            group"`` / ``"blockgroup"``, ``"block"``, ``"congress"``, ``"county"``, ``"cousub"``,
+            ``"place"``, ``"senate"``, ``"house"``, ``"tract"``, or ``"vtd"``. Defaults to
+            ``"tract"``.
 
     Raises:
-        ValueError: If ``geometry`` is not a recognized level.
+        ValueError: If ``geometry`` is not a recognized level or the requested object has no
+            package-pinned checksum.
         httpx.HTTPStatusError: If the download request fails.
 
     Warning:
         Writes the downloaded file to ``filepath``.
     """
 
-    if geometry not in _CENSUS_GEOMETRY_IDS:
+    geometry_key = geometry.lower()
+    if geometry_key not in _CENSUS_GEOMETRY_IDS:
         raise ValueError(
             f"Requested geometry {geometry!r} is not allowed; "
             f"choose one of {sorted(_CENSUS_GEOMETRY_IDS)}."
         )
 
-    geometry_id = _CENSUS_GEOMETRY_IDS[geometry]
+    geometry_id = _CENSUS_GEOMETRY_IDS[geometry_key]
     state_abbr = state.abbr.lower()
-    url = f"{DATA_MGGG_BASE_URL}/census-2020/{state_abbr}/{state_abbr}_{geometry_id}.zip"
+    object_key = f"census-2020/{state_abbr}/{state_abbr}_{geometry_id}.zip"
 
     logger.info("Downloading %s %s geometries to %s.", state.abbr, geometry_id, filepath)
-    _download_to_file(url, filepath)
+    _download_to_file(object_key, filepath)

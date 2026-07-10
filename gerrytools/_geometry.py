@@ -18,32 +18,24 @@ def line_segment_through_unit_square(
 
     Returns:
         tuple[float, float, float, float]: Endpoints in ``(x0, y0, x1, y1)`` order.
+
+    Raises:
+        ValueError: If ``slope`` is NaN.
     """
-    if slope == 0:
-        starting_x = 0.0
-        ending_x = 1.0
-        starting_y = 0.5
-        ending_y = 0.5
-    elif math.isinf(slope):
-        starting_x = 0.5
-        ending_x = 0.5
-        starting_y = 0.0
-        ending_y = 1.0
-    elif slope >= 1:
-        starting_x = 0.5 - (0.5 / slope)
-        starting_y = 0.0
-        ending_x = 0.5 + (0.5 / slope)
-        ending_y = 1.0
-    elif -1 < slope < 1:
-        starting_x = 0.0
-        starting_y = 0.5 - (0.5 * slope)
-        ending_x = 1.0
-        ending_y = 0.5 + (0.5 * slope)
+    # NaN fails both the isinf and abs comparisons, which would silently yield NaN endpoints.
+    if math.isnan(slope):
+        raise ValueError("slope cannot be NaN")
+    if math.isinf(slope):
+        starting_x, starting_y = 0.5, 0.0
+        ending_x, ending_y = 0.5, 1.0
+    elif abs(slope) >= 1:
+        # Steep lines exit through the top and bottom edges.
+        starting_x, starting_y = 0.5 - (0.5 / slope), 0.0
+        ending_x, ending_y = 0.5 + (0.5 / slope), 1.0
     else:
-        starting_x = 0.5 - (0.5 / slope)
-        starting_y = 0.0
-        ending_x = 0.5 + (0.5 / slope)
-        ending_y = 1.0
+        # Shallow lines (including slope 0) exit through the side edges.
+        starting_x, starting_y = 0.0, 0.5 - (0.5 * slope)
+        ending_x, ending_y = 1.0, 0.5 + (0.5 * slope)
 
     if round_to is None:
         return (starting_x, starting_y, ending_x, ending_y)

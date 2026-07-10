@@ -8,7 +8,7 @@ from gerrytools.latex._text import latex_escape
 # ====================
 class TestLatexEscape:
     def test_latex_escape_escapes_all_special_characters(self):
-        text = r"\&%$#_{}~^"
+        text = r"\&%$#_{}~^<>|"
         expected = (
             r"\textbackslash{}"
             r"\&"
@@ -20,6 +20,9 @@ class TestLatexEscape:
             r"\}"
             r"\textasciitilde{}"
             r"\textasciicircum{}"
+            r"\textless{}"
+            r"\textgreater{}"
+            r"\textbar{}"
         )
         assert latex_escape(text) == expected
 
@@ -28,3 +31,12 @@ class TestLatexEscape:
 
     def test_latex_escape_handles_empty_string(self):
         assert latex_escape("") == ""
+
+    def test_latex_escape_unicode_passthrough(self):
+        text = "Δistrict – café 🗳️"
+        assert latex_escape(text) == text
+
+    def test_latex_escape_is_exported_publicly(self):
+        from gerrytools.latex import latex_escape as public_latex_escape
+
+        assert public_latex_escape is latex_escape

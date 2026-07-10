@@ -1,7 +1,11 @@
 import random
-from string import hexdigits as hex
+import re
 
 from gerrytools.typing import HexColor
+
+_HEX_DIGITS = "0123456789abcdef"
+
+_HEX_COLOR_PATTERN = re.compile(r"#?([0-9a-fA-F]{6})")
 
 DISTRICTR_COLOR_DICT = {
     "tombblue": "#0099cd",
@@ -47,35 +51,48 @@ DISTRICTR_COLOR_DICT = {
 
 
 def hexshift(color: str, *, seed: int = 42) -> str:
-    """Randomly modifies the provided hexadecimal color.
+    """Deterministically modify the provided hexadecimal color.
+
+    Picks one hex digit occurring in the color and replaces *every* occurrence of it with a
+    different hex digit, so the result is always a different color value. Input case is
+    ignored; the result is lowercase with a leading ``#``.
 
     Args:
-        color (str): A hexadecimal color string; e.g. `"#FFFF00"`.
+        color (str): A six-digit hexadecimal color string, with or without the leading ``#``;
+            e.g. `"#FFFF00"`.
+        seed (int): Seed for the deterministic digit substitution. Defaults to 42.
 
     Returns:
-        str: A hexadecimal color string.
+        str: A lowercase hexadecimal color string different from ``color``.
+
+    Raises:
+        ValueError: If ``color`` is not a six-digit hexadecimal color string.
     """
+    match = _HEX_COLOR_PATTERN.fullmatch(color) if isinstance(color, str) else None
+    if match is None:
+        raise ValueError(
+            f"color must be a six-digit hex color string like '#ffca5d', "
+            f"with or without the leading '#'; got {color!r}"
+        )
+    normalized_color = f"#{match.group(1).lower()}"
     rng = random.Random(seed)
 
-    # Choose a hexidecimal digit, first paring down the digits we'll use.
-    h = hex.lower()[:-6]
-    sub = rng.choice(h)
-    char = rng.choice(color[1:])
+    sub = rng.choice(_HEX_DIGITS)
+    char = rng.choice(normalized_color[1:])
 
-    # Find the character we're going to replace that's *not* the same character
-    # as the one we got from the hexadecimal string.
+    # Redraw until the substitute differs from the chosen digit, so the replacement always
+    # changes the color value.
     while sub == char:
-        sub = rng.choice(h)
+        sub = rng.choice(_HEX_DIGITS)
 
-    # Return the subbed string.
-    return color.replace(char, sub)
+    return normalized_color.replace(char, sub)
 
 
 def districtr(N: int) -> list[HexColor]:
     """Returns a list of N hex colors from the districtr palette.
 
-    When ``N`` exceeds the number of base palette colors, the palette is
-    extended by appending hex-shifted variants of the base colors.
+    When ``N`` exceeds the number of base palette colors, the palette is extended by appending hex-
+    shifted variants of the base colors.
 
     Args:
         N (int): The number of colors to return.
@@ -85,23 +102,31 @@ def districtr(N: int) -> list[HexColor]:
         palette.
     """
 
+    if N < 0:
+        raise ValueError("N must be nonnegative.")
+
     colors = list(DISTRICTR_COLOR_DICT.values())
     if N <= len(colors):
         return colors[:N]
 
     # Vary the seed per shift: hexshift is deterministic for a fixed seed, so reusing one seed
     # would make every extension round identical. Skip any shift that collides with a color already
-    # in the palette.
+    # in the palette, and fail loudly rather than pad with silent duplicates.
     seen = set(colors)
     extended = list(colors)
     seed = 42
     remaining_attempts = 100 * N
     while len(extended) < N:
         for color in colors:
+            if remaining_attempts <= 0:
+                raise RuntimeError(
+                    f"Could not generate {N} distinct districtr colors after {100 * N} "
+                    f"hexshift attempts; got {len(extended)}."
+                )
             shifted = hexshift(color, seed=seed)
             seed += 1
             remaining_attempts -= 1
-            if shifted not in seen or remaining_attempts <= 0:
+            if shifted not in seen:
                 seen.add(shifted)
                 extended.append(shifted)
                 if len(extended) == N:

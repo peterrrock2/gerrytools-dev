@@ -15,7 +15,9 @@ tests_previous/
 .venv*
 .docs_venv
 
-docs/notebooks/*.png
+user_guide/_build/
+user_guide/_generated/
+user_guide/jupyter_execute/
 
 
 # Other dev stuff
@@ -28,11 +30,19 @@ uv.lock
 # created by the build process.
 /build
 dist
-docs/build
-docs/build/**
+user_guide/build
+user_guide/build/**
 dev
 tutorials/test_*
 
 
 # Readthedocs
 _build
+
+
+# Build artifacts
+target/
+*.so
+
+
+/data

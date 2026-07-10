@@ -60,7 +60,7 @@ class TestGeoPlotSnapshots:
         highlighted = testing_gdf[testing_gdf["district"] == 0]
 
         plot = GeoPlot(testing_gdf, dpi=100, silent=True)
-        plot.add_highlight_layer(geosource=highlighted, facecolor="yellow", facealpha=0.6)
+        plot.add_highlight_layer(geo_source=highlighted, facecolor="yellow", facealpha=0.6)
         img = render_plot(plot, tmp_path)
 
         assert_image_snapshot(
@@ -78,7 +78,7 @@ class TestGeoPlotChoroplethSnapshots:
     @pytest.mark.snapshot
     def test_choropleth_snapshot(self, testing_gdf, tmp_path):
         plot = GeoPlot(testing_gdf, dpi=100, silent=True)
-        plot.add_choropleth_layer(datacolumn="tot_pop", colormap="Purples")
+        plot.add_choropleth_layer(column="tot_pop", colormap="Purples")
         img = render_plot(plot, tmp_path)
 
         assert_image_snapshot(
@@ -91,7 +91,7 @@ class TestGeoPlotChoroplethSnapshots:
     @pytest.mark.snapshot
     def test_choropleth_with_colorbar_snapshot(self, testing_gdf, tmp_path):
         plot = GeoPlot(testing_gdf, dpi=100, silent=True)
-        plot.add_choropleth_layer(datacolumn="tot_pop", colormap="Blues", show_colorbar=True)
+        plot.add_choropleth_layer(column="tot_pop", colormap="Blues", show_colorbar=True)
         img = render_plot(plot, tmp_path)
 
         assert_image_snapshot(
@@ -104,9 +104,7 @@ class TestGeoPlotChoroplethSnapshots:
     @pytest.mark.snapshot
     def test_choropleth_binned_snapshot(self, testing_gdf, tmp_path):
         plot = GeoPlot(testing_gdf, dpi=100, silent=True)
-        plot.add_choropleth_layer(
-            datacolumn="tot_pop", colormap="Greens", bins=5, show_colorbar=True
-        )
+        plot.add_choropleth_layer(column="tot_pop", colormap="Greens", bins=5, show_colorbar=True)
         img = render_plot(plot, tmp_path)
 
         assert_image_snapshot(
@@ -119,7 +117,7 @@ class TestGeoPlotChoroplethSnapshots:
     @pytest.mark.snapshot
     def test_districting_plan_snapshot(self, testing_gdf, tmp_path):
         plot = GeoPlot(testing_gdf, dpi=100, silent=True)
-        plot.add_districting_plan_layer(plancolumn="district", colormap="districtr")
+        plot.add_districting_plan_layer(plan_column="district", colormap="districtr")
         img = render_plot(plot, tmp_path)
 
         assert_image_snapshot(
@@ -133,7 +131,7 @@ class TestGeoPlotChoroplethSnapshots:
     def test_districting_plan_dissolved_snapshot(self, testing_gdf, tmp_path):
         plot = GeoPlot(testing_gdf, dpi=100, silent=True)
         plot.add_districting_plan_layer(
-            plancolumn="district", colormap="districtr", dissolve=True, edgecolor="black"
+            plan_column="district", colormap="districtr", dissolve=True, edgecolor="black"
         )
         img = render_plot(plot, tmp_path)
 
@@ -160,7 +158,7 @@ class TestDotDensityPlotSnapshots:
             dpi=100,
             silent=True,
         )
-        plot.add_dot_density(column_name="tot_pop", color="denim")
+        plot.add_density_layer(column="tot_pop", color="denim")
         img = render_plot(plot, tmp_path)
 
         assert_image_snapshot(
@@ -181,8 +179,8 @@ class TestDotDensityPlotSnapshots:
             dpi=100,
             silent=True,
         )
-        plot.add_dot_density(column_name="maj_pop", color="denim")
-        plot.add_dot_density(column_name="min_pop", color="alizarin")
+        plot.add_density_layer(column="maj_pop", color="denim")
+        plot.add_density_layer(column="min_pop", color="alizarin")
         img = render_plot(plot, tmp_path)
 
         assert_image_snapshot(

@@ -6,7 +6,7 @@ import pytest
 
 matplotlib.use("Agg")
 
-from gerrytools.plotting.data.sealevel import SeaLevel
+from gerrytools.plotting.data.sealevel import SeaLevelPlot
 from tests._image_snapshots import assert_image_snapshot
 from tests.plotting._snapshot_utils import RNG_SEED, render_plot
 
@@ -24,14 +24,14 @@ class TestSeaLevelSnapshots:
         rng = np.random.default_rng(RNG_SEED)
         data = make_sealevel_data(rng)
 
-        plot = SeaLevel(
+        plot = SeaLevelPlot(
             figure_size=(8, 5),
             dpi=100,
             xlabel="Category",
             ylabel="Score",
             jitter_rng_seed=RNG_SEED,
         )
-        plot.add_sealevel_set(data, linecolor="denim", name="Ensemble")
+        plot.add_dataset(data, linecolor="denim", name="Ensemble")
         img = render_plot(plot, tmp_path)
 
         assert_image_snapshot(
@@ -47,14 +47,14 @@ class TestSeaLevelSnapshots:
         data_a = make_sealevel_data(rng)
         data_b = make_sealevel_data(rng)
 
-        plot = SeaLevel(
+        plot = SeaLevelPlot(
             figure_size=(8, 5),
             dpi=100,
-            include_legend=True,
+            legend=True,
             jitter_rng_seed=RNG_SEED,
         )
-        plot.add_sealevel_set(data_a, linecolor="denim", name="Plan A")
-        plot.add_sealevel_set(data_b, linecolor="alizarin", name="Plan B")
+        plot.add_dataset(data_a, linecolor="denim", name="Plan A")
+        plot.add_dataset(data_b, linecolor="alizarin", name="Plan B")
         img = render_plot(plot, tmp_path)
 
         assert_image_snapshot(

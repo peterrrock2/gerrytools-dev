@@ -1,18 +1,18 @@
 """Data-oriented Matplotlib plot classes."""
 
 from gerrytools.plotting.data._gerryplot_dataclasses import (
-    ArrowData,
     ArrowPlacement,
     ArrowTextStyle,
-    BandData,
+    LabelArrowOptions,
     LabelArrowStyle,
-    LineData,
     TextArrowStyle,
 )
+from gerrytools.plotting.data.barplot import BarPlot
 from gerrytools.plotting.data.boxplot import BoxPlot, BoxPlotStats
 from gerrytools.plotting.data.histogram import Histogram
 from gerrytools.plotting.data.options import (
     BandOptions,
+    BarPlotOptions,
     BoxPlotOptions,
     HistogramOptions,
     LineOptions,
@@ -21,34 +21,37 @@ from gerrytools.plotting.data.options import (
     SeatsVotesMarkerOptions,
     ViolinPlotOptions,
 )
-from gerrytools.plotting.data.paintball import PaintBall
+from gerrytools.plotting.data.paintball import PaintballPlot
 from gerrytools.plotting.data.scatterplot import ScatterPlot
-from gerrytools.plotting.data.sealevel import SeaLevel
-from gerrytools.plotting.data.seatsvotes import SeatsVotes
+from gerrytools.plotting.data.sealevel import SeaLevelPlot
+from gerrytools.plotting.data.seatsvotes import SeatsVotesPlot
 from gerrytools.plotting.data.violin import ViolinPlot
+from gerrytools.plotting.utils import UNSET, Unset
 
 __all__ = [
-    "ArrowData",
     "ArrowPlacement",
     "ArrowTextStyle",
-    "BandData",
     "BandOptions",
+    "BarPlot",
+    "BarPlotOptions",
     "BoxPlot",
     "BoxPlotOptions",
     "BoxPlotStats",
     "Histogram",
     "HistogramOptions",
+    "LabelArrowOptions",
     "LabelArrowStyle",
-    "LineData",
     "LineOptions",
-    "PaintBall",
+    "PaintballPlot",
     "ScatterPlot",
-    "SeaLevel",
+    "SeaLevelPlot",
     "SeaLevelLineOptions",
-    "SeatsVotes",
+    "SeatsVotesPlot",
     "SeatsVotesLineOptions",
     "SeatsVotesMarkerOptions",
     "TextArrowStyle",
+    "UNSET",
+    "Unset",
     "ViolinPlot",
     "ViolinPlotOptions",
 ]

@@ -29,6 +29,10 @@ class TestHistogramBins:
         h.set_bins(edges)
         np.testing.assert_array_equal(h._bins, edges)
 
+        edges[1] = 100.0
+        assert isinstance(h._bins, np.ndarray)
+        np.testing.assert_array_equal(h._bins, np.arange(0, 11, 1.0))
+
     def test_set_bins_by_width(self):
         h = Histogram()
         h.set_bins_by_width(0.5)
@@ -63,10 +67,12 @@ class TestHistogramBins:
 
 
 class TestHistogramDensity:
-    def test_transform_to_density(self):
+    def test_as_density_can_be_disabled(self):
         h = Histogram()
-        h.transform_to_density()
+        h.as_density()
         assert h.as_density_plot is True
+        h.as_density(False)
+        assert h.as_density_plot is False
 
 
 # ==================
@@ -130,7 +136,7 @@ class TestHistogramBuildPreconditions:
 
     def test_clear_histograms(self):
         h = Histogram()
-        h.add_histogram([1, 2, 3])
+        h.add_dataset([1, 2, 3])
         h.clear_histograms()
         assert all(len(v) == 0 for v in h._hist_data_dict.values())
 
@@ -143,14 +149,14 @@ class TestHistogramBuildPreconditions:
 class TestHistogramLegend:
     def test_legend_includes_histogram_handles(self):
         h = Histogram()
-        h.add_histogram([1, 2, 3], name="Ensemble")
+        h.add_dataset([1, 2, 3], name="Ensemble")
         handles = h._legend_handles
         labels = [handle.get_label() for handle in handles]
         assert "Ensemble" in labels
 
     def test_legend_includes_point_handles(self):
         h = Histogram()
-        h.add_histogram([1, 2, 3])
+        h.add_dataset([1, 2, 3])
         h.add_points_above(2.0, name="Plan")
         handles = h._legend_handles
         labels = [handle.get_label() for handle in handles]
@@ -158,8 +164,31 @@ class TestHistogramLegend:
 
     def test_legend_includes_named_line_handles(self):
         h = Histogram()
-        h.add_histogram([1, 2, 3])
+        h.add_dataset([1, 2, 3])
         h.add_vertical_lines(2.0, name="Threshold")
         handles = h._legend_handles
         labels = [handle.get_label() for handle in handles]
         assert "Threshold" in labels
+
+
+# =====================
+# == INPUT REJECTION ==
+# =====================
+
+
+class TestHistogramInputRejection:
+    @pytest.mark.parametrize("bad_binwidth", [0.0, -1.0, float("nan"), float("inf")])
+    def test_set_bins_by_width_rejects_nonpositive_or_nonfinite(self, bad_binwidth):
+        h = Histogram()
+        with pytest.raises(ValueError, match="binwidth must be a positive finite number"):
+            h.set_bins_by_width(bad_binwidth)
+
+    def test_empty_points_above_raises_valueerror(self):
+        h = Histogram()
+        with pytest.raises(ValueError, match="at least one finite entry"):
+            h.add_points_above([])
+
+    def test_all_nan_points_above_raises_valueerror(self):
+        h = Histogram()
+        with pytest.raises(ValueError, match="at least one finite entry"):
+            h.add_points_above([float("nan"), float("nan")])

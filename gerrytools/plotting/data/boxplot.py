@@ -1,40 +1,23 @@
 from __future__ import annotations
 
-import enum
-import logging
 import math
-from dataclasses import dataclass, field
-from typing import Any, Final, Iterable, Mapping, Sequence, SupportsFloat, cast
+from dataclasses import dataclass, replace
+from typing import Any, Iterable, Mapping, Sequence, SupportsFloat, cast
 
+import matplotlib.cbook as cbook
 import numpy as np
 import pandas as pd
 from matplotlib.axes import Axes
-from matplotlib.patches import Patch
 from numpy.typing import NDArray
 
-from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
 from gerrytools.plotting.data._categorical_distribution_base import CategoricalDistributionPlotBase
 from gerrytools.plotting.data.options import BoxPlotOptions
 from gerrytools.plotting.mpl.marker_options import PointMarkerOptions
+from gerrytools.plotting.utils import UNSET, Unset
 from gerrytools.typing import Color, LegendHandle
 
 logger = get_logger(__name__)
-
-
-class _Unset(enum.Enum):
-    """Sentinel distinguishing an omitted color kwarg from an explicit ``None``.
-
-    Color kwargs default to this rather than ``None`` so a caller can pass
-    ``facecolor=None`` (or ``edgecolor=None``) to mean "no fill/edge" (resolved
-    to ``"none"``), while a genuinely omitted kwarg still falls back to the
-    ``options`` default.
-    """
-
-    token = enum.auto()
-
-
-_UNSET: Final = _Unset.token
 
 
 # Field names a summary-stats mapping/DataFrame must provide for each category.
@@ -78,78 +61,10 @@ def _coerce_fliers(value: object) -> tuple[float, ...]:
 
 
 @dataclass(frozen=True)
-class BoxPlotSetData:
-    """A set of boxplots to render for one model/series."""
-
-    name: str
-    scores_dict: dict[str, list[float]]
-    facecolor: Color | None
-    facealpha: float | None = None
-    edgecolor: Color | None = "black"
-    edgealpha: float | None = None
-    edgewidth: float = 0.8
-    percentiles: tuple[float, float] = (1, 99)
-    showfliers: bool = False
-    flier_options: PointMarkerOptions = field(default_factory=PointMarkerOptions)
-    zorder: int = 1
-
-    def __post_init__(self) -> None:
-        lo, hi = self.percentiles
-        lo = float(lo)
-        hi = float(hi)
-        if not (0.0 <= lo <= 100.0 and 0.0 <= hi <= 100.0):
-            raise ValueError("percentiles must be within [0, 100].")
-        if not (lo < hi):
-            raise ValueError("percentiles must satisfy low < high.")
-
-        lw = float(self.edgewidth)
-        if not math.isfinite(lw):
-            raise ValueError("edgewidth must be a finite number")
-        if lw < 0:
-            raise ValueError("edgewidth must be nonnegative")
-        object.__setattr__(self, "edgewidth", lw)
-
-        resolved_facecolor, resolved_alpha = resolve_color_and_alpha(
-            self.facecolor,
-            alpha=self.facealpha,
-            allow_none=True,
-            field="facecolor",
-            owner=f"BoxPlotSetData {self.name}",
-            logger=logger,
-        )
-        object.__setattr__(self, "facecolor", resolved_facecolor)
-        object.__setattr__(self, "facealpha", resolved_alpha)
-
-        resolved_edgecolor, resolved_edgealpha = resolve_color_and_alpha(
-            self.edgecolor,
-            alpha=self.edgealpha,
-            allow_none=True,
-            field="edgecolor",
-            owner=f"BoxPlotSetData {self.name}",
-            logger=logger,
-        )
-        object.__setattr__(self, "edgecolor", resolved_edgecolor)
-        object.__setattr__(self, "edgealpha", resolved_edgealpha)
-
-        if resolved_edgecolor.lower() == "none" and lw > 0:
-            logger.log(
-                level=logging.DEBUG,
-                msg=(
-                    f"For BoxPlotSetData {self.name}: edgecolor is 'none' but "
-                    f"edgewidth is {lw}>0; setting edgewidth to 0."
-                ),
-            )
-            lw = 0.0
-
-        object.__setattr__(self, "edgewidth", lw)
-        object.__setattr__(self, "zorder", int(self.zorder))
-
-
-@dataclass(frozen=True)
 class BoxPlotStats:
     """Precomputed summary statistics for a single box.
 
-    Pass these to :meth:`BoxPlot.add_boxplot_stats_dataset` to draw a box from
+    Pass these to :meth:`BoxPlot.add_stats_dataset` to draw a box from
     an already-computed five-number summary instead of from raw samples — useful
     when the underlying ensemble is too large to keep in memory or the statistics
     were computed elsewhere.
@@ -218,6 +133,45 @@ class BoxPlotStats:
 
         object.__setattr__(self, "fliers", tuple(_as_float(flier) for flier in self.fliers))
 
+    @staticmethod
+    def from_samples(
+        values: Sequence[float] | NDArray,
+        *,
+        percentiles: tuple[float, float] = (1, 99),
+    ) -> BoxPlotStats:
+        """Reduce raw samples to box statistics, matching Matplotlib's numbers.
+
+        Uses ``matplotlib.cbook.boxplot_stats`` (what ``Axes.boxplot`` runs internally)
+        so a box drawn from these statistics is identical to one drawn from the raw
+        samples. Non-finite samples are dropped first. The mean is left unset so
+        raw-sample datasets render without mean markers.
+
+        Args:
+            values (Sequence[float] | NDArray): Raw sample values.
+            percentiles (tuple[float, float], optional): Lower/upper whisker
+                percentiles. Defaults to ``(1, 99)``.
+
+        Returns:
+            BoxPlotStats: The reduced statistics.
+
+        Raises:
+            ValueError: If ``values`` has no finite entries.
+        """
+        finite = np.asarray(values, dtype=float).ravel()
+        finite = finite[np.isfinite(finite)]
+        if finite.size == 0:
+            raise ValueError("values must have at least one finite entry.")
+
+        (stats,) = cbook.boxplot_stats(finite, whis=percentiles)
+        return BoxPlotStats(
+            median=stats["med"],
+            lower_quartile=stats["q1"],
+            upper_quartile=stats["q3"],
+            lower_whisker=stats["whislo"],
+            upper_whisker=stats["whishi"],
+            fliers=tuple(float(flier) for flier in stats["fliers"]),
+        )
+
     def to_bxp_dict(self, label: str) -> dict[str, object]:
         """Convert to the per-box dict consumed by Matplotlib's ``Axes.bxp``.
 
@@ -243,180 +197,91 @@ class BoxPlotStats:
 
 
 @dataclass(frozen=True)
-class BoxPlotStatsSetData:
-    """A set of boxplots to render from precomputed summary statistics.
+class _BoxPlotSetData:
+    """One boxplot dataset: per-category statistics plus styling.
 
-    Mirrors :class:`BoxPlotSetData` but carries a per-category
-    :class:`BoxPlotStats` mapping instead of raw scores. There is no
-    ``percentiles`` field because the whiskers are supplied directly.
+    Raw-sample input is reduced to :class:`BoxPlotStats` at add time, so every
+    dataset draws through the same ``Axes.bxp`` path.
     """
 
     name: str
     stats_dict: dict[str, BoxPlotStats]
-    facecolor: Color | None
-    facealpha: float | None = None
-    edgecolor: Color | None = "black"
-    edgealpha: float | None = None
-    edgewidth: float = 0.8
-    showfliers: bool = False
-    flier_options: PointMarkerOptions = field(default_factory=PointMarkerOptions)
-    zorder: int = 1
-
-    def __post_init__(self) -> None:
-        lw = float(self.edgewidth)
-        if not math.isfinite(lw):
-            raise ValueError("edgewidth must be a finite number")
-        if lw < 0:
-            raise ValueError("edgewidth must be nonnegative")
-        object.__setattr__(self, "edgewidth", lw)
-
-        resolved_facecolor, resolved_alpha = resolve_color_and_alpha(
-            self.facecolor,
-            alpha=self.facealpha,
-            allow_none=True,
-            field="facecolor",
-            owner=f"BoxPlotStatsSetData {self.name}",
-            logger=logger,
-        )
-        object.__setattr__(self, "facecolor", resolved_facecolor)
-        object.__setattr__(self, "facealpha", resolved_alpha)
-
-        resolved_edgecolor, resolved_edgealpha = resolve_color_and_alpha(
-            self.edgecolor,
-            alpha=self.edgealpha,
-            allow_none=True,
-            field="edgecolor",
-            owner=f"BoxPlotStatsSetData {self.name}",
-            logger=logger,
-        )
-        object.__setattr__(self, "edgecolor", resolved_edgecolor)
-        object.__setattr__(self, "edgealpha", resolved_edgealpha)
-
-        if resolved_edgecolor.lower() == "none" and lw > 0:
-            logger.log(
-                level=logging.DEBUG,
-                msg=(
-                    f"For BoxPlotStatsSetData {self.name}: edgecolor is 'none' but "
-                    f"edgewidth is {lw}>0; setting edgewidth to 0."
-                ),
-            )
-            lw = 0.0
-
-        object.__setattr__(self, "edgewidth", lw)
-        object.__setattr__(self, "zorder", int(self.zorder))
+    style: BoxPlotOptions
 
 
 class BoxPlot(CategoricalDistributionPlotBase):
     """Create grouped boxplot comparison figures across categories.
 
-    Add data either from raw samples via :meth:`add_boxplot_dataset` or from a
-    precomputed five-number summary via :meth:`add_boxplot_stats_dataset`. Both
+    Add data either from raw samples via :meth:`add_dataset` or from a
+    precomputed five-number summary via :meth:`add_stats_dataset`. Both
     kinds of sets can be combined on a single figure and share the grouped layout.
     """
 
+    _dataset_noun = "boxplot set"
+
     def __init__(
         self,
+        *,
         figure_size: tuple[float, float] | None = None,
         dpi: int | None = None,
-        *,
         ax: Axes | None = None,
-        include_legend: bool = True,
+        legend: bool | None = None,
         xlabel: str | None = None,
         ylabel: str | None = None,
         title: str | None = None,
-        boxplot_width_scale: float = 0.8,
-        boxplot_group_width: float = 0.7,
+        width_scale: float = 0.8,
+        group_width: float = 0.7,
     ) -> None:
         """Initialize a BoxPlot.
 
-        Toggle the per-group vertical guide lines via
-        :meth:`enable_boxplot_group_vlines` / :meth:`disable_boxplot_group_vlines`
-        after construction.
+        Toggle the per-group vertical guide lines with
+        :meth:`display_group_separators` after construction.
         """
         super().__init__(
             figure_size=figure_size,
             dpi=dpi,
             ax=ax,
-            include_legend=include_legend,
+            legend=legend,
             xlabel=xlabel,
             ylabel=ylabel,
             title=title,
-            group_width=boxplot_group_width,
-            width_scale=boxplot_width_scale,
-            include_group_vlines=False,
+            group_width=group_width,
+            width_scale=width_scale,
         )
-        self._boxplot_data_list: list[BoxPlotSetData | BoxPlotStatsSetData] = []
-
-    def enable_boxplot_group_vlines(self) -> None:
-        """Show vertical guide lines at the center of each category group."""
-        self._include_group_vlines = True
-
-    def disable_boxplot_group_vlines(self) -> None:
-        """Hide the per-category vertical guide lines (the default)."""
-        self._include_group_vlines = False
-
-    @property
-    def boxplot_group_width(self) -> float:
-        """Width allocated to each category group."""
-        return self.group_width
-
-    @boxplot_group_width.setter
-    def boxplot_group_width(self, value: float) -> None:
-        """Set width allocated to each category group.
-
-        Args:
-            value (float): Group width in x-axis data units.
-
-        Returns:
-            None
-        """
-        self.group_width = float(value)
-
-    @property
-    def boxplot_width_scale(self) -> float:
-        """Scale factor for each per-set box width inside a group."""
-        return self.width_scale
-
-    @boxplot_width_scale.setter
-    def boxplot_width_scale(self, value: float) -> None:
-        """Set per-set width scaling within each category group.
-
-        Args:
-            value (float): Width scale multiplier.
-
-        Returns:
-            None
-        """
-        self.width_scale = float(value)
+        self._boxplot_data_list: list[_BoxPlotSetData] = []
 
     @staticmethod
-    def _convert_boxplot_data_to_dictionary(
-        scores: (
-            Mapping[str, Sequence[int | float]]
-            | Sequence[int | float]
-            | Sequence[Sequence[int | float]]
-            | pd.DataFrame
-            | NDArray
-        ),
-        scores_labels: list[str] | None = None,
-    ) -> dict[str, list[float]]:
-        """Convert boxplot input to a dictionary mapping labels to score lists.
+    def _sync_default_flier_zorder(style: BoxPlotOptions) -> BoxPlotOptions:
+        """Layer fliers with the rest of the set when no explicit flier styling was given.
 
-        Args:
-            scores (dict[str, list[float]] | list[float] | list[list[float]] | pd.DataFrame):
-                Boxplot distribution input.
-            scores_labels (list[str] | None, optional): Labels for list-based input.
-                Defaults to None.
-
-        Returns:
-            dict[str, list[float]]: Category label to score-list mapping.
+        An explicit ``flier_options`` (or ``options``) keeps its own zorder.
         """
-        return CategoricalDistributionPlotBase._convert_distribution_data_to_dictionary(
-            scores,
-            scores_labels,
-        )
+        return style.merged(flier_options=replace(style.flier_options, zorder=style.zorder))
 
-    def add_boxplot_dataset(
+    def _store_dataset(
+        self,
+        stats_dict: dict[str, BoxPlotStats],
+        *,
+        name: str | None,
+        style: BoxPlotOptions,
+        labels: list[str],
+        add_extra_labels: bool,
+        item_name: str,
+    ) -> None:
+        """Sync labels and store one dataset.
+
+        ``labels`` may include categories absent from ``stats_dict`` (e.g. empty raw-sample
+        categories): they still claim a slot on the axis, but draw no box.
+        """
+        self._sync_labels(labels, add_extra_labels=add_extra_labels, item_name=item_name)
+        set_name = name or f"Set {len(self._boxplot_data_list) + 1}"
+        style = replace(style, flier_options=replace(style.flier_options))
+        self._boxplot_data_list.append(
+            _BoxPlotSetData(name=set_name, stats_dict=stats_dict, style=style)
+        )
+        self._claim_legend_if_named(name)
+
+    def add_dataset(
         self,
         scores: (
             Mapping[str, Sequence[float]]
@@ -427,11 +292,11 @@ class BoxPlot(CategoricalDistributionPlotBase):
         ),
         name: str | None = None,
         *,
-        scores_labels: list[str] | None = None,
+        category_labels: list[str] | None = None,
         options: BoxPlotOptions | None = None,
-        facecolor: Color | None | _Unset = _UNSET,
+        facecolor: Color | None | Unset = UNSET,
         facealpha: float | None = None,
-        edgecolor: Color | None | _Unset = _UNSET,
+        edgecolor: Color | None | Unset = UNSET,
         edgealpha: float | None = None,
         edgewidth: float | None = None,
         percentiles: tuple[float, float] | None = None,
@@ -442,16 +307,21 @@ class BoxPlot(CategoricalDistributionPlotBase):
     ) -> None:
         """Add one boxplot dataset (one box per category) to the figure.
 
+        The raw samples are reduced to per-category :class:`BoxPlotStats` immediately
+        (matching Matplotlib's own statistics), so only the summary is retained. Non-finite
+        samples are dropped per category; a category with no finite samples keeps its axis
+        slot but draws no box.
+
         Args:
             scores (dict[str, list[float]] | list[float] | list[list[float]] | pd.DataFrame):
                 Distribution input by category.
-            scores_labels (list[str] | None, optional): Labels for list-based input.
+            category_labels (list[str] | None, optional): Labels for list-based input.
                 Defaults to None.
             name (str | None, optional): Legend label for the dataset. Defaults to None.
             options (BoxPlotOptions | None, optional): Base styling whose values are used
-                for any styling argument left as None. Defaults to None.
+                for any styling argument left unset. Defaults to None.
             facecolor (Color | None, optional): Box fill color. Pass ``None`` for an
-                unfilled (transparent) box. Omit to use the ``options`` default ``"denim"``.
+                unfilled (transparent) box. Omit to use the ``options`` default ``"default_grey"``.
             facealpha (float | None, optional): Box fill alpha override. Defaults to None.
             edgecolor (Color | None, optional): Box edge color. Pass ``None`` for no edge.
                 Omit to use the ``options`` default ``"black"``.
@@ -468,45 +338,46 @@ class BoxPlot(CategoricalDistributionPlotBase):
 
         Returns:
             None
-        """
-        base = options if options is not None else BoxPlotOptions()
-        # facecolor/edgecolor use the _UNSET sentinel so an explicit None reaches
-        # resolve_color_and_alpha (which maps it to "none"); only a truly omitted
-        # kwarg falls back to the options default.
-        resolved_facecolor = base.facecolor if facecolor is _UNSET else facecolor
-        resolved_facealpha = facealpha if facealpha is not None else base.facealpha
-        resolved_edgecolor = base.edgecolor if edgecolor is _UNSET else edgecolor
-        resolved_edgealpha = edgealpha if edgealpha is not None else base.edgealpha
-        resolved_edgewidth = edgewidth if edgewidth is not None else base.edgewidth
-        resolved_percentiles = percentiles if percentiles is not None else base.percentiles
-        resolved_showfliers = showfliers if showfliers is not None else base.showfliers
-        resolved_flier_options = flier_options if flier_options is not None else base.flier_options
-        resolved_zorder = zorder if zorder is not None else base.zorder
 
-        scores_dict = self._convert_boxplot_data_to_dictionary(scores, scores_labels)
-        self._sync_labels(
-            list(scores_dict.keys()),
+        Raises:
+            ValueError: If ``scores`` is empty.
+        """
+        style = (options if options is not None else BoxPlotOptions()).merged(
+            facecolor=facecolor,
+            facealpha=facealpha,
+            edgecolor=edgecolor,
+            edgealpha=edgealpha,
+            edgewidth=edgewidth,
+            percentiles=percentiles,
+            showfliers=showfliers,
+            flier_options=flier_options,
+            zorder=zorder,
+        )
+        if options is None and flier_options is None:
+            style = self._sync_default_flier_zorder(style)
+
+        scores_dict = self._convert_distribution_data_to_dictionary(scores, category_labels)
+        if len(scores_dict) == 0:
+            raise ValueError("scores is empty; provide scores for at least one category.")
+
+        # Filter non-finite samples before the emptiness check so a NaN-only category is
+        # skipped (keeping its label slot) for every input container, not just DataFrames.
+        stats_dict: dict[str, BoxPlotStats] = {}
+        for label, vals in scores_dict.items():
+            finite_vals = np.asarray(vals, dtype=float)
+            finite_vals = finite_vals[np.isfinite(finite_vals)]
+            if finite_vals.size > 0:
+                stats_dict[label] = BoxPlotStats.from_samples(
+                    finite_vals, percentiles=style.percentiles
+                )
+        self._store_dataset(
+            stats_dict,
+            name=name,
+            style=style,
+            labels=list(scores_dict.keys()),
             add_extra_labels=add_extra_labels,
             item_name="boxplot set",
         )
-
-        set_name = name or f"Set {len(self._boxplot_data_list) + 1}"
-        self._boxplot_data_list.append(
-            BoxPlotSetData(
-                scores_dict=scores_dict,
-                name=set_name,
-                facecolor=resolved_facecolor,
-                facealpha=resolved_facealpha,
-                edgecolor=resolved_edgecolor,
-                edgealpha=resolved_edgealpha,
-                edgewidth=resolved_edgewidth,
-                percentiles=resolved_percentiles,
-                showfliers=resolved_showfliers,
-                flier_options=resolved_flier_options,
-                zorder=resolved_zorder,
-            )
-        )
-        self._claim_legend_if_named(name)
 
     @staticmethod
     def _box_plot_stats_from_mapping(
@@ -601,15 +472,15 @@ class BoxPlot(CategoricalDistributionPlotBase):
             "DataFrame."
         )
 
-    def add_boxplot_stats_dataset(
+    def add_stats_dataset(
         self,
         stats: Mapping[str, BoxPlotStats | Mapping[str, object]] | pd.DataFrame,
         name: str | None = None,
         *,
         options: BoxPlotOptions | None = None,
-        facecolor: Color | None | _Unset = _UNSET,
+        facecolor: Color | None | Unset = UNSET,
         facealpha: float | None = None,
-        edgecolor: Color | None | _Unset = _UNSET,
+        edgecolor: Color | None | Unset = UNSET,
         edgealpha: float | None = None,
         edgewidth: float | None = None,
         showfliers: bool | None = None,
@@ -619,11 +490,10 @@ class BoxPlot(CategoricalDistributionPlotBase):
     ) -> None:
         """Add one boxplot dataset from precomputed summary statistics.
 
-        Use this instead of :meth:`add_boxplot_dataset` when you already have a
+        Use this instead of :meth:`add_dataset` when you already have a
         five-number summary per category (median, quartiles, whiskers) rather than
-        the raw samples. Boxes are drawn via Matplotlib's ``Axes.bxp``. Stats and
-        raw datasets can be mixed on the same figure; all sets share the grouped
-        layout and are positioned together.
+        the raw samples. Stats and raw datasets can be mixed on the same figure; all
+        sets share the grouped layout and are positioned together.
 
         Args:
             stats (Mapping[str, BoxPlotStats | Mapping[str, object]] | pd.DataFrame):
@@ -634,10 +504,10 @@ class BoxPlot(CategoricalDistributionPlotBase):
                 a row whose columns are those field names (index = categories).
             name (str | None, optional): Legend label for the dataset. Defaults to None.
             options (BoxPlotOptions | None, optional): Base styling whose values are
-                used for any styling argument left as None. The ``percentiles`` field
+                used for any styling argument left unset. The ``percentiles`` field
                 is ignored because whiskers are supplied directly. Defaults to None.
             facecolor (Color | None, optional): Box fill color. Pass ``None`` for an
-                unfilled (transparent) box. Omit to use the ``options`` default ``"denim"``.
+                unfilled (transparent) box. Omit to use the ``options`` default ``"default_grey"``.
             facealpha (float | None, optional): Box fill alpha override. Defaults to None.
             edgecolor (Color | None, optional): Box edge color. Pass ``None`` for no edge.
                 Omit to use the ``options`` default ``"black"``.
@@ -657,195 +527,82 @@ class BoxPlot(CategoricalDistributionPlotBase):
         Raises:
             ValueError: If ``stats`` is empty.
         """
-        base = options if options is not None else BoxPlotOptions()
-        # facecolor/edgecolor use the _UNSET sentinel so an explicit None reaches
-        # resolve_color_and_alpha (which maps it to "none"); only a truly omitted
-        # kwarg falls back to the options default.
-        resolved_facecolor = base.facecolor if facecolor is _UNSET else facecolor
-        resolved_facealpha = facealpha if facealpha is not None else base.facealpha
-        resolved_edgecolor = base.edgecolor if edgecolor is _UNSET else edgecolor
-        resolved_edgealpha = edgealpha if edgealpha is not None else base.edgealpha
-        resolved_edgewidth = edgewidth if edgewidth is not None else base.edgewidth
-        resolved_showfliers = showfliers if showfliers is not None else base.showfliers
-        resolved_flier_options = flier_options if flier_options is not None else base.flier_options
-        resolved_zorder = zorder if zorder is not None else base.zorder
+        style = (options if options is not None else BoxPlotOptions()).merged(
+            facecolor=facecolor,
+            facealpha=facealpha,
+            edgecolor=edgecolor,
+            edgealpha=edgealpha,
+            edgewidth=edgewidth,
+            showfliers=showfliers,
+            flier_options=flier_options,
+            zorder=zorder,
+        )
+        if options is None and flier_options is None:
+            style = self._sync_default_flier_zorder(style)
 
         stats_dict = self._convert_boxplot_stats_to_dictionary(stats)
         if len(stats_dict) == 0:
             raise ValueError("stats is empty; provide statistics for at least one category.")
 
-        self._sync_labels(
-            list(stats_dict.keys()),
+        self._store_dataset(
+            stats_dict,
+            name=name,
+            style=style,
+            labels=list(stats_dict.keys()),
             add_extra_labels=add_extra_labels,
             item_name="boxplot stats set",
         )
 
-        set_name = name or f"Set {len(self._boxplot_data_list) + 1}"
-        self._boxplot_data_list.append(
-            BoxPlotStatsSetData(
-                name=set_name,
-                stats_dict=stats_dict,
-                facecolor=resolved_facecolor,
-                facealpha=resolved_facealpha,
-                edgecolor=resolved_edgecolor,
-                edgealpha=resolved_edgealpha,
-                edgewidth=resolved_edgewidth,
-                showfliers=resolved_showfliers,
-                flier_options=resolved_flier_options,
-                zorder=resolved_zorder,
-            )
-        )
-        self._claim_legend_if_named(name)
-
     @property
-    def _boxplot_centers(self) -> np.ndarray:
-        """Calculate x-axis centers for each boxplot category."""
-        return self._category_centers
+    def _datasets(self) -> Sequence[object]:
+        return self._boxplot_data_list
 
-    def _draw_boxplot_group_vlines(self) -> None:
-        """Draw vertical lines at the center of boxplot groups."""
-        self._draw_group_vlines()
-
-    def _draw_boxplot(self) -> None:
-        """Draw all boxplot sets (raw-data and stats-based) on the plot."""
-        n_boxplot_sets = len(self._boxplot_data_list)
-        if n_boxplot_sets == 0:  # pragma: no cover - _build_plot raises first
-            return  # pragma: no cover
-
-        if (
-            self._labels is None
-        ):  # pragma: no cover - _build_plot raises first if labels are missing
-            return  # pragma: no cover
-
-        centers = self._boxplot_centers
-        box_width = self.boxplot_group_width / n_boxplot_sets
-        offsets = (np.arange(n_boxplot_sets) - (n_boxplot_sets - 1) / 2.0) * box_width
-        widths = box_width * self.boxplot_width_scale
+    def _draw_datasets(self) -> None:
+        """Draw all boxplot sets through ``Axes.bxp``."""
+        centers, offsets, widths = self._grouped_layout(len(self._boxplot_data_list))
 
         for k, set_data in enumerate(self._boxplot_data_list):
-            positions_all = centers + offsets[k]
-            if isinstance(set_data, BoxPlotSetData):
-                drawn = self._draw_raw_box_set(set_data, positions_all, widths)
-            else:
-                drawn = self._draw_stats_box_set(set_data, positions_all, widths)
+            bxp_stats: list[dict[str, object]] = []
+            pos_k: list[float] = []
+            means_present: list[bool] = []
+            for label, stat, x in self._present_positions(
+                set_data.stats_dict, centers + offsets[k]
+            ):
+                bxp_stats.append(stat.to_bxp_dict(label))
+                pos_k.append(x)
+                means_present.append(stat.mean is not None)
 
-            if drawn is not None:
-                self._style_box_set(drawn, set_data)
-
-    def _draw_raw_box_set(
-        self,
-        set_data: BoxPlotSetData,
-        positions_all: np.ndarray,
-        widths: float,
-    ) -> dict[str, Any] | None:
-        """Draw one raw-data boxplot set via ``Axes.boxplot``.
-
-        Args:
-            set_data (BoxPlotSetData): The raw-data set to draw.
-            positions_all (np.ndarray): X positions for every category center.
-            widths (float): Box width.
-
-        Returns:
-            dict[str, Any] | None: The Matplotlib artist dict, or None when the set
-            has no non-empty categories to draw.
-        """
-        assert self._labels is not None
-        data_k: list[list[float]] = []
-        pos_k: list[float] = []
-        for lab, x in zip(self._labels, positions_all, strict=True):
-            vals = set_data.scores_dict.get(lab, [])
-            if vals is None or len(vals) == 0:
+            if len(bxp_stats) == 0:
                 continue
-            data_k.append(list(vals))
-            pos_k.append(float(x))
 
-        if len(data_k) == 0:
-            return None
-
-        return cast(
-            "dict[str, Any]",
-            self._ax.boxplot(
-                data_k,
-                positions=pos_k,
-                widths=widths,
-                patch_artist=True,
-                showfliers=set_data.showfliers,
-                whis=set_data.percentiles,
-                # Cast to satisfy the type-checker: Matplotlib stubs expect
-                # a plain ``dict[str, object]`` for ``flierprops``.
-                flierprops=cast(
-                    dict[str, object],
-                    set_data.flier_options.to_mpl_settings_dict(),
-                ),
-            ),
-        )
-
-    def _draw_stats_box_set(
-        self,
-        set_data: BoxPlotStatsSetData,
-        positions_all: np.ndarray,
-        widths: float,
-    ) -> dict[str, Any] | None:
-        """Draw one summary-stats boxplot set via ``Axes.bxp``.
-
-        Means are rendered only when every drawn box in the set provides one.
-
-        Args:
-            set_data (BoxPlotStatsSetData): The stats-based set to draw.
-            positions_all (np.ndarray): X positions for every category center.
-            widths (float): Box width.
-
-        Returns:
-            dict[str, Any] | None: The Matplotlib artist dict, or None when the set
-            has no categories to draw.
-        """
-        assert self._labels is not None
-        bxp_stats: list[dict[str, object]] = []
-        pos_k: list[float] = []
-        means_present: list[bool] = []
-        for lab, x in zip(self._labels, positions_all, strict=True):
-            stat = set_data.stats_dict.get(lab)
-            if stat is None:
-                continue
-            bxp_stats.append(stat.to_bxp_dict(lab))
-            pos_k.append(float(x))
-            means_present.append(stat.mean is not None)
-
-        if len(bxp_stats) == 0:
-            return None
-
-        return cast(
-            "dict[str, Any]",
-            self._ax.bxp(
+            style = set_data.style
+            drawn = self._ax.bxp(
                 bxp_stats,
                 positions=pos_k,
                 widths=widths,
                 patch_artist=True,
-                showfliers=set_data.showfliers,
+                manage_ticks=False,
+                showfliers=style.showfliers,
+                # Means render only when every drawn box in the set provides one.
                 showmeans=all(means_present),
                 # Cast to satisfy the type-checker: Matplotlib stubs expect
                 # a plain ``dict[str, object]`` for ``flierprops``.
                 flierprops=cast(
                     dict[str, object],
-                    set_data.flier_options.to_mpl_settings_dict(),
+                    style.flier_options.to_mpl_settings_dict(),
                 ),
-            ),
-        )
+            )
+            self._style_box_set(drawn, style)
 
-    def _style_box_set(
-        self,
-        drawn: dict[str, Any],
-        set_data: BoxPlotSetData | BoxPlotStatsSetData,
-    ) -> None:
+        assert self._labels is not None
+        self._ax.set_xlim(0.5, len(self._labels) + 0.5)
+
+    def _style_box_set(self, drawn: dict[str, Any], style: BoxPlotOptions) -> None:
         """Apply gerrytools styling to the artists of one drawn box set.
 
-        ``Axes.boxplot`` and ``Axes.bxp`` return the same dict of artist lists
-        keyed by component name (boxes, whiskers, caps, medians, means, fliers),
-        so both raw-data and stats-based sets are styled identically here.
-
         Args:
-            drawn (dict[str, Any]): Matplotlib artist dict from boxplot/bxp.
-            set_data (BoxPlotSetData | BoxPlotStatsSetData): The set's styling.
+            drawn (dict[str, Any]): Matplotlib artist dict from ``Axes.bxp``.
+            style (BoxPlotOptions): The set's styling.
 
         Returns:
             None
@@ -854,69 +611,25 @@ class BoxPlot(CategoricalDistributionPlotBase):
             for artist in drawn.get(key, []):
                 self._artists.track(artist)
 
-        facecolor = self._resolved_rgba(set_data.facecolor, set_data.facealpha, field="facecolor")
-        edgecolor = self._resolved_rgba(set_data.edgecolor, set_data.edgealpha, field="edgecolor")
+        facecolor = self._resolved_rgba(style.facecolor, style.facealpha, field="facecolor")
+        edgecolor = self._resolved_rgba(style.edgecolor, style.edgealpha, field="edgecolor")
 
         for patch in drawn["boxes"]:
             patch.set_facecolor(facecolor)
-            patch.set_linewidth(set_data.edgewidth)
+            patch.set_linewidth(style.edgewidth)
             patch.set_edgecolor(edgecolor)
-            patch.set_zorder(set_data.zorder)
+            patch.set_zorder(style.zorder)
 
         for key in ("whiskers", "caps", "medians", "means"):
             for artist in drawn.get(key, []):
                 artist.set_color(edgecolor)
-                artist.set_linewidth(set_data.edgewidth)
-                artist.set_zorder(set_data.zorder)
+                artist.set_linewidth(style.edgewidth)
+                artist.set_zorder(style.zorder)
 
-        for artist in drawn.get("fliers", []):
-            artist.set_zorder(set_data.zorder)
+        # Fliers keep the zorder from flier_options (already applied via flierprops).
 
-    def _build_plot(self) -> None:
-        """Build the boxplot figure."""
-        if self._labels is None or len(self._labels) == 0:
-            raise ValueError("No labels defined yet.")
-
-        if len(self._boxplot_data_list) == 0:
-            raise ValueError("No boxplot sets added yet.")
-
-        self._draw_boxplot()
-        self._draw_pointset(self._boxplot_centers)
-
-        if self._include_group_vlines:
-            self._draw_boxplot_group_vlines()
-
-    def _get_boxplot_legend_handles(self) -> list[LegendHandle]:
-        """Generate legend handles for boxplot sets."""
-        handles: list[LegendHandle] = []
-
-        for boxplot_data in self._boxplot_data_list:
-            handles.append(
-                Patch(
-                    facecolor=self._resolved_rgba(
-                        boxplot_data.facecolor,
-                        boxplot_data.facealpha,
-                        field="facecolor",
-                    ),
-                    edgecolor=self._resolved_rgba(
-                        boxplot_data.edgecolor,
-                        boxplot_data.edgealpha,
-                        field="edgecolor",
-                    ),
-                    label=boxplot_data.name,
-                )
-            )
-
-        return handles
-
-    @property
-    def _legend_handles(self) -> list[LegendHandle]:
-        """Generated legend handles for boxplot and point sets."""
-        handles: list[LegendHandle] = []
-
-        handles.extend(self._get_boxplot_legend_handles())
-        handles.extend(self._get_pointset_legend_handles())
-        handles.extend(self._get_named_line_legend_handles())
-        handles.extend(self._get_named_band_legend_handles())
-
-        return handles
+    def _dataset_legend_handles(self) -> list[LegendHandle]:
+        """Legend handles for the boxplot sets."""
+        return self._patch_legend_handles(
+            (boxplot_data.name, boxplot_data.style) for boxplot_data in self._boxplot_data_list
+        )

@@ -9,239 +9,110 @@ from warnings import warn
 import numpy as np
 import pandas as pd
 from matplotlib.axes import Axes
-from matplotlib.lines import Line2D
 from matplotlib.markers import MarkerStyle
 from matplotlib.patches import Patch
 from numpy.typing import NDArray
 
-from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
+from gerrytools.plotting._axes_backed import deferred_axis_update
 from gerrytools.plotting.data.gerryplot import GerryPlotBase
-from gerrytools.plotting.data.options import DEFAULT_EDGE_WIDTH, HistogramOptions
-from gerrytools.plotting.mpl.marker_options import PointMarkerOptions
-from gerrytools.plotting.utils import _replace_non_none
-from gerrytools.typing import BinsType, Color, HistType, LegendHandle, NumericArrayLike
+from gerrytools.plotting.data.options import (
+    DEFAULT_EDGE_WIDTH,
+    HistogramOptions,
+    _needs_default_edge_width,
+)
+from gerrytools.plotting.mpl.marker_options import PointMarkerOptions, _marker_legend_handle
+from gerrytools.plotting.utils import (
+    UNSET,
+    Unset,
+    _coerce_to_1d_finite_float_array,
+    _coerce_values_and_weights,
+    _replace_non_none,
+)
+from gerrytools.typing import BinsType, Color, HistType, LegendHandle
 
 logger = get_logger(__name__)
 
 
-def _coerce_to_1d_float_array(
-    values: NumericArrayLike, *, column: str | None = None, field: str
-) -> NDArray[np.float64]:
-    """Coerce various inputs into a 1D float ndarray (no finite-filtering).
+def _marker_clearance_pt(
+    marker: str,
+    markersize_pt: float,
+    markeredgewidth_pt: float,
+) -> float:
+    """Compute the point-space clearance one marker glyph needs above a bar.
 
     Args:
-        values (NumericArrayLike): Input values. Supported forms include scalar numerics, iterables,
-            numpy arrays, pandas Series, and pandas DataFrames.
-        column (str | None, optional): DataFrame column name to extract when ``values``
-            is a DataFrame. Defaults to None.
-        field (str): Field name used in validation error messages.
+        marker (str): Marker symbol passed to Matplotlib.
+        markersize_pt (float): Marker size in points.
+        markeredgewidth_pt (float): Marker edge width in points.
 
     Returns:
-        NDArray[np.float64]: One-dimensional float array.
+        float: Clearance in points.
     """
-    if values is None:
-        raise ValueError(f"{field}: cannot be None.")
+    marker_style = MarkerStyle(marker)
+    path = marker_style.get_path().transformed(marker_style.get_transform())
 
-    if isinstance(values, pd.DataFrame):
-        if column is None:
-            if values.shape[1] != 1:
-                raise ValueError(
-                    f"{field}: DataFrame input must have exactly one column or pass column=..."
-                )
-            ser = values.iloc[:, 0]
-        else:
-            if column not in values.columns:
-                raise ValueError(f"{field}: column {column!r} not found in DataFrame.")
-            ser = values[column]
-        arr = ser.to_numpy(dtype=float)
-    elif isinstance(values, pd.Series):
-        arr = values.to_numpy(dtype=float)
-    elif np.isscalar(values):
-        arr = np.array([values], dtype=float)
-    elif isinstance(values, np.ndarray):
-        arr = np.asarray(values, dtype=float)
-    elif isinstance(values, (list, tuple)):
-        arr = np.asarray(values, dtype=float)
-    else:
-        if not isinstance(values, Iterable):
-            raise TypeError(
-                f"{field}: expected an iterable of numeric values, got {type(values).__name__!r}."
-            )
-        # generators/iterators need materializing for numpy coercion
-        arr = np.asarray(list(values), dtype=float)
+    verts = np.asarray(path.vertices, dtype=float)
+    ys = verts[:, 1]
+    y0 = float(ys.min())
+    y1 = float(ys.max())
 
-    arr = np.asarray(arr, dtype=float).ravel()
-    return arr
+    height_u = y1 - y0
+    if (
+        height_u == 0.0
+    ):  # pragma: no cover - no standard matplotlib marker produces an exactly-zero y-extent; defensive guard
+        return 0.5 * markersize_pt + 0.5 * markeredgewidth_pt  # pragma: no cover
 
-
-def _coerce_values_and_weights(
-    values: NumericArrayLike,
-    *,
-    weights: NumericArrayLike | None,
-    column: str | None,
-) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
-    """Coerce values and weights while preserving alignment through shared masking.
-
-    Args:
-        values (NumericArrayLike): Histogram values input.
-        weights (NumericArrayLike | None): Optional weights input aligned to ``values``.
-        column (str | None): DataFrame column name for ``values`` when applicable.
-
-    Returns:
-        tuple[NDArray[np.float64], NDArray[np.float64]]: Finite values and matching
-            weights arrays.
-
-    Raises:
-        ValueError: If values are empty/non-finite or weights are length-incompatible.
-    """
-    vals_raw = _coerce_to_1d_float_array(values, column=column, field="values")
-    if vals_raw.size == 0:
-        raise ValueError("values: must have at least one entry.")
-
-    mask = np.isfinite(vals_raw)
-    vals = vals_raw[mask]
-    if vals.size == 0:
-        raise ValueError("values: must have at least one finite entry.")
-
-    if weights is None:
-        wts = np.ones(vals.shape[0], dtype=float)
-    else:
-        w_raw = _coerce_to_1d_float_array(weights, column=None, field="weights")
-        if w_raw.size != vals_raw.size:
-            raise ValueError("weights must have the same length as values (before filtering).")
-
-        wts = w_raw[mask]
-
-        if not np.all(np.isfinite(wts)):
-            raise ValueError("weights must be finite wherever values are finite.")
-
-    return vals, wts
-
-
-def _coerce_to_1d_finite_float_array(
-    values: NumericArrayLike, *, column: str | None = None, field: str
-) -> NDArray[np.float64]:
-    """Coerce various inputs into a finite 1D float ndarray.
-
-    Args:
-        values (NumericArrayLike): Input values. Supported forms include scalar numerics, iterables,
-            numpy arrays, pandas Series, and pandas DataFrames.
-        column (str | None, optional): DataFrame column name to extract when ``values``
-            is a DataFrame. Defaults to None.
-        field (str): Field name used in validation error messages.
-
-    Returns:
-        1D ndarray of finite float values.
-
-    Raises:
-        ValueError: If input cannot be coerced to 1D float array.
-    """
-    arr = _coerce_to_1d_float_array(values, column=column, field=field)
-    return arr[np.isfinite(arr)]
+    pt_per_u = markersize_pt / height_u
+    bottom_pt = y0 * pt_per_u
+    return (-bottom_pt) + 0.5 * markeredgewidth_pt
 
 
 @dataclass(frozen=True)
-class HistPointList:
+class _HistPointList:
     """A dataclass representing a list of points to be plotted on a histogram figure.
 
     Attributes:
         name (str): The name of the point set.
-        values_list (list[float]): A list of float values representing the points to be plotted.
-        point_data (PointMarkerOptions): Settings for how the points should be marked on the plot
+        values (NDArray[np.float64]): The point values to be plotted.
+        point_data (PointMarkerOptions): Settings for how the points should be marked on the plot.
+        y_offset (float): Absolute y-offset added above the bar top for the first point
+            landing in each bin.
+        centered (bool): Whether points are centered on their histogram bins.
     """
 
     name: str
     values: NDArray[np.float64]
     point_data: PointMarkerOptions
-    y_offset: float = 0.02
+    y_offset: float = 0.0
     centered: bool = False
 
 
 @dataclass(frozen=True)
-class HistogramData:
+class _HistogramData:
     """One histogram layer/series.
 
     Attributes:
         name: Name of the histogram series.
         values: 1D array of values to histogram.
-        weights: Optional 1D array of weights for the values.
-        facecolor: Fill color for the histogram bars.
-        facealpha: Alpha transparency for the fill color.
-        edgecolor: Edge color for the histogram bars.
-        edgealpha: Alpha transparency for the edge color.
-        edgewidth: Line width for the histogram bar edges.
-        zorder: Z-order for layering the histogram in the plot.
+        weights: 1D array of weights for the values.
+        style: Resolved styling for the series.
     """
 
     name: str
     values: NDArray[np.float64]
     weights: NDArray[np.float64]
-
-    facecolor: Color = "ensemble:recom"
-    facealpha: float | None = None
-
-    edgecolor: Color = "black"
-    edgealpha: float | None = None
-    edgewidth: float = 0.8
-
-    zorder: int = 0
+    style: HistogramOptions
 
     def __post_init__(self) -> None:
+        # add_dataset already rejects empty/non-finite input; only coerce shapes here.
         vals = np.asarray(self.values, dtype=float).ravel()
-
-        if not np.all(np.isfinite(vals)):
-            raise ValueError(f"HistogramData {self.name!r}: values must be finite.")
-
-        if vals.size == 0:
-            raise ValueError(f"HistogramData {self.name!r}: values has no entries.")
         object.__setattr__(self, "values", vals)
 
-        w_arr = np.asarray(self.weights, dtype=float).ravel()
-        if w_arr.size != vals.size:
+        weights_arr = np.asarray(self.weights, dtype=float).ravel()
+        if weights_arr.size != vals.size:
             raise ValueError("weights must have the same length as values.")
-        if not np.all(np.isfinite(w_arr)):
-            raise ValueError(f"HistogramData {self.name!r}: weights must be finite.")
-        object.__setattr__(self, "weights", w_arr)
-
-        lw = float(self.edgewidth)
-        if not math.isfinite(lw):
-            raise ValueError("edgewidth must be finite")
-        if lw < 0:
-            raise ValueError("edgewidth must be nonnegative")
-        object.__setattr__(self, "edgewidth", lw)
-
-        resolved_fc, resolved_a = resolve_color_and_alpha(
-            self.facecolor,
-            alpha=self.facealpha,
-            allow_none=True,
-            field="facecolor",
-            owner=f"HistogramData {self.name}",
-            logger=logger,
-        )
-        object.__setattr__(self, "facecolor", resolved_fc)
-        object.__setattr__(self, "facealpha", resolved_a)
-
-        resolved_ec, resolved_ea = resolve_color_and_alpha(
-            self.edgecolor,
-            alpha=self.edgealpha,
-            allow_none=True,
-            field="edgecolor",
-            owner=f"HistogramData {self.name}",
-            logger=logger,
-        )
-        object.__setattr__(self, "edgecolor", resolved_ec)
-        object.__setattr__(self, "edgealpha", resolved_ea)
-
-        if resolved_ec.lower() == "none" and lw > 0:
-            logger.debug(
-                "For HistogramData %s: edge_color is 'none' but edgewidth is %s>0; setting edgewidth to 0.",
-                self.name,
-                lw,
-            )
-            object.__setattr__(self, "edgewidth", 0.0)
-
-        object.__setattr__(self, "zorder", int(self.zorder))
+        object.__setattr__(self, "weights", weights_arr)
 
 
 class Histogram(GerryPlotBase):
@@ -249,19 +120,19 @@ class Histogram(GerryPlotBase):
 
     Typical usage:
         h = Histogram()
-        h.add_histogram(df["ensemble1"], name="Ensemble", facecolor="denim", facealpha=0.35)
-        h.add_histogram(df["ensemble2"], name="Plan", histtype="outline", facecolor="black", facealpha=1.0)
+        h.add_dataset(df["ensemble1"], name="Ensemble", facecolor="denim", facealpha=0.35)
+        h.add_dataset(df["ensemble2"], name="Plan", histtype="outline", facecolor="black", facealpha=1.0)
         h.add_vertical_lines(plan_value, linecolor="black", name="Plan value")
         h.show()
     """
 
     def __init__(
         self,
+        *,
         figure_size: tuple[float, float] | None = None,
         dpi: int | None = None,
-        *,
         ax: Axes | None = None,
-        include_legend: bool = True,
+        legend: bool | None = None,
         xlabel: str | None = None,
         ylabel: str | None = None,
         title: str | None = None,
@@ -275,44 +146,59 @@ class Histogram(GerryPlotBase):
                 Defaults to ``300`` when ``ax`` is not provided.
             ax (matplotlib.axes.Axes | None, optional): Render onto an existing
                 matplotlib ``Axes`` instead of creating a fresh figure. Defaults to None.
-            include_legend (bool, optional): Whether to include a legend in the plot.
+            legend (bool, optional): Whether to include a legend in the plot.
                 Defaults to True.
             xlabel (str | None, optional): The label for the x-axis. Defaults to None.
             ylabel (str | None, optional): The label for the y-axis. Defaults to None.
             title (str | None, optional): The title of the plot. Defaults to None.
 
-        To toggle the grid or suppress histogram-configuration warnings, call
-        :meth:`enable_grid` / :meth:`disable_grid` and :meth:`suppress_warnings` /
-        :meth:`show_warnings` after construction.
+        Toggle the grid or histogram-configuration warnings with :meth:`display_grid` and
+        :meth:`display_warnings` after construction.
         """
         super().__init__(
             figure_size=figure_size,
             dpi=dpi,
             ax=ax,
-            include_legend=include_legend,
+            legend=legend,
             xlabel=xlabel,
             ylabel=ylabel,
             title=title,
         )
-        self.hide_warnings = False
-        self.grid = False
+        self._show_warnings = True
         self._bins: BinsType | None = None
         self._bin_alignment = "edge"
-        self.as_density_plot = False
+        self._as_density_plot = False
         self._binwidth: float | None = None
 
-        self._hist_data_dict: dict[str, list[HistogramData]] = {
+        self._hist_data_dict: dict[str, list[_HistogramData]] = {
             "overlay": [],
-            "weave": [],
+            "grouped": [],
             "outline": [],
             "stack": [],
         }
-        self._histpointlist_list: list[HistPointList] = []
+        self._histpointlist_list: list[_HistPointList] = []
 
+    @property
+    def as_density_plot(self) -> bool:
+        """Whether histogram values are normalized as densities.
+
+        Each series is normalized on its own, except ``'stack'`` series, which are normalized
+        jointly so the stacked total integrates to 1 (matching matplotlib's
+        ``hist(stacked=True, density=True)``).
+        """
+        return self._as_density_plot
+
+    @as_density_plot.setter
+    @deferred_axis_update
+    def as_density_plot(self, value: bool) -> None:
+        self._as_density_plot = bool(value)
+
+    @deferred_axis_update
     def center_data_on_bin_edges(self) -> None:
         """Center histogram data on bin edges."""
         self._bin_alignment = "center"
 
+    @deferred_axis_update
     def set_bins(self, bins: BinsType | None) -> None:
         """Set the bins for the histogram.
 
@@ -346,9 +232,14 @@ class Histogram(GerryPlotBase):
         Returns:
             None
         """
-        self._bins = bins
+        self._bins = (
+            bins
+            if bins is None or isinstance(bins, (int, str))
+            else np.asarray(bins, dtype=float).copy()
+        )
         self._binwidth = None
 
+    @deferred_axis_update
     def set_bins_by_width(self, binwidth: float | None) -> None:
         """Set histogram bins by specifying a fixed bin width.
 
@@ -359,41 +250,36 @@ class Histogram(GerryPlotBase):
             binwidth (float | None): Desired width of each histogram bin. If None, the
                 histogram bins will be computed automatically using numpy's default binning
                 strategy ('auto').
+
+        Raises:
+            ValueError: If ``binwidth`` is not a positive finite number.
         """
+        if binwidth is not None:
+            binwidth = float(binwidth)
+            if not math.isfinite(binwidth) or binwidth <= 0.0:
+                raise ValueError(f"binwidth must be a positive finite number; got {binwidth!r}.")
         self._bins = None
         self._binwidth = binwidth
 
+    @deferred_axis_update
     def clear_histograms(self) -> None:
         """Clear all histogram sets."""
         for key in self._hist_data_dict:
             self._hist_data_dict[key].clear()
 
-    def enable_grid(self) -> None:
-        """Show a matplotlib grid on the plot."""
-        self.grid = True
+    def display_warnings(self, enabled: bool) -> None:
+        """Set whether warnings about potentially problematic settings are displayed."""
+        self._show_warnings = enabled
 
-    def disable_grid(self) -> None:
-        """Hide the matplotlib grid (the default)."""
-        self.grid = False
+    def as_density(self, enabled: bool = True) -> None:
+        """Set whether histograms are rendered as densities.
 
-    def suppress_warnings(self) -> None:
-        """Suppress warnings about potentially problematic histogram settings.
-
-        Useful in batch scripts where the histogram configuration is known to
-        intentionally trigger warnings (e.g. an outline histogram with
-        ``edgewidth <= 0``) and the noise would be distracting.
+        ``'stack'`` series normalize jointly (the stacked total integrates to 1); every
+        other histtype normalizes each series on its own.
         """
-        self.hide_warnings = True
+        self.as_density_plot = enabled
 
-    def show_warnings(self) -> None:
-        """Re-enable warnings about potentially problematic histogram settings."""
-        self.hide_warnings = False
-
-    def transform_to_density(self) -> None:
-        """Transform the histogram to a density plot."""
-        self.as_density_plot = True
-
-    def add_histogram(
+    def add_dataset(
         self,
         values: Iterable[float] | NDArray | pd.Series | pd.DataFrame,
         name: str | None = None,
@@ -401,9 +287,9 @@ class Histogram(GerryPlotBase):
         weights: Iterable[float] | NDArray | None = None,
         column: str | None = None,
         options: HistogramOptions | None = None,
-        facecolor: Color | None = None,
+        facecolor: Color | None | Unset = UNSET,
         facealpha: float | None = None,
-        edgecolor: Color | None = None,
+        edgecolor: Color | None | Unset = UNSET,
         edgealpha: float | None = None,
         edgewidth: float | None = None,
         histtype: HistType | None = None,
@@ -416,18 +302,18 @@ class Histogram(GerryPlotBase):
 
         - 'overlay': Histograms are drawn on top of each other, with no stacking.
         - 'stack': Histograms are stacked on top of each other.
-        - 'weave': Histograms are drawn side-by-side, with each histogram bar
+        - 'grouped': Histograms are drawn side-by-side, with each histogram bar
             divided into equal-width segments for each histogram.
         - 'outline': Histograms are drawn as outlines only, with no fill. Effectively
             a skyline plot.
 
         Note:
-            Each type of histogram ('overlay', 'stack', 'weave', 'outline') maintains its own
+            Each type of histogram ('overlay', 'stack', 'grouped', 'outline') maintains its own
             separate list of histogram data. When adding a histogram, it is added to the list
-            corresponding to the specified ``histtype``. Therefore, a histogram of type 'weave'
-            is added to a plot containing both 'overlay' histograms and 'weave' histograms,
-            only the 'weave' histograms will be drawn in the 'weave' style; the 'overlay'
-            histograms will be drawn in the 'overlay' style and will not interact with the 'weave'
+            corresponding to the specified ``histtype``. Therefore, a histogram of type 'grouped'
+            is added to a plot containing both 'overlay' histograms and 'grouped' histograms,
+            only the 'grouped' histograms will be drawn in the 'grouped' style; the 'overlay'
+            histograms will be drawn in the 'overlay' style and will not interact with the 'grouped'
             histograms. Similarly, 'stack' histograms are stacked only with other 'stack'
             histograms, and the stacking order is determined by the order in which they were added.
 
@@ -446,8 +332,10 @@ class Histogram(GerryPlotBase):
             column (str | None, optional): The column name to use if values is a DataFrame.
             name (str | None, optional): The name of the histogram series for the legend.
                 Defaults to None.
+            options (HistogramOptions | None, optional): Base histogram styling. Explicit
+                keyword arguments override matching fields. Defaults to None.
             facecolor (Color, optional): The fill color of the histogram bars.
-                Defaults to "denim".
+                Defaults to "default_grey".
             facealpha (float | None, optional): The alpha transparency of the histogram bars.
                 Defaults to None.
             edgecolor (Color, optional): The edge color of the histogram bars. Defaults to "none"
@@ -459,78 +347,69 @@ class Histogram(GerryPlotBase):
                 falls back to 0.8 so ``edgecolor`` alone produces edged bars. Pass ``edgewidth=0``
                 explicitly to keep the edge hidden.
             histtype (HistType, optional): The type of histogram to add. Must be one of
-                'overlay', 'stack', 'weave', 'outline'. Defaults to 'overlay'.
+                'overlay', 'stack', 'grouped', 'outline'. Defaults to 'overlay'.
             zorder (int, optional): The z-order of the histogram. Defaults to 2.
         """
         vals, wts = _coerce_values_and_weights(values, weights=weights, column=column)
 
         base = options if options is not None else HistogramOptions()
-        resolved_facecolor = facecolor if facecolor is not None else base.facecolor
-        resolved_facealpha = facealpha if facealpha is not None else base.facealpha
-        resolved_edgecolor = edgecolor if edgecolor is not None else base.edgecolor
-        resolved_edgealpha = edgealpha if edgealpha is not None else base.edgealpha
-        resolved_edgewidth = edgewidth if edgewidth is not None else base.edgewidth
-        resolved_histtype = histtype if histtype is not None else base.histtype
-        resolved_zorder = zorder if zorder is not None else base.zorder
+        style = base.merged(
+            facecolor=facecolor,
+            facealpha=facealpha,
+            edgecolor=edgecolor,
+            edgealpha=edgealpha,
+            edgewidth=edgewidth,
+            histtype=histtype,
+            zorder=zorder,
+        )
 
-        # An edge color with zero width is invisible. If the caller named a visible edge color
-        # but left ``edgewidth`` unset, fall back to a default so ``edgecolor=`` alone draws the
-        # edge. An explicit ``edgewidth=0`` is left untouched and still hides the edge.
-        if (
-            edgewidth is None
-            and resolved_edgewidth == 0.0
-            and str(resolved_edgecolor).strip().lower() != "none"
+        if _needs_default_edge_width(
+            edgewidth_given=edgewidth is not None,
+            resolved_edgewidth=style.edgewidth,
+            resolved_edgecolor=style.edgecolor,
         ):
-            resolved_edgewidth = DEFAULT_EDGE_WIDTH
+            style = style.merged(edgewidth=DEFAULT_EDGE_WIDTH)
 
-        hist_list = self._hist_data_dict.get(resolved_histtype, None)
+        hist_list = self._hist_data_dict.get(style.histtype, None)
         if hist_list is None:
             raise ValueError(
-                f"Invalid histtype {resolved_histtype!r}; must be one of "
-                "'overlay', 'stack', 'weave', 'outline'."
+                f"Invalid histtype {style.histtype!r}; must be one of "
+                "'overlay', 'stack', 'grouped', 'outline'."
             )
 
-        if resolved_histtype == "outline":
-            if resolved_edgewidth <= 0.0:
-                if not self.hide_warnings:
+        if style.histtype == "outline":
+            # The fixes apply in one merge so they see each other: bumping the edgewidth while
+            # the edge color is still "none" would otherwise be clamped straight back to zero.
+            outline_fixes: dict[str, object] = {}
+            if style.edgewidth <= 0.0:
+                if self._show_warnings:
                     warn(
                         "Outline histogram specified with edgewidth <= 0; setting edgewidth "
                         f"to {DEFAULT_EDGE_WIDTH}.",
                         UserWarning,
                     )
-                resolved_edgewidth = DEFAULT_EDGE_WIDTH
-            if resolved_facecolor != "none":
-                if not self.hide_warnings:
+                outline_fixes["edgewidth"] = DEFAULT_EDGE_WIDTH
+            if style.facecolor != "none":
+                if self._show_warnings:
                     warn(
                         "Outline histogram specified with facecolor != 'none'; setting "
                         "facecolor to 'none'.",
                         UserWarning,
                     )
-                resolved_facecolor = "none"
-
-            if resolved_edgecolor == "none":
-                if not self.hide_warnings:
+                outline_fixes["facecolor"] = None
+            if style.edgecolor == "none":
+                if self._show_warnings:
                     warn(
                         "Outline histogram specified with edgecolor 'none'; setting "
                         "edgecolor to 'black'.",
                         UserWarning,
                     )
-                resolved_edgecolor = "black"
+                outline_fixes["edgecolor"] = "black"
+            if outline_fixes:
+                style = style.merged(**outline_fixes)
 
-        set_name = name or f"{resolved_histtype.capitalize()} histogram {len(hist_list) + 1}"
-        hist_list.append(
-            HistogramData(
-                name=set_name,
-                values=vals,
-                weights=wts,
-                facecolor=resolved_facecolor,
-                facealpha=resolved_facealpha,
-                edgecolor=resolved_edgecolor,
-                edgealpha=resolved_edgealpha,
-                edgewidth=resolved_edgewidth,
-                zorder=resolved_zorder,
-            )
-        )
+        set_name = name or f"{style.histtype.capitalize()} histogram {len(hist_list) + 1}"
+        hist_list.append(_HistogramData(name=set_name, values=vals, weights=wts, style=style))
         self._claim_legend_if_named(name)
 
     def add_points_above(
@@ -559,6 +438,8 @@ class Histogram(GerryPlotBase):
                 a Series, an array, or a DataFrame.
             column (str | None, optional): The column name to use if values is a DataFrame.
             name (str | None, optional): The name of the point set. Defaults to None.
+            marker_options (PointMarkerOptions | None, optional): Base marker styling. Explicit
+                keyword arguments override matching fields. Defaults to None.
             facecolor (Color, optional): The face color of the points. Defaults to "black".
             facealpha (float | None, optional): The alpha transparency of the points.
                 Defaults to None.
@@ -578,8 +459,16 @@ class Histogram(GerryPlotBase):
 
         Returns:
             None
+
+        Raises:
+            ValueError: If ``values`` has no finite entries, or ``y_offset`` is not finite.
         """
         vals = _coerce_to_1d_finite_float_array(values, column=column, field="values")
+        if vals.size == 0:
+            raise ValueError("values: must have at least one finite entry.")
+        y_offset = float(y_offset)
+        if not math.isfinite(y_offset):
+            raise ValueError(f"y_offset must be finite; got {y_offset!r}.")
 
         # Use a points-above default marker style: black face, larger size, edged.
         base = (
@@ -607,7 +496,7 @@ class Histogram(GerryPlotBase):
 
         marker_name = name or f"Point Marker {len(self._histpointlist_list) + 1}"
         self._histpointlist_list.append(
-            HistPointList(
+            _HistPointList(
                 name=marker_name,
                 values=vals,
                 point_data=resolved_marker_options,
@@ -629,7 +518,8 @@ class Histogram(GerryPlotBase):
         if bins is None and self._binwidth is not None:
             minscore, maxscore = np.min(all_values), np.max(all_values)
             binwidth = self._binwidth
-            bins = np.arange(minscore, maxscore + 2 * binwidth, binwidth)
+            n_bins = max(1, int(np.ceil((maxscore - minscore) / binwidth)))
+            bins = minscore + np.arange(n_bins + 1) * binwidth
 
         if (
             bins is None
@@ -638,6 +528,17 @@ class Histogram(GerryPlotBase):
 
         bins = np.histogram_bin_edges(all_values, bins=bins)
         return bins
+
+    def _display_edges(self, bin_edges: NDArray[np.float64]) -> NDArray[np.float64]:
+        """Bin edges shifted to where bars are drawn.
+
+        Centering data on bin edges is a half-binwidth left shift of the drawn edges; binning
+        itself always uses the raw edges. Everything (bars, outlines, grouped offsets, points)
+        derives its x-positions from these display edges, so the alignment mode lives here only.
+        """
+        if self._bin_alignment == "center":
+            return bin_edges - 0.5 * (bin_edges[1] - bin_edges[0])
+        return bin_edges
 
     def _draw_histograms(self, bin_edges: NDArray[np.float64]) -> NDArray[np.float64]:
         """Draw the histograms on the plot.
@@ -656,59 +557,78 @@ class Histogram(GerryPlotBase):
             raise ValueError(
                 "Cannot center histogram data on bin edges when bin widths are not uniform."
             )
+        display_edges = self._display_edges(bin_edges)
 
         for histtype, histlist in self._hist_data_dict.items():
             hist_bottoms = np.zeros(len(bin_edges) - 1)
             n_bins_per_bar = 1
-            if histtype in ("weave", "stack"):
+            if histtype in ("grouped", "stack"):
                 for hdata in histlist:
-                    if hdata.edgewidth > 0.0 and not self.hide_warnings:
+                    if hdata.style.edgewidth > 0.0 and self._show_warnings:
                         warn(
                             f"{histtype.capitalize()} histogram {hdata.name!r} has edgewidth > 0; "
                             "line edges will overlap in the plot.",
                             UserWarning,
                         )
 
-            if histtype == "weave":
+            if histtype == "grouped":
                 n_bins_per_bar = len(histlist)
 
+            # Density-mode stacks normalize jointly so the stacked total integrates to 1
+            # (matching matplotlib's hist(stacked=True, density=True)); other histtypes
+            # normalize each series on its own.
+            stack_density = histtype == "stack" and self.as_density_plot
+            stacked_counts: list[NDArray[np.float64]] = []
+            stack_total_weight = 0.0
+            if stack_density:
+                stacked_counts = [
+                    np.histogram(hdata.values, bins=bin_edges, weights=hdata.weights)[0]
+                    for hdata in histlist
+                ]
+                stack_total_weight = float(sum(counts.sum() for counts in stacked_counts))
+                if histlist and stack_total_weight == 0.0:
+                    raise ValueError(
+                        "Stacked histogram weights sum to zero; cannot normalize as density."
+                    )
+
             for i, hdata in enumerate(histlist):
-                hist_heights = np.histogram(
-                    hdata.values,
-                    bins=bin_edges,
-                    weights=hdata.weights,
-                    density=self.as_density_plot,
-                )[0]
+                if stack_density:
+                    hist_heights = stacked_counts[i] / (stack_total_weight * bin_widths)
+                else:
+                    if self.as_density_plot and float(hdata.weights.sum()) == 0.0:
+                        raise ValueError(
+                            f"Histogram series {hdata.name!r} weights sum to zero; "
+                            "cannot normalize as density."
+                        )
+                    hist_heights = np.histogram(
+                        hdata.values,
+                        bins=bin_edges,
+                        weights=hdata.weights,
+                        density=self.as_density_plot,
+                    )[0]
                 if histtype != "stack":
                     max_heights = np.maximum(max_heights, hist_heights)
 
                 # Special case for outline histograms that does the outline only (no internal
                 # vertical lines)
                 if histtype == "outline":
-                    offset = 0.0
-                    if self._bin_alignment == "center":
-                        offset = 0.5 * bin_widths[0]
                     step_patch = self._ax.stairs(
                         hist_heights,
-                        bin_edges - offset,
+                        display_edges,
                         fill=False,
-                        linewidth=hdata.edgewidth,
-                        edgecolor=(
-                            "none"
-                            if hdata.edgecolor == "none" or hdata.edgewidth == 0.0
-                            else self._resolved_rgba(
-                                hdata.edgecolor,
-                                hdata.edgealpha,
-                                field="edgecolor",
-                            )
+                        linewidth=hdata.style.edgewidth,
+                        edgecolor=self._resolved_rgba(
+                            hdata.style.edgecolor,
+                            hdata.style.edgealpha,
+                            field="edgecolor",
                         ),
-                        zorder=hdata.zorder,
+                        zorder=hdata.style.zorder,
                         label=hdata.name,
                     )
                     self._artists.track(step_patch)
                     continue
 
-                hist_edges = bin_edges[:-1].copy()
+                hist_edges = display_edges[:-1].copy()
                 if n_bins_per_bar > 1:
                     hist_edges += (bin_widths / n_bins_per_bar) * i
 
@@ -717,23 +637,19 @@ class Histogram(GerryPlotBase):
                     hist_heights,
                     width=bin_widths / n_bins_per_bar,
                     bottom=hist_bottoms,
-                    align=self._bin_alignment,
+                    align="edge",
                     facecolor=self._resolved_rgba(
-                        hdata.facecolor,
-                        hdata.facealpha,
+                        hdata.style.facecolor,
+                        hdata.style.facealpha,
                         field="facecolor",
                     ),
-                    edgecolor=(
-                        "none"
-                        if hdata.edgecolor == "none" or hdata.edgewidth == 0.0
-                        else self._resolved_rgba(
-                            hdata.edgecolor,
-                            hdata.edgealpha,
-                            field="edgecolor",
-                        )
+                    edgecolor=self._resolved_rgba(
+                        hdata.style.edgecolor,
+                        hdata.style.edgealpha,
+                        field="edgecolor",
                     ),
-                    linewidth=hdata.edgewidth,
-                    zorder=hdata.zorder,
+                    linewidth=hdata.style.edgewidth,
+                    zorder=hdata.style.zorder,
                 )
                 # BarContainer is iterable over its Rectangle patches.
                 self._artists.track(bar_container)
@@ -757,88 +673,60 @@ class Histogram(GerryPlotBase):
             max_heights (NDArray[np.float64]): Per-bin maximum bar-top heights from
                 ``_draw_histograms``. Mutated in place as points stack above bars.
         """
+        # The bars just drawn left the view stale, and the data limits may still include a
+        # previous build's (since removed) artists. Recompute both before converting
+        # point-space clearances through transData, so every build places points from the
+        # same realized view.
+        self._ax.relim()
+        self._ax.autoscale_view()
 
-        def marker_clearance(
-            y_top: float,
-            markersize_pt: float,
-            markeredgewidth_pt: float,
-            marker: str,
-            pad_pt: float = 0.0,
-        ) -> float:
-            """Compute data-space clearance above a bar for one marker glyph.
+        display_edges = self._display_edges(bin_edges)
+        bin_centers = (display_edges[:-1] + display_edges[1:]) / 2.0
 
-            Args:
-                y_top (float): Histogram bar top in data coordinates.
-                markersize_pt (float): Marker size in points.
-                markeredgewidth_pt (float): Marker edge width in points.
-                marker (str): Marker symbol passed to Matplotlib.
-                pad_pt (float, optional): Extra clearance padding in points.
-                    Defaults to ``0.0``.
-
-            Returns:
-                float: Clearance in y-data units above ``y_top``.
-            """
-            ms = MarkerStyle(marker)
-            path = ms.get_path().transformed(ms.get_transform())
-
-            verts = np.asarray(path.vertices, dtype=float)
-            ys = verts[:, 1]
-            y0 = float(ys.min())
-            y1 = float(ys.max())
-
-            height_u = y1 - y0
-            if (
-                height_u == 0.0
-            ):  # pragma: no cover - no standard matplotlib marker produces an exactly-zero y-extent; defensive guard
-                clearance_pt = (
-                    0.5 * markersize_pt + 0.5 * markeredgewidth_pt + pad_pt
-                )  # pragma: no cover
-            else:
-                pt_per_u = markersize_pt / height_u
-                bottom_pt = y0 * pt_per_u
-                clearance_pt = (-bottom_pt) + 0.5 * markeredgewidth_pt + pad_pt
-
-            # points -> pixels
+        def clearance_data_units(clearance_pt: float, y_top: float) -> float:
+            """Convert a point-space clearance to y-data units at ``y_top``."""
             px = clearance_pt * self._ax.figure.dpi / 72.0
-
-            # pixels -> data-units at y_top
             p = self._ax.transData.transform((0.0, y_top))
             y2 = self._ax.transData.inverted().transform(p + np.array([0.0, px]))[1]
             return y2 - y_top
 
+        out_of_range_heights: dict[int, float] = {}
         for pointlist in self._histpointlist_list:
+            # The marker glyph geometry is constant per point set.
+            clearance_pt = _marker_clearance_pt(
+                pointlist.point_data.marker,
+                pointlist.point_data.markersize,
+                pointlist.point_data.markeredgewidth,
+            )
             x_positions = np.array(pointlist.values)
             y_positions = []
             visited_indexes = set()
+            placement_edges = bin_edges if pointlist.centered else display_edges
             for i, val in enumerate(pointlist.values):
-                bin_idx = np.searchsorted(bin_edges, val, side="right") - 1
+                bin_idx = np.searchsorted(placement_edges, val, side="right") - 1
+                if val == placement_edges[-1]:
+                    bin_idx -= 1
                 in_range = 0 <= bin_idx < len(max_heights)
-                if not in_range:
-                    dy = marker_clearance(
-                        0.0,
-                        pointlist.point_data.markersize,
-                        pointlist.point_data.markeredgewidth,
-                        pointlist.point_data.marker,
-                    )
-                    y_positions.append(pointlist.y_offset + dy)
-                else:
-                    dy = marker_clearance(
-                        max_heights[bin_idx],
-                        pointlist.point_data.markersize,
-                        pointlist.point_data.markeredgewidth,
-                        pointlist.point_data.marker,
-                    )
-                    offset = dy
-                    if bin_idx not in visited_indexes:
-                        visited_indexes.add(bin_idx)
-                        offset += pointlist.y_offset
+                stack_idx = bin_idx if in_range else (-1 if bin_idx < 0 else len(max_heights))
+                height = (
+                    float(max_heights[bin_idx])
+                    if in_range
+                    else out_of_range_heights.get(stack_idx, 0.0)
+                )
+                dy = clearance_data_units(clearance_pt, height)
+                offset = dy
+                if stack_idx not in visited_indexes:
+                    visited_indexes.add(stack_idx)
+                    offset += pointlist.y_offset
 
-                    y_positions.append(max_heights[bin_idx] + offset)
-
-                    max_heights[bin_idx] += offset + dy
+                y_positions.append(height + offset)
+                height += offset + dy
+                if in_range:
+                    max_heights[bin_idx] = height
                     if pointlist.centered:
-                        centers = (bin_edges[:-1] + bin_edges[1:]) / 2.0
-                        x_positions[i] = centers[bin_idx]
+                        x_positions[i] = bin_centers[bin_idx]
+                else:
+                    out_of_range_heights[stack_idx] = height
 
             point_lines = self._ax.plot(
                 x_positions,
@@ -866,64 +754,39 @@ class Histogram(GerryPlotBase):
         """Build the histogram plot."""
         if sum(len(lst) for lst in self._hist_data_dict.values()) == 0:
             raise ValueError("No histogram sets added yet.")
-        self._ax.grid(self.grid)
         bin_edges = self._compute_bins()
         max_heights = self._draw_histograms(bin_edges)
         self._draw_points(bin_edges, max_heights)
 
-    def _get_histogram_legend_handles(self) -> list[LegendHandle]:
+    def _dataset_legend_handles(self) -> list[LegendHandle]:
         """Get legend handles for the histogram sets."""
         handles: list[LegendHandle] = []
         for hdata in chain(*self._hist_data_dict.values()):
             handles.append(
                 Patch(
                     facecolor=self._resolved_rgba(
-                        hdata.facecolor,
-                        hdata.facealpha,
+                        hdata.style.facecolor,
+                        hdata.style.facealpha,
                         field="facecolor",
                     ),
-                    edgecolor=(
-                        "none"
-                        if hdata.edgecolor == "none" or hdata.edgewidth == 0.0
-                        else self._resolved_rgba(
-                            hdata.edgecolor,
-                            hdata.edgealpha,
-                            field="edgecolor",
-                        )
+                    edgecolor=self._resolved_rgba(
+                        hdata.style.edgecolor,
+                        hdata.style.edgealpha,
+                        field="edgecolor",
                     ),
-                    linewidth=hdata.edgewidth,
+                    linewidth=hdata.style.edgewidth,
                     label=hdata.name,
                 )
             )
         return handles
 
-    def _get_pointset_legend_handles(self) -> list[LegendHandle]:
+    def _pointset_legend_handles(self) -> list[LegendHandle]:
         """Generate legend handles for point sets.
 
         Returns:
             list[LegendHandle]: A list of legend handles for the point sets.
         """
-        handles: list[LegendHandle] = []
-
-        for histpoint in self._histpointlist_list:
-            handles.append(
-                Line2D(
-                    [0],
-                    [0],
-                    linestyle="none",
-                    label=histpoint.name,
-                    **histpoint.point_data.to_mpl_settings_dict(),
-                )
-            )
-
-        return handles
-
-    @property
-    def _legend_handles(self) -> list[LegendHandle]:
-        """Get all legend handles for the plot."""
-        handles: list[LegendHandle] = []
-        handles.extend(self._get_histogram_legend_handles())
-        handles.extend(self._get_named_line_legend_handles())
-        handles.extend(self._get_named_band_legend_handles())
-        handles.extend(self._get_pointset_legend_handles())
-        return handles
+        return [
+            _marker_legend_handle(histpoint.point_data, histpoint.name)
+            for histpoint in self._histpointlist_list
+        ]

@@ -8,12 +8,12 @@ axes:
 - most-recent-wins per managed axes unit (xlim, ylim, ticks, tick styles,
   labels, title, frame, legend);
 - atomic tick / label / title units;
-- store-and-claim setter semantics (``update_xtick_labels``);
+- store-and-claim setter semantics (labels-only ``set_xticks``);
 - property-setter reclaim (``hist.title = "Foo"``);
 - constructor-default vs. constructor-non-default reclaim semantics
   (including the deliberately-unsupported ``title=None`` clear via ctor);
-- internal ``_UNSET_TEXT`` sentinel never escaping the public API;
-- legend lifecycle paths (named add_*, set_legend_options, include_legend
+- internal ``UNSET`` text sentinel never escaping the public API;
+- legend lifecycle paths (named add_*, set_legend_options, legend
   assignment) and the "no legend handle when name is None" invariant;
 - ``bind_to_ax`` reclaim-state carry, last-applied reset, and reactivation
   of yielded explicit state.
@@ -24,6 +24,7 @@ Histogram and BoxPlot are the canonical representatives.
 from __future__ import annotations
 
 import inspect
+from typing import get_args
 
 import matplotlib
 
@@ -32,15 +33,15 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import pytest  # noqa: E402
 
-from gerrytools.plotting._axes_state import _NO_LAST_APPLIED  # noqa: E402
+from gerrytools.plotting._axes_state import _ALL_UNITS, Unit  # noqa: E402
 from gerrytools.plotting.data.boxplot import BoxPlot  # noqa: E402
-from gerrytools.plotting.data.gerryplot import _UNSET_TEXT  # noqa: E402
 from gerrytools.plotting.data.histogram import Histogram  # noqa: E402
-from gerrytools.plotting.data.paintball import PaintBall  # noqa: E402
+from gerrytools.plotting.data.paintball import PaintballPlot  # noqa: E402
 from gerrytools.plotting.data.scatterplot import ScatterPlot  # noqa: E402
-from gerrytools.plotting.data.sealevel import SeaLevel  # noqa: E402
-from gerrytools.plotting.data.seatsvotes import SeatsVotes  # noqa: E402
+from gerrytools.plotting.data.sealevel import SeaLevelPlot  # noqa: E402
+from gerrytools.plotting.data.seatsvotes import SeatsVotesPlot  # noqa: E402
 from gerrytools.plotting.data.violin import ViolinPlot  # noqa: E402
+from gerrytools.plotting.utils import UNSET  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -49,18 +50,24 @@ from gerrytools.plotting.data.violin import ViolinPlot  # noqa: E402
 
 def _simple_hist() -> Histogram:
     hist = Histogram()
-    hist.add_histogram([1.0, 2.0, 3.0, 4.0, 5.0, 5.0, 5.0, 6.0, 7.0, 8.0, 9.0])
+    hist.add_dataset([1.0, 2.0, 3.0, 4.0, 5.0, 5.0, 5.0, 6.0, 7.0, 8.0, 9.0])
     return hist
 
 
 def _simple_box() -> BoxPlot:
     box = BoxPlot()
-    box.add_boxplot_dataset({"A": [1.0, 2.0, 3.0, 4.0, 5.0], "B": [2.0, 3.0, 4.0, 5.0, 6.0]})
+    box.add_dataset({"A": [1.0, 2.0, 3.0, 4.0, 5.0], "B": [2.0, 3.0, 4.0, 5.0, 6.0]})
     return box
 
 
 def _total_artist_count(ax) -> int:
     return len(ax.patches) + len(ax.lines) + len(ax.collections) + len(ax.texts) + len(ax.images)
+
+
+def _force_rebuild(plot) -> None:
+    """Exercise rebuild-time ownership reconciliation without changing managed state."""
+    plot._axis_needs_update = True
+    plot.ax
 
 
 # ---------------------------------------------------------------------------
@@ -96,7 +103,7 @@ class TestExternalArtifactPreservation:
         fig, ax = plt.subplots()
         ax.imshow([[1, 2], [3, 4]])
         hist = Histogram(ax=ax)
-        hist.add_histogram([1, 2, 3, 4, 5])
+        hist.add_dataset([1, 2, 3, 4, 5])
         n_before = len(ax.images)
         hist.ax
         assert len(ax.images) == n_before
@@ -119,13 +126,49 @@ class TestGerrytoolsArtifactLeak:
 class TestImplicitDefaultsUpdateWhenUntouched:
     def test_xlim_updates_when_more_data_added_and_user_has_not_touched(self):
         hist = Histogram()
-        hist.add_histogram([1.0, 2.0, 3.0])
+        hist.add_dataset([1.0, 2.0, 3.0])
         first = hist.ax.get_xlim()
-        hist.add_histogram([50.0, 60.0, 70.0])
+        hist.add_dataset([50.0, 60.0, 70.0])
         second = hist.ax.get_xlim()
         # New data extends well past the first dataset; default xlim should
         # widen to cover it.
         assert second[1] > first[1] + 10.0
+
+    def test_annotation_limits_do_not_block_later_data_autoscaling(self):
+        hist = Histogram()
+        hist.add_dataset([1.0, 2.0, 3.0])
+        hist.add_vertical_lines(100.0)
+        hist.ax
+
+        hist.add_dataset([200.0])
+        left, right = hist.ax.get_xlim()
+
+        assert left <= 200.0 <= right
+
+    def test_annotation_outside_data_remains_visible(self):
+        hist = Histogram()
+        hist.add_dataset([1.0, 2.0, 3.0])
+        hist.add_vertical_lines(100.0)
+
+        left, right = hist.ax.get_xlim()
+
+        assert left <= 100.0 <= right
+
+    def test_out_of_range_annotation_does_not_flip_tick_ownership_external(self):
+        # Regression: annotations render after the tick reconcile and can autoscale the
+        # axes, so the recorded tick values went stale and the next rebuild misread the
+        # shift as an external change, silently flipping x_ticks/y_ticks to "external".
+        hist = Histogram()
+        hist.add_dataset([1.0, 2.0, 3.0])
+        hist.add_vertical_lines(100.0, name="far marker")
+        hist.ax
+        hist.ax
+        hist.ax
+        externally_owned = [
+            unit for unit, state in hist._axes_state._units.items() if state.ownership == "external"
+        ]
+        # The user never touched the axes directly; nothing may report external.
+        assert externally_owned == []
 
 
 # ---------------------------------------------------------------------------
@@ -155,8 +198,9 @@ class TestMostRecentWinsXLim:
         hist.set_xlim(-5.0, 5.0)
         ax = hist.ax
         ax.set_xlim(0.0, 50.0)
-        hist.ax
+        _force_rebuild(hist)
         assert hist._ax.get_xlim() == (0.0, 50.0)
+        assert hist._axes_state._units["x_limits"].ownership == "external"
 
 
 class TestMostRecentWinsYLim:
@@ -185,6 +229,29 @@ class TestMostRecentWinsTitle:
         hist.ax
         assert hist._ax.get_title() == "from gerrytools"
 
+    def test_external_title_at_another_location_preserves_prior_title(self):
+        hist = _simple_hist()
+        hist.title = "from gerrytools"
+        hist.set_title_style(loc="left")
+        ax = hist.ax
+        ax.set_title("from matplotlib")
+
+        _force_rebuild(hist)
+
+        assert ax.get_title(loc="left") == "from gerrytools"
+        assert ax.get_title() == "from matplotlib"
+
+    def test_external_panel_label_preserves_center_title(self):
+        hist = _simple_hist()
+        hist.title = "from gerrytools"
+        ax = hist.ax
+        ax.set_title("(a)", loc="left")
+
+        _force_rebuild(hist)
+
+        assert ax.get_title(loc="left") == "(a)"
+        assert ax.get_title() == "from gerrytools"
+
 
 class TestMostRecentWinsFrame:
     def test_external_spine_visibility_survives_rebuild(self):
@@ -201,7 +268,7 @@ class TestMostRecentWinsFrame:
         ax = hist.ax
         ax.spines["top"].set_visible(False)
         hist.ax
-        hist.show_or_hide_frame(show_top=True, show_right=True, show_left=True, show_bottom=True)
+        hist.set_frame_visibility(top=True, right=True, left=True, bottom=True)
         hist.ax
         assert hist._ax.spines["top"].get_visible() is True
 
@@ -230,7 +297,7 @@ class TestTickStyleIndependent:
         hist = _simple_hist()
         # Set locations + apply a tick style
         hist.set_xticks([0.0, 5.0, 10.0])
-        hist.set_xaxis_tick_style(size=18.0, rotation=45.0)
+        hist.set_tick_style("x", size=18.0, rotation=45.0)
         hist.ax
         # Externally change tick label size — this should be detected and
         # preserved on next rebuild without disturbing tick locations.
@@ -243,12 +310,53 @@ class TestTickStyleIndependent:
         assert list(hist._ax.get_xticks()) == [0.0, 5.0, 10.0]
 
 
+class TestMinorTickStyleExternalDetection:
+    def test_external_minor_tick_change_survives_rebuild_with_minor_ticktype(self):
+        # Regression: the tick-style snapshot used to read major ticks only, so external
+        # minor-tick changes were invisible and silently overwritten on rebuild.
+        from matplotlib.colors import to_rgba
+
+        hist = _simple_hist()
+        ax = hist.ax
+        ax.minorticks_on()
+        hist.set_tick_style("x", tickcolor="blue", ticktype="minor")
+        hist.ax
+        minor_ticks = hist._ax.xaxis.get_minor_ticks()
+        assert minor_ticks
+        assert to_rgba(minor_ticks[0].tick1line.get_color()) == to_rgba("blue")
+        # External minor-tick recolor between rebuilds must win.
+        for tick in hist._ax.xaxis.get_minor_ticks():
+            tick.tick1line.set_color("red")
+        hist.ax
+        first_minor = hist._ax.xaxis.get_minor_ticks()[0]
+        assert to_rgba(first_minor.tick1line.get_color()) == to_rgba("red")
+
+    def test_external_minor_change_does_not_yield_major_ticktype_style(self):
+        # A stored major-only style must keep majors applied (unit not yielded) when only
+        # minor ticks change externally.
+        from matplotlib.colors import to_rgba
+
+        hist = _simple_hist()
+        ax = hist.ax
+        ax.minorticks_on()
+        hist.set_tick_style("x", tickcolor="blue", ticktype="major")
+        hist.ax
+        for tick in hist._ax.xaxis.get_minor_ticks():
+            tick.tick1line.set_color("red")
+        hist.ax
+        assert hist._axes_state.is_reclaimed("x_tick_style")
+        major_colors = {
+            to_rgba(tick.tick1line.get_color()) for tick in hist._ax.xaxis.get_major_ticks()
+        }
+        assert major_colors == {to_rgba("blue")}
+
+
 class TestExplicitTicksSurviveLegendRedraw:
     def test_explicit_xticks_survive_legend_apply(self):
         hist = _simple_hist()
         hist.set_xticks([0.0, 5.0, 10.0], labels=["a", "b", "c"])
         # Force a legend render.
-        hist.include_legend = True
+        hist.legend = True
         hist.ax
         assert list(hist._ax.get_xticks()) == [0.0, 5.0, 10.0]
         assert [t.get_text() for t in hist._ax.get_xticklabels()] == ["a", "b", "c"]
@@ -260,9 +368,22 @@ class TestExplicitTicksSurviveLegendRedraw:
 
 
 class TestLegendLifecycle:
+    def test_legend_placed_before_the_first_build_survives_it(self):
+        from matplotlib.lines import Line2D
+
+        _, ax = plt.subplots()
+        hist = Histogram(ax=ax)
+        hist.add_dataset([1, 2, 3])  # unnamed, so gerrytools never claims the legend
+        ax.legend(handles=[Line2D([0], [0], label="user")])
+        user_legend = ax.get_legend()
+
+        hist.ax  # first build
+
+        assert ax.get_legend() is user_legend
+
     def test_external_legend_survives_rebuild(self):
         hist = _simple_hist()
-        hist.include_legend = False  # disable gerrytools legend
+        hist.legend = False  # disable gerrytools legend
         ax = hist.ax
         ax.plot([0, 1], [0, 1], label="external")
         ax.legend()
@@ -272,9 +393,24 @@ class TestLegendLifecycle:
         # Same legend object should still be on the axes (we didn't touch it).
         assert hist._ax.get_legend() is external_legend
 
+    def test_external_replacement_legend_survives_rebuild(self):
+        # Regression: the stale gerrytools legend must not be removed once the user
+        # replaces it (matplotlib's legend-remove hook nulls ``ax.legend_``
+        # unconditionally, which would destroy the external legend).
+        hist = _simple_hist()
+        hist.legend = True
+        hist.add_dataset([1, 2, 3], name="A")
+        ax = hist.ax
+        assert ax.get_legend() is not None
+        ax.plot([0, 1], [0, 1], label="external")
+        external_legend = ax.legend()
+        hist.ax  # rebuild
+        assert hist._ax.get_legend() is external_legend
+
     def test_set_legend_options_reclaims_legend_unit(self):
         hist = _simple_hist()
-        hist.add_histogram([1, 2, 3], name="A")
+        hist.legend = True
+        hist.add_dataset([1, 2, 3], name="A")
         hist.ax  # first render places a gerrytools legend
         first_legend = hist._ax.get_legend()
         hist.set_legend_options(loc="upper right")
@@ -285,31 +421,44 @@ class TestLegendLifecycle:
 
     def test_include_legend_false_removes_gerrytools_legend(self):
         hist = _simple_hist()
-        hist.add_histogram([1, 2, 3], name="A")
+        hist.legend = True
+        hist.add_dataset([1, 2, 3], name="A")
         hist.ax
         assert hist._ax.get_legend() is not None
-        hist.include_legend = False
+        hist.legend = False
         hist.ax
         assert hist._ax.get_legend() is None
 
     def test_include_legend_assignment_reclaims_legend_unit(self):
         hist = _simple_hist()
-        hist.add_histogram([1, 2, 3], name="A")
+        hist.add_dataset([1, 2, 3], name="A")
         hist.ax
         # Initially gerrytools owns the legend after placing it.
-        hist.include_legend = False
+        hist.legend = False
         # Re-enable; gerrytools should put it back.
-        hist.include_legend = True
+        hist.legend = True
         hist.ax
         assert hist._ax.get_legend() is not None
 
     def test_no_legend_when_include_legend_false_and_no_external_legend(self):
-        # With include_legend=False, gerrytools never places a legend even
+        # With legend=False, gerrytools never places a legend even
         # when handles exist.
-        hist = Histogram(include_legend=False)
-        hist.add_histogram([1, 2, 3], name="A")
+        hist = Histogram(legend=False)
+        hist.add_dataset([1, 2, 3], name="A")
         hist.ax
         assert hist._ax.get_legend() is None
+
+    def test_user_legend_survives_set_legend_options_with_zero_handles(self):
+        # Regression: with zero handles and a store-and-claimed legend unit, the
+        # rebuild used to remove a legend gerrytools never placed.
+        plot = ScatterPlot()
+        plot.add_series(x=[0.1, 0.2], y=[0.3, 0.4])  # unnamed → zero legend handles
+        ax = plot.ax
+        ax.plot([0, 1], [0, 1], label="external")
+        user_legend = ax.legend()
+        plot.set_legend_options(loc="upper right")
+        plot.ax
+        assert plot._ax.get_legend() is user_legend
 
 
 # ---------------------------------------------------------------------------
@@ -373,7 +522,8 @@ class TestScenarioE:
         fig, ax = plt.subplots()
         ax.set_xlim(0.0, 50.0)
         hist = Histogram(ax=ax)
-        hist.add_histogram([1, 2, 3])
+        assert hist._axes_state._units["x_limits"].ownership == "external"
+        hist.add_dataset([1, 2, 3])
         hist.ax
         assert ax.get_xlim() == (0.0, 50.0)
 
@@ -381,7 +531,7 @@ class TestScenarioE:
         fig, ax = plt.subplots()
         ax.set_title("user title")
         hist = Histogram(ax=ax)  # title=None is the Python default → no opinion
-        hist.add_histogram([1, 2, 3])
+        hist.add_dataset([1, 2, 3])
         hist.ax
         assert ax.get_title() == "user title"
 
@@ -390,7 +540,7 @@ class TestUnsetTextSentinelHidden:
     def test_sentinel_never_appears_in_public_signature(self):
         sig = inspect.signature(Histogram.__init__)
         for param in sig.parameters.values():
-            assert param.default is not _UNSET_TEXT
+            assert param.default is not UNSET
 
     def test_sentinel_never_appears_in_property_getter_output(self):
         # The sentinel is stored on _title but the public getter must map it
@@ -407,13 +557,13 @@ class TestUnsetTextSentinelHidden:
 
 
 class TestStoreAndClaim:
-    def test_update_xtick_labels_claims_unit_at_call_time(self):
+    def test_set_xticks_labels_claims_unit_at_call_time(self):
         hist = _simple_hist()
         hist.ax  # first render — tick locations come from matplotlib default
         # Store-and-claim path: labels-only, no locations.
         existing_locations = hist._ax.get_xticks().tolist()
         labels = [f"L{i}" for i in range(len(existing_locations))]
-        hist.update_xtick_labels(labels=labels)
+        hist.set_xticks(labels=labels)
         hist.ax
         rendered = [t.get_text() for t in hist._ax.get_xticklabels()]
         assert rendered == labels
@@ -422,8 +572,8 @@ class TestStoreAndClaim:
         hist = _simple_hist()
         hist.set_xticks([0.0, 5.0, 10.0])
         hist.ax
-        # update_xtick_labels claims x_ticks ownership at this point.
-        hist.update_xtick_labels(labels=["P", "Q", "R"])
+        # The labels-only set_xticks claims x_ticks ownership at this point.
+        hist.set_xticks(labels=["P", "Q", "R"])
         # User mutates ticks externally between the claim and the next rebuild.
         # The reclaim happened at the store call → gerrytools labels win.
         hist._ax.set_xticklabels(["x", "y", "z"])
@@ -448,7 +598,7 @@ class TestPropertySetterReclaim:
 
     def test_constructor_title_reclaims_at_construction(self):
         hist = Histogram(title="My Plot")
-        hist.add_histogram([1, 2, 3])
+        hist.add_dataset([1, 2, 3])
         ax = hist.ax
         assert ax.get_title() == "My Plot"
 
@@ -459,13 +609,13 @@ class TestPropertySetterReclaim:
         fig, ax = plt.subplots()
         ax.set_title("preset")
         hist = Histogram(ax=ax, title=None)
-        hist.add_histogram([1, 2, 3])
+        hist.add_dataset([1, 2, 3])
         hist.ax
         assert ax.get_title() == "preset"
 
     def test_post_construction_title_none_clears_title(self):
         hist = Histogram(title="Hello")
-        hist.add_histogram([1, 2, 3])
+        hist.add_dataset([1, 2, 3])
         hist.ax
         assert hist._ax.get_title() == "Hello"
         hist.title = None
@@ -490,29 +640,22 @@ class TestStyleOnlySetterReclaimsAtomicUnit:
         hist = _simple_hist()
         hist.xlabel = "X"
         hist.ax
-        hist.set_xaxis_label_style(fontsize=18.0)
+        hist.set_axis_label_style("x", fontsize=18.0)
         hist.ax
         assert hist._ax.xaxis.label.get_text() == "X"
         assert hist._ax.xaxis.label.get_fontsize() == 18.0
 
 
 # ---------------------------------------------------------------------------
-# Category 7: sentinel never leaks (separate from the inspect-signature test
-# above for visibility)
+# Category 7: managed-unit vocabulary stays in sync with the snapshot
 # ---------------------------------------------------------------------------
 
 
-class TestNoLastAppliedSentinelIsPrivate:
-    def test_sentinel_is_private_singleton(self):
-        # Distinct from None — that's the load-bearing invariant.
-        assert _NO_LAST_APPLIED is not None
-
-    def test_sentinel_is_not_a_recognizable_python_default(self):
-        # No public API should accept or return the sentinel; verify the
-        # sentinel doesn't accidentally equal any common defaults.
-        assert _NO_LAST_APPLIED is not False
-        assert _NO_LAST_APPLIED is not True
-        assert _NO_LAST_APPLIED is not 0  # noqa: F632  - intentional identity test
+class TestUnitVocabularySync:
+    def test_unit_literal_matches_snapshot_derived_all_units(self):
+        # ``_ALL_UNITS`` is derived from ``_AxesSnapshot`` fields; the ``Unit``
+        # Literal must name exactly the same vocabulary.
+        assert set(get_args(Unit)) == set(_ALL_UNITS)
 
 
 # ---------------------------------------------------------------------------
@@ -570,25 +713,25 @@ class TestNamedAddReclaimsLegend:
         # Build a fresh plot and add a named histogram.
         hist2 = Histogram()
         assert not hist2._axes_state.is_reclaimed("legend")
-        hist2.add_histogram([1, 2, 3], name="A")
+        hist2.add_dataset([1, 2, 3], name="A")
         assert hist2._axes_state.is_reclaimed("legend")
 
     def test_unnamed_add_histogram_does_not_reclaim_legend(self):
         hist = Histogram()
         assert not hist._axes_state.is_reclaimed("legend")
-        hist.add_histogram([1, 2, 3])  # name=None default
+        hist.add_dataset([1, 2, 3])  # name=None default
         assert not hist._axes_state.is_reclaimed("legend")
 
     def test_named_add_boxplot_reclaims_legend_unit(self):
         box = BoxPlot()
         assert not box._axes_state.is_reclaimed("legend")
-        box.add_boxplot_dataset({"A": [1, 2, 3]}, name="series-A")
+        box.add_dataset({"A": [1, 2, 3]}, name="series-A")
         assert box._axes_state.is_reclaimed("legend")
 
     def test_unnamed_add_boxplot_does_not_reclaim_legend(self):
         box = BoxPlot()
         assert not box._axes_state.is_reclaimed("legend")
-        box.add_boxplot_dataset({"A": [1, 2, 3]})
+        box.add_dataset({"A": [1, 2, 3]})
         assert not box._axes_state.is_reclaimed("legend")
 
 
@@ -605,45 +748,45 @@ _NAMED_ADD_CASES = [
     ),
     pytest.param(
         ViolinPlot,
-        lambda plot: plot.add_violinplot_datasets({"A": [1.0, 2.0]}, name="violins"),
-        id="ViolinPlot.add_violinplot_datasets",
+        lambda plot: plot.add_dataset({"A": [1.0, 2.0]}, name="violins"),
+        id="ViolinPlot.add_dataset",
     ),
     pytest.param(
-        SeaLevel,
-        lambda plot: plot.add_sealevel_set({"A": 0.5, "B": 0.7}, name="levels"),
-        id="SeaLevel.add_sealevel_set",
+        SeaLevelPlot,
+        lambda plot: plot.add_dataset({"A": 0.5, "B": 0.7}, name="levels"),
+        id="SeaLevelPlot.add_dataset",
     ),
     pytest.param(
-        SeatsVotes,
-        lambda plot: plot.add_seat_votes_data([0.4, 0.6], name="curve"),
-        id="SeatsVotes.add_seat_votes_data",
+        SeatsVotesPlot,
+        lambda plot: plot.add_election([0.4, 0.6], name="curve"),
+        id="SeatsVotesPlot.add_election",
     ),
     pytest.param(
-        SeatsVotes,
+        SeatsVotesPlot,
         lambda plot: plot.add_proportionality_line(name="proportionality"),
-        id="SeatsVotes.add_proportionality_line",
+        id="SeatsVotesPlot.add_proportionality_line",
     ),
     pytest.param(
-        SeatsVotes,
+        SeatsVotesPlot,
         lambda plot: plot.add_efficiency_gap_line(name="efficiency-gap"),
-        id="SeatsVotes.add_efficiency_gap_line",
+        id="SeatsVotesPlot.add_efficiency_gap_line",
     ),
     pytest.param(
-        SeatsVotes,
+        SeatsVotesPlot,
         lambda plot: plot.add_custom_line(
             2.0, linecolor="black", linestyle="-", linewidth=1.0, name="custom"
         ),
-        id="SeatsVotes.add_custom_line",
+        id="SeatsVotesPlot.add_custom_line",
     ),
     pytest.param(
-        PaintBall,
+        PaintballPlot,
         lambda plot: plot.add_lines_with_slope([1.0], name="guide"),
-        id="PaintBall.add_lines_with_slope",
+        id="PaintballPlot.add_lines_with_slope",
     ),
     pytest.param(
         ScatterPlot,
-        lambda plot: plot.add_scatter(x=[0.1], y=[0.2], label="points"),
-        id="ScatterPlot.add_scatter",
+        lambda plot: plot.add_series(x=[0.1], y=[0.2], name="points"),
+        id="ScatterPlot.add_series",
     ),
     pytest.param(
         ScatterPlot,
@@ -653,7 +796,7 @@ _NAMED_ADD_CASES = [
 ]
 
 # Same calls without a name/label. ``ScatterPlot.add_point`` is excluded (its label parameter is
-# required) and the SeatsVotes/PaintBall guide-line wrappers with non-None default names are
+# required) and the SeatsVotesPlot/PaintballPlot guide-line wrappers with non-None default names are
 # represented by their underlying named-line methods.
 _UNNAMED_ADD_CASES = [
     pytest.param(
@@ -668,43 +811,43 @@ _UNNAMED_ADD_CASES = [
     ),
     pytest.param(
         ViolinPlot,
-        lambda plot: plot.add_violinplot_datasets({"A": [1.0, 2.0]}),
-        id="ViolinPlot.add_violinplot_datasets",
+        lambda plot: plot.add_dataset({"A": [1.0, 2.0]}),
+        id="ViolinPlot.add_dataset",
     ),
     pytest.param(
-        SeaLevel,
-        lambda plot: plot.add_sealevel_set({"A": 0.5, "B": 0.7}),
-        id="SeaLevel.add_sealevel_set",
+        SeaLevelPlot,
+        lambda plot: plot.add_dataset({"A": 0.5, "B": 0.7}),
+        id="SeaLevelPlot.add_dataset",
     ),
     pytest.param(
-        SeatsVotes,
-        lambda plot: plot.add_seat_votes_data([0.4, 0.6]),
-        id="SeatsVotes.add_seat_votes_data",
+        SeatsVotesPlot,
+        lambda plot: plot.add_election([0.4, 0.6]),
+        id="SeatsVotesPlot.add_election",
     ),
     pytest.param(
-        SeatsVotes,
+        SeatsVotesPlot,
         lambda plot: plot.add_proportionality_line(),
-        id="SeatsVotes.add_proportionality_line",
+        id="SeatsVotesPlot.add_proportionality_line",
     ),
     pytest.param(
-        SeatsVotes,
+        SeatsVotesPlot,
         lambda plot: plot.add_efficiency_gap_line(),
-        id="SeatsVotes.add_efficiency_gap_line",
+        id="SeatsVotesPlot.add_efficiency_gap_line",
     ),
     pytest.param(
-        SeatsVotes,
+        SeatsVotesPlot,
         lambda plot: plot.add_custom_line(2.0, linecolor="black", linestyle="-", linewidth=1.0),
-        id="SeatsVotes.add_custom_line",
+        id="SeatsVotesPlot.add_custom_line",
     ),
     pytest.param(
-        PaintBall,
+        PaintballPlot,
         lambda plot: plot.add_lines_with_slope([1.0]),
-        id="PaintBall.add_lines_with_slope",
+        id="PaintballPlot.add_lines_with_slope",
     ),
     pytest.param(
         ScatterPlot,
-        lambda plot: plot.add_scatter(x=[0.1], y=[0.2]),
-        id="ScatterPlot.add_scatter",
+        lambda plot: plot.add_series(x=[0.1], y=[0.2]),
+        id="ScatterPlot.add_series",
     ),
 ]
 
@@ -741,6 +884,7 @@ class TestExternalLegendReplacedByNamedAdd:
 
     def test_named_add_replaces_external_legend(self):
         hist = _simple_hist()
+        hist.legend = True
         ax = hist.ax
         # User places an external legend.
         ax.plot([0, 1], [0, 1], label="external")
@@ -748,7 +892,7 @@ class TestExternalLegendReplacedByNamedAdd:
         external_legend = ax.get_legend()
         assert external_legend is not None
         # User calls a named add — should reclaim legend and replace on rebuild.
-        hist.add_histogram([10, 20, 30], name="gerrytools-series")
+        hist.add_dataset([10, 20, 30], name="gerrytools-series")
         hist.ax
         new_legend = hist._ax.get_legend()
         assert new_legend is not None
@@ -804,7 +948,7 @@ class TestUnobservableNoOpLimitation:
         # unobservable case.
         ax.set_xlabel("")
         hist = Histogram(ax=ax)
-        hist.add_histogram([1, 2, 3])
+        hist.add_dataset([1, 2, 3])
         # On rebuild, gerrytools treats this as "no opinion" and may set
         # its own xlabel default later. The user's explicit-empty intent is
         # not distinguishable from constructor-omitted.

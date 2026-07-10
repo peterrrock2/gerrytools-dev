@@ -1,14 +1,17 @@
 """`_CategoricalColorLayer` — categorical color mapping over a data column."""
 
-from collections.abc import Sequence
+import math
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from typing import cast
+from warnings import warn
 
 import matplotlib.pyplot as plt
 import pandas as pd
 from geopandas import GeoDataFrame, GeoSeries
-from matplotlib.axes import Axes
 from matplotlib.colors import Colormap, to_hex
 from matplotlib.pyplot import get_cmap
+from numpy import linspace
 
 from gerrytools.colors import districtr, resolve_color_and_alpha
 from gerrytools.plotting.geometry._layers._base import _GeoLayer
@@ -16,10 +19,19 @@ from gerrytools.typing import (
     CategoryColorMap,
     CategoryKey,
     Color,
-    CRSLike,
     GeoColorMap,
+    MplCompatibleColor,
     ResolvedColor,
 )
+
+
+def _resolves_as_color(value: str) -> bool:
+    """Whether a string resolves as a gerrytools/matplotlib color."""
+    try:
+        resolve_color_and_alpha(value)
+    except ValueError:
+        return False
+    return True
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,22 +39,23 @@ class _CategoricalColorLayer(_GeoLayer):
     """A geographic layer with categorical color mapping based on a data column.
 
     Attributes:
-        geosource (GeoSource): The source of geometries for this layer.
+        geometry_source (GeoSource): The source of geometries for this layer.
         geometry_mask (pd.Series | None): Optional boolean mask to filter geometries.
             Default is None (no mask).
-        datacolumn (str | None): Optional data column for color mapping. Default is None.
+        column (str | None): Optional data column for color mapping. Default is None.
         colormap (GeoColorMap | None): Color mapping
             specification. Can be a single color, a named colormap, a Colormap object, or
-            a mapping from data values to colors. Defaults to "Purples".
+            a mapping from data values to colors. When ``column`` is set, a string is
+            resolved as a registered Matplotlib colormap name first and as a flat color
+            otherwise; without a column, strings always resolve as flat colors. A string
+            that is both a colormap name and a color (e.g. ``"pink"``) resolves as the
+            colormap and emits a ``UserWarning``. Defaults to "districtr".
         missing_color (MplCompatibleColor | None): Color to use for missing data.
         facealpha (float | None): Alpha transparency for face colors. Default is None.
         edgecolor (Color): Color for geometry edges. Default is "none".
         edgealpha (float | None): Alpha transparency for edge colors. Default is None.
         edgewidth (float): Width of geometry edges. Default is 0.5.
         zorder (int): Z-order for rendering. Default is 1.
-        colormap (GeoColorMap | None): Color mapping
-            specification. Can be a single color, a named colormap, a Colormap object, or
-            a mapping from data values to colors. Defaults to "districtr".
     """
 
     colormap: GeoColorMap | None = "districtr"
@@ -53,57 +66,119 @@ class _CategoricalColorLayer(_GeoLayer):
         if isinstance(self.geometry_source, GeoSeries) and self.colormap == "districtr":
             object.__setattr__(self, "colormap", "none")
 
+        if self.colormap is not None and not isinstance(
+            self.colormap, (str, tuple, Mapping, Colormap)
+        ):
+            raise TypeError(
+                "'colormap' must be one of: None, str (named colormap or color), "
+                "Colormap, or mapping; got "
+                f"{type(self.colormap).__name__!r}",
+            )
+
         needs_datacolumn = (
             self.colormap == "districtr"
-            or isinstance(self.colormap, (dict, pd.Series, Colormap))
+            or isinstance(self.colormap, (Mapping, Colormap))
             or (isinstance(self.colormap, str) and self.colormap in plt.colormaps())
         )
+
+        # A Colormap object or value->color dict needs a data column, which a bare GeoSeries
+        # cannot supply. (Named-colormap strings are excluded: names like "gray" are also valid
+        # single colors, which is exactly how GeoSeries-sourced outline/highlight layers use
+        # them, so string colormaps on a GeoSeries resolve as plain colors at render time.)
+        if isinstance(self.geometry_source, GeoSeries) and isinstance(
+            self.colormap, (Mapping, Colormap)
+        ):
+            raise TypeError(
+                "A Colormap or value->color mapping requires a data column; the layer's "
+                "geo_source is a GeoSeries, which has none. Pass a GeoDataFrame and 'column'."
+            )
 
         if (
             isinstance(self.geometry_source, GeoDataFrame)
             and needs_datacolumn
-            and self.datacolumn is None
+            and self.column is None
         ):
-            raise TypeError("'datacolumn' must be set for color-mapped layers")
+            raise TypeError("'column' must be set for color-mapped layers")
+
+        # A string like "pink" is both a registered colormap name and a valid color; with a
+        # data column set the colormap interpretation wins, so flag the ambiguity.
+        if (
+            isinstance(self.geometry_source, GeoDataFrame)
+            and self.column is not None
+            and isinstance(self.colormap, str)
+            and self.colormap != "districtr"
+            and self.colormap in plt.colormaps()
+            and _resolves_as_color(self.colormap)
+        ):
+            warn(
+                f"colormap={self.colormap!r} is both a registered Matplotlib colormap name and "
+                "a valid color; since a data column is set, it is interpreted as the colormap. "
+                "Pass a Colormap instance (e.g. matplotlib.pyplot.get_cmap"
+                f"({self.colormap!r})) to map values, or an RGBA tuple / hex string for a "
+                "flat color.",
+                UserWarning,
+                stacklevel=2,
+            )
 
         if self.colormap == "districtr" and isinstance(self.geometry_source, GeoDataFrame):
-            unique_values = self.geometry_source[self.datacolumn].unique()
+            unique_values = self.geometry_source[self.column].unique()
             districtr_colors = districtr(len(unique_values))
             object.__setattr__(
                 self,
                 "colormap",
-                self.__map_unique_values_to_colors(unique_values, districtr_colors),
+                self._map_unique_values_to_colors(unique_values, districtr_colors),
+            )
+        elif isinstance(self.geometry_source, GeoDataFrame) and (
+            isinstance(self.colormap, Colormap)
+            or (isinstance(self.colormap, str) and self.colormap in plt.colormaps())
+        ):
+            cmap = get_cmap(self.colormap) if isinstance(self.colormap, str) else self.colormap
+            unique_values = self.geometry_source[self.column].unique()
+            category_count = sum(bool(pd.notna(value)) for value in unique_values)
+            n_colors = int(getattr(cmap, "N", 256))
+            # Sample at most the LUT size; with more categories than LUT entries the shared
+            # not-enough-colors guard in _map_unique_values_to_colors raises.
+            colors = [
+                to_hex(cmap(position), keep_alpha=True)
+                for position in linspace(0.0, 1.0, min(category_count, n_colors))
+            ]
+            object.__setattr__(
+                self,
+                "colormap",
+                self._map_unique_values_to_colors(unique_values, colors),
             )
 
     @staticmethod
-    def __map_unique_values_to_colors(
-        unique_values: pd.Index,
+    def _map_unique_values_to_colors(
+        unique_values: Iterable[CategoryKey],
         color_list: Sequence[Color],
     ) -> CategoryColorMap:
         """Map unique values in the data to colors from the provided list. Filters out NaN values.
 
         Args:
-            unique_values (pd.Index): The unique values to map.
+            unique_values (Iterable[CategoryKey]): The unique values to map.
             color_list (Sequence[Color]): The colors to use for mapping.
         """
         n_colors = len(color_list)
+        all_values = list(unique_values)
         non_na_values: list[CategoryKey] = []
-        for value in unique_values:
-            if pd.notna(value):
+        for value in all_values:
+            # Keys are scalars, so pd.notna returns a bool; bool() pins the stub union.
+            if bool(pd.notna(value)):
                 non_na_values.append(value)
 
         if len(non_na_values) > n_colors:
             raise ValueError(
                 "Not enough colors provided to map all unique values; "
-                f"received {n_colors} colors for {len(unique_values)} unique values",
+                f"received {n_colors} colors for {len(non_na_values)} unique values",
             )
 
-        # Try to convert to integers and sort by those if possible
-        # Just in case the values are something like ["1", "2", "10"]
-        # which would incorrectly sort to ["1", "10", "2"] as strings
+        # Sort numeric-looking labels numerically so strings and integral floats agree.
         try:
-            key_int_pairs = [(key, int(str(key))) for key in non_na_values]
-            sorted_keys = sorted(key_int_pairs, key=lambda x: x[1])
+            key_number_pairs = [(key, float(str(key))) for key in non_na_values]
+            if any(not math.isfinite(number) for _, number in key_number_pairs):
+                raise ValueError
+            sorted_keys = sorted(key_number_pairs, key=lambda pair: pair[1])
             keys_in_order = [k for (k, _) in sorted_keys]
         except (ValueError, TypeError):
             keys_in_order = sorted(non_na_values, key=lambda value: str(value))
@@ -113,6 +188,9 @@ class _CategoricalColorLayer(_GeoLayer):
     @property
     def color_series(self) -> pd.Series:
         """Get a series of colors indexed the same as the geometries.
+
+        Any ``geometry_mask`` is applied positionally: label-based reindexing would raise on
+        the duplicate index labels a ``pd.concat``-built GeoDataFrame routinely carries.
 
         Returns:
             pd.Series: A series of colors for each geometry.
@@ -124,114 +202,26 @@ class _CategoricalColorLayer(_GeoLayer):
                 ["none"] * len(self.geometry_source), index=self.geometry_source.index
             )
 
-        elif isinstance(self.colormap, str) and (
-            self.colormap not in plt.colormaps() or self.datacolumn is None
-        ):
-            color = resolve_color_and_alpha(self.colormap, alpha=self.facealpha)
+        elif isinstance(self.colormap, (str, tuple)):
+            color = resolve_color_and_alpha(
+                cast("MplCompatibleColor", self.colormap), alpha=self.facealpha
+            )
             ret_colors_series = pd.Series(
                 [color] * len(self.geometry_source), index=self.geometry_source.index
             )
 
-        elif isinstance(
-            self.colormap, pd.Series
-        ):  # pragma: no cover - __post_init__ raises ValueError when colormap is pd.Series (ambiguous truth value); this branch is unreachable
-            new_entries = [
-                resolve_color_and_alpha(c, alpha=self.facealpha) for c in self.colormap
-            ]  # pragma: no cover
-            ret_colors_series = pd.Series(
-                new_entries, index=self.colormap.index
-            )  # pragma: no cover
-        elif isinstance(self.colormap, Colormap) or (
-            isinstance(self.colormap, str) and self.colormap in plt.colormaps()
-        ):
-            cmap: Colormap = (
-                get_cmap(self.colormap) if isinstance(self.colormap, str) else self.colormap
-            )
-
-            # Almost all color maps have at most 256 discrete colors (even the "continuous" ones).
-            # This is just a safeguard to avoid indexing errors
-            n_colors = int(getattr(cmap, "N", 256))
-
-            value_to_color_dict = self.__map_unique_values_to_colors(
-                self.geometry_source[self.datacolumn].unique(),
-                [to_hex(cmap(i), keep_alpha=True) for i in range(n_colors)],
-            )
-
-            new_entries = []
-            for val in self.geometry_source[self.datacolumn]:
-                new_color = self.missing_color
-                if pd.notna(val):
-                    # Try to convert to integer index
-                    new_color = resolve_color_and_alpha(
-                        value_to_color_dict[val], alpha=self.facealpha
-                    )
-                new_entries.append(new_color)
-            ret_colors_series = pd.Series(new_entries, index=self.geometry_source.index)
-
-        elif isinstance(self.colormap, dict):
+        elif isinstance(self.colormap, Mapping):
             new_entries: list[ResolvedColor] = []
-            for val in self.geometry_source[self.datacolumn]:
-                color = self.colormap.get(val, self.missing_color)
+            for val in self._data_series():
+                color = cast(
+                    "MplCompatibleColor | None",
+                    self.colormap.get(val, self.missing_color),
+                )
                 color_tup = resolve_color_and_alpha(color, alpha=self.facealpha)
                 new_entries.append(color_tup)
             ret_colors_series = pd.Series(new_entries, index=self.geometry_source.index)
-        else:
-            raise TypeError(
-                "'colormap' must be one of: None, str (named colormap or color), "
-                "Colormap, dict, or pd.Series; got "
-                f"{type(self.colormap).__name__!r}",
-            )
-
-        return ret_colors_series.reindex(self.geometries.index)
-
-    def render(
-        self,
-        ax: Axes,
-        *,
-        target_crs: CRSLike | None = None,
-        **kwargs: object,
-    ) -> list:
-        """Render this layer onto the given Axes.
-
-        Args:
-            ax (Axes): The Axes to render onto.
-            target_crs (CRSLike | None, optional): The target CRS to reproject geometries to.
-                Defaults to None.
-            **kwargs (object): Additional keyword arguments (not used but included to satisfy
-                render function signature contract).
-
-        Returns:
-            list[Artist]: The matplotlib artists added to ``ax`` by this layer.
-        """
-        if kwargs:
-            unknown = ", ".join(kwargs.keys())
-            raise TypeError(f"Unknown keyword argument(s) passed to render: {unknown}")
-
-        if (
-            not isinstance(self.geometry_source, GeoSeries)
-            and self.datacolumn is not None
-            and self.datacolumn not in self.geometry_source.columns
-        ):
-            raise KeyError(
-                f"Column {self.datacolumn!r} not found in GeoDataFrame."
-                f" Available columns: {list(self.geometry_source.columns)}"
-            )
-
-        edge_color_tup = resolve_color_and_alpha(
-            self.edgecolor,
-            alpha=self.edgealpha,
-        )
-
-        geoseries = self._geometries_in_crs(target_crs)
-        from gerrytools.plotting.geometry._layers._base import _capture_geopandas_artists
-
-        return _capture_geopandas_artists(
-            ax,
-            plot_call=lambda: geoseries.plot(
-                ax=ax,
-                color=self.color_series,
-                edgecolor=edge_color_tup,
-                linewidth=self.edgewidth,
-                zorder=self.zorder,
-            ),
-        )
+        else:  # pragma: no cover - __post_init__ normalizes or rejects every other input
+            raise RuntimeError("Categorical colormap was not normalized.")
+        if self.geometry_mask is None:
+            return ret_colors_series
+        return ret_colors_series.iloc[self.geometry_mask.to_numpy(dtype=bool)]

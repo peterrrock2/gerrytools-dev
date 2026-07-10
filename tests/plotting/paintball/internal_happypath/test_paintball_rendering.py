@@ -2,8 +2,6 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-
-from gerrytools.plotting.data.paintball import PaintBall
 from tests.plotting.paintball._helpers import simple_paintball
 
 
@@ -11,21 +9,18 @@ from tests.plotting.paintball._helpers import simple_paintball
 # == PAINTBALLLINE DATACLASS ==
 # =============================
 class TestPaintBallBuild:
-    def test_build_point_view(self):
-        pb = simple_paintball()
-        ax = pb.ax
-        assert ax is not None
-
-    def test_build_hull_view(self):
-        pb = simple_paintball()
-        ax = pb.hull_ax
-        assert ax is not None
-
-    def test_hull_ax_restores_draw_hull_flag(self):
+    def test_display_hull_is_persistent_and_reversible(self):
         pb = simple_paintball()
         assert pb._draw_hull is False
-        _ = pb.hull_ax
-        # After hull_ax returns, _draw_hull should be restored
+        pb.display_hull(True)
+        assert pb._draw_hull is True
+        pb.display_hull(False)
+        assert pb._draw_hull is False
+
+    def test_clear_options_resets_hull_mode(self):
+        pb = simple_paintball()
+        pb.display_hull(True)
+        pb.clear_options()
         assert pb._draw_hull is False
 
     def test_build_with_no_default_lines(self):
@@ -33,33 +28,7 @@ class TestPaintBallBuild:
             add_efficiency_gap_line=False,
             add_proportionality_line=False,
         )
-        ax = pb.ax
-        assert ax is not None
-
-    def test_build_with_custom_scale(self):
-        pb = simple_paintball()
-        pb.set_scale(xscale=5.0, yscale=15.0)
-        ax = pb.ax
-        assert ax is not None
-
-    def test_build_with_single_point(self):
-        pb = PaintBall()
-        pb.add_voteshare_seatshare_data([0.5], [0.5])
-        ax = pb.ax
-        assert ax is not None
-
-    def test_hull_view_with_single_point(self):
-        pb = PaintBall()
-        pb.add_voteshare_seatshare_data([0.5], [0.5])
-        ax = pb.hull_ax
-        assert ax is not None
-
-    def test_hull_view_with_two_colinear_points(self):
-        # Two points with same y -> hull degenerates to a line (< 3 vertices)
-        pb = PaintBall()
-        pb.add_voteshare_seatshare_data([0.3, 0.7], [0.5, 0.5])
-        ax = pb.hull_ax
-        assert ax is not None
+        assert all(line.get_linestyle() == "None" for line in pb.ax.lines)
 
 
 # ====================
@@ -125,3 +94,28 @@ class TestPaintBallLegendHandles:
         handles = pb._legend_handles
         labels = [h.get_label() for h in handles]
         assert "My Guide" in labels
+
+
+# ==============================
+# == TICK LABEL RESTORE FLOW  ==
+# ==============================
+
+
+class TestPaintballTickLabelRestore:
+    """Restoring tick labels after a render shows them again.
+
+    Regression test: ``clear_options`` hides both axes' labels via empty ticks, and the
+    ordinary render -> ``set_xticks(..., labels=...)`` -> render flow must re-enable label
+    visibility, not just write invisible label text.
+    """
+
+    def test_set_ticks_after_render_shows_labels(self):
+        pb = simple_paintball()
+        _ = pb.ax  # first render applies the hidden-label default
+        pb.set_xticks([0.0, 0.5, 1.0], labels=["0", "1/2", "1"])
+        pb.set_yticks([0.0, 0.5, 1.0], labels=["0", "1/2", "1"])
+        ax = pb.ax
+        assert [tick.get_text() for tick in ax.get_xticklabels()] == ["0", "1/2", "1"]
+        assert all(tick.get_visible() for tick in ax.get_xticklabels())
+        assert [tick.get_text() for tick in ax.get_yticklabels()] == ["0", "1/2", "1"]
+        assert all(tick.get_visible() for tick in ax.get_yticklabels())

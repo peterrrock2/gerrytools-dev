@@ -11,6 +11,7 @@ from gerrytools.plotting.mpl.label_text_options import LabelBoxOptions, LabelFon
 from gerrytools.plotting.mpl.legend_options import LegendOptions
 from gerrytools.plotting.mpl.marker_options import PointMarkerOptions
 from gerrytools.plotting.mpl.tick_style import TickStyle
+from tests.plotting._typing_utils import as_any
 
 
 # ========================
@@ -109,7 +110,7 @@ class TestTickStyle:
 
     def test_non_numeric_size_raises_typeerror(self):
         with pytest.raises(TypeError, match="float or int"):
-            TickStyle(size="large")  # ty: ignore[invalid-argument-type]
+            TickStyle(size=as_any("large"))
 
     def test_non_finite_size_raises_valueerror(self):
         with pytest.raises(ValueError, match="finite"):
@@ -125,7 +126,7 @@ class TestTickStyle:
 
     def test_invalid_ticktype_raises_valueerror(self):
         with pytest.raises(ValueError, match="ticktype"):
-            TickStyle(ticktype="invalid")  # ty: ignore[invalid-argument-type]
+            TickStyle(ticktype=as_any("invalid"))
 
     def test_valid_ticktypes_are_accepted(self):
         for ticktype in ("major", "minor", "both"):
@@ -152,7 +153,7 @@ class TestAxisLabelStyle:
 
     def test_non_numeric_fontsize_raises_typeerror(self):
         with pytest.raises(TypeError, match="float or int"):
-            AxisLabelStyle(fontsize="big")  # ty: ignore[invalid-argument-type]
+            AxisLabelStyle(fontsize=as_any("big"))
 
     def test_negative_fontsize_raises_valueerror(self):
         with pytest.raises(ValueError, match="nonnegative"):
@@ -164,11 +165,11 @@ class TestAxisLabelStyle:
 
     def test_non_numeric_labelpad_raises_typeerror(self):
         with pytest.raises(TypeError, match="float or int"):
-            AxisLabelStyle(labelpad="wide")  # ty: ignore[invalid-argument-type]
+            AxisLabelStyle(labelpad=as_any("wide"))
 
-    def test_negative_labelpad_raises_valueerror(self):
-        with pytest.raises(ValueError, match="nonnegative"):
-            AxisLabelStyle(labelpad=-5.0)
+    def test_negative_labelpad_is_accepted(self):
+        # Negative pads are legal in matplotlib (they pull the label inward).
+        assert AxisLabelStyle(labelpad=-5.0).labelpad == -5.0
 
     def test_infinite_labelpad_raises_valueerror(self):
         with pytest.raises(ValueError, match="finite"):
@@ -188,8 +189,11 @@ class TestAxisLabelStyle:
     def test_to_mpl_settings_dict_includes_set_fields(self):
         als = AxisLabelStyle(fontsize=14, fontweight="bold", fontstyle="italic")
         d = als.to_mpl_settings_dict()
+        assert "fontsize" in d
         assert d["fontsize"] == 14
+        assert "fontweight" in d
         assert d["fontweight"] == "bold"
+        assert "fontstyle" in d
         assert d["fontstyle"] == "italic"
 
     def test_none_fontsize_is_valid(self):
@@ -208,7 +212,7 @@ class TestTitleStyle:
 
     def test_non_numeric_fontsize_raises_typeerror(self):
         with pytest.raises(TypeError, match="float or int"):
-            TitleStyle(fontsize="big")  # ty: ignore[invalid-argument-type]
+            TitleStyle(fontsize=as_any("big"))
 
     def test_negative_fontsize_raises_valueerror(self):
         with pytest.raises(ValueError, match="nonnegative"):
@@ -220,11 +224,11 @@ class TestTitleStyle:
 
     def test_non_numeric_pad_raises_typeerror(self):
         with pytest.raises(TypeError, match="float or int"):
-            TitleStyle(pad="wide")  # ty: ignore[invalid-argument-type]
+            TitleStyle(pad=as_any("wide"))
 
-    def test_negative_pad_raises_valueerror(self):
-        with pytest.raises(ValueError, match="nonnegative"):
-            TitleStyle(pad=-1.0)
+    def test_negative_pad_is_accepted(self):
+        # Negative pads are legal in matplotlib (they pull the title inward).
+        assert TitleStyle(pad=-1.0).pad == -1.0
 
     def test_infinite_pad_raises_valueerror(self):
         with pytest.raises(ValueError, match="finite"):
@@ -232,7 +236,7 @@ class TestTitleStyle:
 
     def test_invalid_loc_raises_valueerror(self):
         with pytest.raises(ValueError, match="loc"):
-            TitleStyle(loc="top")  # ty: ignore[invalid-argument-type]
+            TitleStyle(loc=as_any("top"))
 
     def test_valid_loc_values_are_accepted(self):
         for loc in ("left", "center", "right"):
@@ -247,6 +251,7 @@ class TestTitleStyle:
     def test_to_mpl_settings_dict_includes_loc_when_set(self):
         ts = TitleStyle(loc="left")
         d = ts.to_mpl_settings_dict()
+        assert "loc" in d
         assert d["loc"] == "left"
 
 
@@ -258,6 +263,18 @@ class TestLabelFontOptions:
         lfo = LabelFontOptions()
         assert lfo.fontsize == 6.0
         assert lfo.fontweight == "bold"
+
+    def test_negative_fontsize_raises(self):
+        with pytest.raises(ValueError, match="LabelFontOptions.fontsize must be nonnegative"):
+            LabelFontOptions(fontsize=-1.0)
+
+    def test_infinite_fontsize_raises(self):
+        with pytest.raises(ValueError, match="LabelFontOptions.fontsize must be finite"):
+            LabelFontOptions(fontsize=float("inf"))
+
+    def test_negative_outlinewidth_raises(self):
+        with pytest.raises(ValueError, match="LabelFontOptions.outlinewidth must be nonnegative"):
+            LabelFontOptions(outlinewidth=-0.5)
 
     def test_to_mpl_text_kwargs_returns_expected_keys(self):
         lfo = LabelFontOptions()
@@ -317,13 +334,13 @@ class TestLabelBoxOptions:
 class TestLegendOptions:
     def test_default_construction(self):
         lo = LegendOptions()
-        assert lo.loc == "best"
+        assert lo.loc == "center left"
+        assert lo.bbox_to_anchor == (1.01, 0.5)
         assert lo.ncols == 1
 
     def test_to_dict_excludes_none_values(self):
         lo = LegendOptions()
         d = lo.to_dict()
-        assert "bbox_to_anchor" not in d
         assert "fontsize" not in d
         assert "framealpha" not in d
 
@@ -353,18 +370,6 @@ class TestAxisLabelStyleOptionalFields:
         style = AxisLabelStyle(labelpad=5.0)
         assert style.labelpad == pytest.approx(5.0)
 
-    def test_labelpad_infinite_raises_valueerror(self):
-        with pytest.raises(ValueError, match="finite"):
-            AxisLabelStyle(labelpad=float("inf"))
-
-    def test_labelpad_negative_raises_valueerror(self):
-        with pytest.raises(ValueError, match="nonnegative"):
-            AxisLabelStyle(labelpad=-1.0)
-
-    def test_labelpad_not_numeric_raises_typeerror(self):
-        with pytest.raises(TypeError, match="float or int"):
-            AxisLabelStyle(labelpad="big")  # ty: ignore[invalid-argument-type]
-
     def test_to_mpl_settings_dict_includes_fontfamily(self):
         style = AxisLabelStyle(fontfamily="serif")
         d = style.to_mpl_settings_dict()
@@ -393,41 +398,38 @@ class TestTitleStyleOptionalFields:
         style = TitleStyle(pad=6.0)
         assert style.pad == pytest.approx(6.0)
 
-    def test_pad_infinite_raises_valueerror(self):
-        with pytest.raises(ValueError, match="finite"):
-            TitleStyle(pad=float("inf"))
-
-    def test_pad_negative_raises_valueerror(self):
-        with pytest.raises(ValueError, match="nonnegative"):
-            TitleStyle(pad=-1.0)
-
     def test_pad_not_numeric_raises_typeerror(self):
         with pytest.raises(TypeError, match="float or int"):
-            TitleStyle(pad="large")  # ty: ignore[invalid-argument-type]
+            TitleStyle(pad=as_any("large"))
 
     def test_to_mpl_settings_dict_includes_fontweight(self):
         style = TitleStyle(fontweight="bold")
         d = style.to_mpl_settings_dict()
+        assert "fontweight" in d
         assert d["fontweight"] == "bold"
 
     def test_to_mpl_settings_dict_includes_fontstyle(self):
         style = TitleStyle(fontstyle="italic")
         d = style.to_mpl_settings_dict()
+        assert "fontstyle" in d
         assert d["fontstyle"] == "italic"
 
     def test_to_mpl_settings_dict_includes_fontfamily(self):
         style = TitleStyle(fontfamily="serif")
         d = style.to_mpl_settings_dict()
+        assert "fontfamily" in d
         assert d["fontfamily"] == "serif"
 
     def test_to_mpl_settings_dict_includes_loc(self):
         style = TitleStyle(loc="left")
         d = style.to_mpl_settings_dict()
+        assert "loc" in d
         assert d["loc"] == "left"
 
     def test_to_mpl_settings_dict_includes_pad(self):
         style = TitleStyle(pad=4.0)
         d = style.to_mpl_settings_dict()
+        assert "pad" in d
         assert d["pad"] == pytest.approx(4.0)
 
     def test_to_mpl_settings_dict_omits_fontweight_when_none(self):
@@ -444,10 +446,6 @@ class TestTitleStyleOptionalFields:
         style = TitleStyle()
         d = style.to_mpl_settings_dict()
         assert "pad" not in d
-
-    def test_invalid_loc_raises_valueerror(self):
-        with pytest.raises(ValueError, match="loc"):
-            TitleStyle(loc="top")  # ty: ignore[invalid-argument-type]
 
 
 class TestLabelFontOptionsStretch:

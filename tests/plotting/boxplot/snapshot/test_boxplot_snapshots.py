@@ -30,7 +30,7 @@ class TestBoxPlotSnapshots:
         data = make_boxplot_data(rng)
 
         plot = BoxPlot(figure_size=(8, 5), dpi=100, xlabel="District", ylabel="Score")
-        plot.add_boxplot_dataset(data, facecolor="denim", name="Series A")
+        plot.add_dataset(data, facecolor="denim", name="Series A")
         img = render_plot(plot, tmp_path)
 
         assert_image_snapshot(
@@ -51,10 +51,10 @@ class TestBoxPlotSnapshots:
             dpi=100,
             xlabel="District",
             ylabel="Score",
-            include_legend=True,
+            legend=True,
         )
-        plot.add_boxplot_dataset(data_a, facecolor="denim", name="Ensemble A")
-        plot.add_boxplot_dataset(data_b, facecolor="alizarin", name="Ensemble B")
+        plot.add_dataset(data_a, facecolor="denim", name="Ensemble A")
+        plot.add_dataset(data_b, facecolor="alizarin", name="Ensemble B")
         img = render_plot(plot, tmp_path)
 
         assert_image_snapshot(
@@ -76,7 +76,7 @@ class TestBoxPlotSnapshots:
             markeredgecolor="alizarin",
         )
         plot = BoxPlot(figure_size=(8, 5), dpi=100)
-        plot.add_boxplot_dataset(
+        plot.add_dataset(
             data,
             facecolor="applegreen",
             showfliers=True,
@@ -102,8 +102,8 @@ class TestBoxPlotSnapshots:
             dpi=100,
             title="Boxplot with Group Lines",
         )
-        plot.enable_boxplot_group_vlines()
-        plot.add_boxplot_dataset(data, facecolor="amber", name="Series")
+        plot.display_group_separators(True)
+        plot.add_dataset(data, facecolor="amber", name="Series")
         img = render_plot(plot, tmp_path)
 
         assert_image_snapshot(

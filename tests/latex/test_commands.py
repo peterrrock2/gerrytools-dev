@@ -46,15 +46,14 @@ class TestTexIdent:
 # == COMMAND GENERATION ==
 # ========================
 class TestCommandGeneration:
-    def test_gradient_command_includes_custom_name_range_and_color(self):
+    def test_gradient_command_delegates_to_twocolor_with_white_upper_endpoint(self):
         out = tex_gradient_command(cmd_str="shade", color_name="denim", lo=1.0, hi=9.0)
 
+        assert out == tex_twocolor_gradient_command(
+            "shade", lo=1.0, hi=9.0, color_lo="denim", color_hi="white"
+        )
         assert r"\newcommand{\shade}[1]{%" in out
-        assert (
-            r"\cellcolor{denim!\fpeval{round(100*(1-min(1, max(0, "
-            r"(#1-1.0)/max(9.0-1.0, 1e-12)))),0)}}%"
-        ) in out
-        assert r"\num[round-precision=4]{#1}%" in out
+        assert r"\num[round-mode=places,round-precision=4]{#1}%" in out
 
     def test_twocolor_gradient_command_includes_precision_and_color_mix(self):
         out = tex_twocolor_gradient_command(
@@ -70,7 +69,11 @@ class TestCommandGeneration:
         assert r"\edef\heatlo{-1.0}\edef\heathi{1.0}%" in out
         assert r"\edef\heatpct{\fpeval{round(100*(1-\heatt),0)}}%" in out
         assert r"\edef\heatcolorspec{denim!\heatpct!amber}%" in out
-        assert r"\num[round-precision=3]{#1}%" in out
+        assert r"\num[round-mode=places,round-precision=3]{#1}%" in out
+
+    def test_twocolor_gradient_command_rejects_hex_endpoint(self):
+        with pytest.raises(ValueError, match="cannot use hex colors"):
+            tex_twocolor_gradient_command(color_lo="#112233")
 
     def test_cell_highlight_command_wraps_cellcolor(self):
         out = tex_cell_highlight_command("gea", color="denim")
@@ -93,4 +96,30 @@ class TestCommandGeneration:
         assert r"\colorlet{heatmapMidwhite}{white}%" in out
         assert r"\colorlet{heatmapHirichlavender}{richlavender}%" in out
         assert r"\newcommand{\heatmap}[1]{%" in out
-        assert r"\num[round-precision=2]{#1}%" in out
+        assert r"\num[round-mode=places,round-precision=2]{#1}%" in out
+
+    def test_diverging_gradient_command_branches_in_fpeval_space(self):
+        # Regression (C3): \ifdim on "<value> pt" overflows TeX's 16383pt dimension ceiling
+        # for population-scale ranges; the side selection must stay in fpeval space.
+        out = tex_diverging_gradient_command(lo=0.0, mid=50000.0, hi=100000.0)
+
+        assert r"\ifnum\fpeval{\heatxc < \heatmid}=1" in out
+        assert r"\ifdim" not in out
+
+    def test_diverging_gradient_command_rejects_hex_endpoint(self):
+        with pytest.raises(ValueError, match="cannot use hex colors"):
+            tex_diverging_gradient_command(color_hi="AABBCC")
+
+    @pytest.mark.latex
+    def test_diverging_gradient_command_compiles_at_population_scale(self):
+        from gerrytools.latex.document import TexDocument
+
+        document = TexDocument()
+        document.add_command(
+            tex_diverging_gradient_command("popheat", lo=0.0, mid=50000.0, hi=100000.0)
+        )
+        # Exercise both sides of the midpoint at magnitudes far past 16383pt.
+        document.body_string = (
+            "\\begin{tabular}{cc}\n\\popheat{12500} & \\popheat{87500} \\\\\n\\end{tabular}"
+        )
+        document._compile_pdf()

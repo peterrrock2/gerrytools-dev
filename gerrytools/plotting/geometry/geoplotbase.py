@@ -1,84 +1,122 @@
-import weakref
-from abc import ABC, abstractmethod
-from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from collections.abc import Sequence
+from dataclasses import replace
 from typing import Literal, cast
 from warnings import warn
 
 import geopandas as gpd
-import matplotlib.pyplot as plt
 import pandas as pd
 from geopandas import GeoDataFrame, GeoSeries
-from matplotlib.axes import Axes
-from matplotlib.figure import Figure
-from shapely.geometry import Point, box
+from shapely.geometry import Point
 
-from gerrytools._ipython import in_jupyter_kernel
 from gerrytools.plotting._artist_registry import _ArtistRegistry
-from gerrytools.plotting._axes_state import (
-    UNIT_AXIS_VISIBILITY,
-    UNIT_X_LIMITS,
-    UNIT_Y_LIMITS,
-    _ManagedAxesState,
+from gerrytools.plotting._axes_backed import _AxesBackedPlot, deferred_axis_update
+from gerrytools.plotting._axes_state import Unit, _ManagedAxesState
+from gerrytools.plotting.data._axis_api import _TitleApiMixin, _TitleText
+from gerrytools.plotting.geometry._labels import (
+    _DEFAULT_LABEL_FONT,
+    _INVISIBLE_MARKER,
+    LabelOptions,
+    _draw_deferred_labels,
+    _label_keep_mask,
+    _LabelRequest,
+    _merge_style_arg,
+    _queue_label_request,
 )
-from gerrytools.plotting._figure_io import save_figure, show_figure
 from gerrytools.plotting.geometry._layers import (
     _as_geoseries,
     _CategoricalColorLayer,
-    _GeoLayer,
+    _Layer,
     _MarkerLayer,
 )
-from gerrytools.plotting.mpl.label_text_options import LabelBoxOptions, LabelFontOptions
+from gerrytools.plotting.geometry._layers._base import _mask_geoseries, _to_target_crs
+from gerrytools.plotting.mpl.label_text_options import (
+    LabelBoxOptions,
+    LabelFontOptions,
+    LabelStyle,
+)
 from gerrytools.plotting.mpl.marker_options import PointMarkerOptions
 from gerrytools.typing import (
-    CategoryKey,
     Color,
     CRSLike,
     GeoSource,
 )
 
-# Re-exported so existing imports like
-#   `from gerrytools.plotting.geometry.geoplotbase import _CategoricalColorLayer`
-# keep working from the test suite without forcing test changes.
-__all__ = [
-    "GeoPlotBase",
-    "_GeoLayer",
-    "_CategoricalColorLayer",
-    "_MarkerLayer",
-    "_LabelRequest",
-    "_as_geoseries",
-]
+
+def _resolve_points(
+    points_geoseries: gpd.GeoSeries | None,
+    latlon_list: Sequence[tuple[float, float]] | None,
+    *,
+    input_crs: CRSLike | None,
+    plot_crs: CRSLike | None,
+) -> gpd.GeoSeries:
+    """Resolve marker/label point input to a ``GeoSeries``, enforcing exactly one source.
+
+    ``input_crs`` always means the CRS of the caller's coordinates. The returned series is
+    tagged with that source CRS; layers reproject to the plot CRS at render time.
+
+    Args:
+        points_geoseries (gpd.GeoSeries | None): Point geometries, or None when using
+            ``latlon_list``.
+        latlon_list (Sequence[tuple[float, float]] | None): (latitude, longitude) pairs, or None
+            when using ``points_geoseries``.
+        input_crs (CRSLike | None): CRS of the caller's coordinates. For ``latlon_list`` it
+            defaults to EPSG:4326 (lat/lon); for a CRS-less ``points_geoseries`` it tags the
+            series. A ``points_geoseries`` that already carries a CRS keeps it.
+        plot_crs (CRSLike | None): The CRS the plot renders in. Used only to reject
+            ``latlon_list`` input when the plot has no CRS to reproject into.
+
+    Returns:
+        gpd.GeoSeries: The resolved point geometries, tagged with their source CRS.
+
+    Raises:
+        ValueError: If neither or both point sources are given, or if ``latlon_list`` points
+            are used on a plot with no CRS.
+    """
+    if points_geoseries is None and latlon_list is None:
+        raise ValueError("Either `points_geoseries` or `latlon_list` must be set.")
+    if points_geoseries is not None and latlon_list is not None:
+        raise ValueError(
+            "Only one of `points_geoseries` or `latlon_list` may be set at a time.",
+        )
+
+    if latlon_list is not None:
+        if plot_crs is None:
+            raise ValueError(
+                "latlon_list points cannot be placed on a plot with no CRS: use a base gdf "
+                "with a CRS (or pass points_geoseries in map coordinates).",
+            )
+        # The pairs are (latitude, longitude), i.e. (y, x); Point takes (x, y).
+        point_geometries = gpd.GeoSeries(
+            [Point(float(longitude), float(latitude)) for latitude, longitude in latlon_list],
+            crs=input_crs if input_crs is not None else "EPSG:4326",
+        )
+        return point_geometries
+
+    point_geometries = cast(gpd.GeoSeries, points_geoseries)
+    if getattr(point_geometries, "crs", None) is None and input_crs is not None:
+        point_geometries = point_geometries.set_crs(input_crs)
+    return point_geometries
 
 
-@dataclass(frozen=True, slots=True)
-class _LabelRequest:
-    gdf: GeoDataFrame
-    label_column: str
-    labelfont_options: LabelFontOptions | None
-    labelbox_options: LabelBoxOptions | None
-    label_format_fn: Callable[[CategoryKey], str] | None = None
-    zorder: int = 100
-
-
-class GeoPlotBase(ABC):
+class GeoPlotBase(_TitleApiMixin, _AxesBackedPlot):
     """A class for creating geographic plots with multiple layers.
 
     Attributes:
         gdf (GeoDataFrame): The base GeoDataFrame for the plot.
         fig (Figure): The Matplotlib Figure object.
         target_crs: The target CRS for reprojecting geometries.
-        silent (bool): Whether to suppress informational output throughout
-            the rendering process.
+        silent (bool): Whether to suppress informational output throughout the rendering process.
     """
 
-    fig: Figure
+    _non_gui_filename = "geoplot.png"
+    _non_gui_prefix = "GeoPlotBase"
 
     def __init__(
         self,
         gdf: GeoDataFrame,
         *,
         dpi: int | None = None,
-        ax: Axes | None = None,
+        title: str | None = None,
         show_axis: bool = False,
         target_crs: CRSLike | None = None,
         default_outline: bool = True,
@@ -88,59 +126,29 @@ class GeoPlotBase(ABC):
 
         Args:
             gdf (GeoDataFrame): The base GeoDataFrame for the plot.
-            dpi (int | None): The DPI for the Matplotlib Figure. Defaults to 300 when
-                ``ax`` is not provided. Ignored (with a warning) when ``ax`` is provided.
-            ax (matplotlib.axes.Axes | None, optional): Render onto an existing
-                matplotlib ``Axes`` instead of creating a fresh figure. Useful for
-                callers familiar with matplotlib / seaborn idioms who want to compose
-                this plot into a larger figure they control. Defaults to None.
+            dpi (int | None): The DPI for the Matplotlib Figure. Defaults to 300.
+            title (str | None): The title of the plot. Defaults to None.
             show_axis (bool): Whether to show axis ticks and labels. Default is False.
-            target_crs (CRSLike | None): The target CRS for reprojecting geometries.
-                If None, uses the CRS of `gdf`. Default is None.
-            default_outline (bool): Whether to include a default outline layer around
-                the geometries in `gdf`. Default is True.
+            target_crs (CRSLike | None): The target CRS for reprojecting geometries. If None, uses
+                the CRS of `gdf`. Default is None.
+            default_outline (bool): Whether to include a default outline layer around the geometries
+                in `gdf`. Default is True.
             silent (bool): Whether to suppress informational output throughout the rendering
                 process. Default is False.
         """
         self.gdf = gdf
 
-        # --- Pass 1: resolve self._ax + self.fig + _figure_is_shared ---
-        # Remembered so ``bind_to_ax(None)`` can recreate a fresh figure with the same dpi as
-        # construction.
-        self._figure_dpi: int = dpi if dpi is not None else 300
-        if ax is not None:
-            if dpi is not None:
-                warn(
-                    "dpi is ignored when ax is provided; the plot will use the "
-                    "existing figure's dpi.",
-                    UserWarning,
-                    stacklevel=2,
-                )
-            self.fig = cast(Figure, ax.figure)
-            self._ax = ax
-
-            # The user owns this figure; gerrytools must not mutate figure-level layout
-            # (e.g. ``subplots_adjust``) on it, and must not register a finalizer to close it.
-            self._figure_is_shared: bool = True
-            self._finalizer: weakref.finalize | None = None
-        else:
-            self.fig, self._ax = plt.subplots(dpi=self._figure_dpi)
-            self._figure_is_shared = False
-
-            # IMPORTANT: prevent implicit display in notebooks
-            # Only close in Jupyter so init doesn't display
-            if in_jupyter_kernel():  # pragma: no cover - only reachable in a live Jupyter kernel
-                plt.close(self.fig)  # pragma: no cover
-
-            # Close the self-created figure when this plot is garbage collected; pyplot's figure
-            # manager otherwise keeps it alive forever. Mirrors GerryPlotBase.
-            self._finalizer = weakref.finalize(self, plt.close, self.fig)
-
-        self._canvas = self.fig.canvas  # renderer/manager handled by backend
+        # --- Pass 1: resolve self._ax + self.fig + _figure_is_shared --- The dpi is remembered so
+        # ``bind_to_ax(None)`` can recreate a fresh figure with the same dpi as construction; the
+        # figure size stays None because geometry plots size to their data.
+        self._figure_size = None
+        self._figure_dpi = dpi if dpi is not None else 300
+        self._attach_axes(None)
 
         # --- Pass 2: backing fields (no opinion until step 4 reapplies args) ---
+        self._title_text = _TitleText(unit="title")
         self._show_axis: bool = False
-        self.target_crs: CRSLike | None = (
+        self._target_crs: CRSLike | None = (
             target_crs if target_crs is not None else getattr(gdf, "crs", None)
         )
 
@@ -152,85 +160,121 @@ class GeoPlotBase(ABC):
         self._marker_layers: list[_MarkerLayer] = []
 
         self._label_requests: list[_LabelRequest] = []
+        self._last_label_positions: dict[str, Point] | None = None
         self.silent = silent
 
         # --- Pass 3: artist registry + managed-axes state ---
         self._artists = _ArtistRegistry()
         self._axes_state = _ManagedAxesState()
-        self._axes_state_initialized: bool = False
         self._axes_state.initialize_from_ax(self._ax)
-        self._axes_state_initialized = True
 
         # --- Pass 4: re-apply non-default constructor args via reclaim path ---
-        if show_axis is not False:
+        if title is not None:
+            self.title = title
+        if show_axis:
             self.show_axis = show_axis
 
         if default_outline:
-            fully_dissolved_geos = GeoSeries(gdf.geometry.union_all())
+            fully_dissolved_geos = GeoSeries(gdf.geometry.union_all(), crs=gdf.crs)
             self.add_outline_layer(
-                geosource=fully_dissolved_geos,
+                geo_source=fully_dissolved_geos,
                 edgecolor="black",
                 edgewidth=0.5,
             )
 
-        # NOTE: Do we want to focus axes here? So if you add more layers later it keeps the same
-        # view?
+    @property
+    def target_crs(self) -> CRSLike | None:
+        """Coordinate reference system used to render geometry layers."""
+        return self._target_crs
 
+    @target_crs.setter
+    @deferred_axis_update
+    def target_crs(self, value: CRSLike | None) -> None:
+        """Set the render CRS, discarding limits measured in the old projection."""
+        self._set_target_crs(value)
+
+    def _set_target_crs(self, value: CRSLike | None) -> None:
+        """Apply a CRS change and release limits measured in the old projection."""
+        if value != self._target_crs and (self._xlim is not None or self._ylim is not None):
+            warn(
+                "Discarding axis limits set in the previous CRS; call focus_axes() or "
+                "set_xlim/set_ylim again to reframe in the new projection.",
+                stacklevel=2,
+            )
+            self._xlim = None
+            self._ylim = None
+            self._ax.set_autoscalex_on(True)
+            self._ax.set_autoscaley_on(True)
+            self._axes_state.release("x_limits", tuple(float(v) for v in self._ax.get_xlim()))
+            self._axes_state.release("y_limits", tuple(float(v) for v in self._ax.get_ylim()))
+        self._target_crs = value
+
+    @deferred_axis_update
     def add_outline_layer(
         self,
-        geosource: GeoDataFrame | GeoSeries | None = None,
+        *,
+        geo_source: GeoDataFrame | GeoSeries | None = None,
         geometry_mask: pd.Series | None = None,
         dissolve_column: str | None = None,
         edgecolor: Color = "black",
         edgealpha: float | None = None,
         edgewidth: float = 0.5,
         show_labels: bool = False,
-        exclude_labels: Sequence[CategoryKey] | None = None,
-        labelfont_options: LabelFontOptions | None = None,
-        labelbox_options: LabelBoxOptions | None = None,
+        style: LabelStyle | str | None = None,
+        label_options: LabelOptions | None = None,
         zorder: int = 3,
     ) -> None:
         """Add an outline layer to the GeoPlotBase.
 
         Args:
-            geosource (GeoDataFrame | GeoSeries | None): The GeoDataFrame or GeoSeries source
-                for the layer. If None, uses the base gdf of the GeoPlotBase. Default is None.
-            geometry_mask (pd.Series | None): Optional boolean mask to filter geometries.
-                Default is None.
-            dissolve_column (str | None): Optional column to dissolve geometries by
-                before outlining. Default is None.
+            geo_source (GeoDataFrame | GeoSeries | None): The GeoDataFrame or GeoSeries source for
+                the layer. If None, uses the base gdf of the GeoPlotBase. Default is None.
+            geometry_mask (pd.Series | None): Optional boolean mask aligned to the input
+                ``geo_source`` rows. With ``dissolve_column`` set, the mask filters input rows
+                before dissolving. Default is None.
+            dissolve_column (str | None): Optional column to dissolve geometries by before
+                outlining. Default is None.
             edgecolor (Color): Color for geometry edges. Default is "black".
             edgealpha (float | None): Alpha transparency for edge colors. Default is None.
             edgewidth (float): Width of geometry edges. Default is 0.5.
             show_labels (bool): Whether to show labels on the outlined geometries. Default is False.
-            exclude_labels (Sequence[CategoryKey] | None): Labels to exclude from labeling.
-                If None, no labels are excluded. Does not do anything if show_labels is False.
-                Default is None.
-            labelfont_options (LabelFontOptions | None): Font options for labels.
-                If None, uses the following defaults:
-                    - fontcolor="black",
-                    - fontsize=4,
-                    - fontweight="roman",
-                    - outlinecolor="grey",
-                    - outlinewidth=0.2.
-                Default is None.
-            labelbox_options (LabelBoxOptions | None): Box options for labels. If None the box
-                is disabled. Default is None.
+            style (LabelStyle | str | None): Shorthand for ``label_options.style``: a
+                ``LabelStyle`` or registered style name (e.g. ``"badge"``, ``"halo"``).
+                Mutually exclusive with a ``label_options`` that carries its own style.
+                Defaults to None.
+            label_options (LabelOptions | None): Bundled label styling and placement options
+                (style or font/box options, per-label adjustments and font sizes, and excluded
+                labels). When None (or with a None ``font_options`` and no style), labels use the
+                default geography font: fontcolor="black", fontsize=4, fontweight="roman",
+                outlinecolor="grey", outlinewidth=0.2. Default is None.
             zorder (int): Z-order for rendering. Default is 3.
         """
-        if geosource is None:
-            geosource = self.gdf
+        if geo_source is None:
+            geo_source = self.gdf
 
+        # Validate before touching layer state, so a failed call registers nothing.
+        if show_labels and dissolve_column is None:
+            raise ValueError(
+                "'dissolve_column' must be set to add labels to an outline layer",
+            )
+
+        dissolved: GeoDataFrame | None = None
         if dissolve_column is not None:
-            if not isinstance(geosource, GeoDataFrame):
+            if not isinstance(geo_source, GeoDataFrame):
                 raise TypeError(
-                    "Tried to dissolve geosource of type "
-                    f"{type(geosource).__name__!r}; geosource must be a GeoDataFrame",
+                    "Tried to dissolve geo_source of type "
+                    f"{type(geo_source).__name__!r}; geo_source must be a GeoDataFrame",
                 )
-            geosource = GeoDataFrame(geosource.dissolve(by=dissolve_column).reset_index())
+            # The mask is aligned to the input rows, so filter before dissolving; the layer
+            # then gets the dissolved frame with no further mask.
+            if geometry_mask is not None:
+                geo_source = GeoDataFrame(geo_source.iloc[geometry_mask.to_numpy(dtype=bool)])
+                geometry_mask = None
+            dissolved = GeoDataFrame(geo_source.dissolve(by=dissolve_column).reset_index())
+            geo_source = dissolved
 
         layer = _CategoricalColorLayer(
-            geometry_source=geosource,
+            geometry_source=geo_source,
             geometry_mask=geometry_mask,
             colormap="none",
             missing_color="none",
@@ -242,107 +286,84 @@ class GeoPlotBase(ABC):
         )
         self._outline_layers.append(layer)
 
-        if show_labels:
-            processed_geosource = layer.geosource
-            if not isinstance(processed_geosource, GeoDataFrame):
-                raise TypeError(
-                    "Tried to add labels to geosource of type "
-                    f"{type(geosource).__name__!r}; geosource must be a GeoDataFrame",
-                )
-
-            if dissolve_column is None:
-                raise ValueError(
-                    "'dissolve_column' must be set to add labels to an outline layer",
-                )
-
-            new_exclude_labels = list(exclude_labels) if exclude_labels is not None else []
-            labeled_gdf = GeoDataFrame(
-                processed_geosource.query(f"`{dissolve_column}` not in {new_exclude_labels}")
+        if show_labels and dissolved is not None and dissolve_column is not None:
+            _queue_label_request(
+                self._label_requests,
+                gdf=dissolved,
+                label_column=dissolve_column,
+                options=_merge_style_arg(style, label_options),
+                zorder=zorder + 1,
+                dissolved=True,
             )
 
-            if labelfont_options is None:
-                labelfont_options = LabelFontOptions(
-                    fontcolor="black",
-                    fontsize=4,
-                    fontweight="roman",
-                    outlinecolor="grey",
-                    outlinewidth=0.2,
-                )
-
-            self._label_requests.append(
-                _LabelRequest(
-                    gdf=labeled_gdf,
-                    label_column=dissolve_column,
-                    labelfont_options=labelfont_options,
-                    labelbox_options=labelbox_options,
-                    zorder=zorder + 1,
-                )
-            )
-
+    @deferred_axis_update
     def add_highlight_layer(
         self,
         label_column: str | None = None,
-        geosource: GeoDataFrame | GeoSeries | None = None,
+        *,
+        geo_source: GeoDataFrame | GeoSeries | None = None,
         geometry_mask: pd.Series | None = None,
         facecolor: Color = "gray",
         facealpha: float | None = 0.5,
         show_labels: bool = False,
-        exclude_labels: Sequence[CategoryKey] | None = None,
-        labelfont_options: LabelFontOptions | None = None,
-        labelbox_options: LabelBoxOptions | None = None,
+        style: LabelStyle | str | None = None,
+        label_options: LabelOptions | None = None,
         zorder: int = 10,
     ) -> None:
         """Add a highlight layer to the GeoPlotBase.
 
         Args:
-            label_column (str | None): Optional column to label geometries by
-                before highlighting. Default is None.
-            geosource (GeoDataFrame | GeoSeries | None): The GeoDataFrame or GeoSeries source
-                for the layer. If None, uses the base gdf of the GeoPlotBase. Default is None.
-            geometry_mask (pd.Series | None): Optional boolean mask to filter geometries.
+            label_column (str | None): Optional column to label geometries by before highlighting.
                 Default is None.
+            geo_source (GeoDataFrame | GeoSeries | None): The GeoDataFrame or GeoSeries source for
+                the layer. If None, uses the base gdf of the GeoPlotBase. Default is None.
+            geometry_mask (pd.Series | None): Optional boolean mask to filter geometries. Default is
+                None.
             facecolor (Color): Color for geometry faces. Default is "gray".
             facealpha (float | None): Alpha transparency for face colors. Default is 0.5.
             show_labels (bool): Whether to show labels on the highlighted geometries. Default is
                 False.
-            exclude_labels (Sequence[CategoryKey] | None): Labels to exclude from labeling.
-                If None, no labels are excluded. Does not do anything if show_labels is False.
-                Default is None.
-            labelfont_options (LabelFontOptions | None): Font options for labels.
-                When None, defaults to fontcolor="black", fontsize=4, fontweight="roman",
-                outlinecolor="grey", and outlinewidth=0.2.
-            labelbox_options (LabelBoxOptions | None): Box options for labels. If None the box
-                is disabled. Default is None.
+            style (LabelStyle | str | None): Shorthand for ``label_options.style``: a
+                ``LabelStyle`` or registered style name (e.g. ``"badge"``, ``"halo"``).
+                Mutually exclusive with a ``label_options`` that carries its own style.
+                Defaults to None.
+            label_options (LabelOptions | None): Bundled label styling and placement options
+                (style or font/box options, per-label adjustments and font sizes, and excluded
+                labels). When None (or with a None ``font_options`` and no style), labels use the
+                default geography font. Default is None.
             zorder (int): Z-order for rendering. Default is 10.
         """
+        # Validate before touching layer state, so a failed call registers nothing.
+        label_source: GeoDataFrame | None = None
         if show_labels:
             if label_column is None:
                 raise ValueError(
                     "add_highlight_layer(show_labels=True) requires label_column=... to know "
                     "what to label. Example: dissolve_column='COUNTYFP10'."
                 )
-            if geosource is None:
+            if geo_source is None:
                 raise ValueError(
-                    "add_highlight_layer(show_labels=True) requires geosource=... (a GeoDataFrame) "
+                    "add_highlight_layer(show_labels=True) requires geo_source=... (a GeoDataFrame) "
                     "so the dissolve_column exists."
                 )
-            if not isinstance(geosource, GeoDataFrame):
+            if not isinstance(geo_source, GeoDataFrame):
                 raise TypeError(
-                    "add_highlight_layer(show_labels=True) requires geosource to be a GeoDataFrame "
+                    "add_highlight_layer(show_labels=True) requires geo_source to be a GeoDataFrame "
                     f"so it has the label_column {label_column!r}. "
-                    f"You passed {type(geosource).__name__!r}. "
+                    f"You passed {type(geo_source).__name__!r}. "
                     "Either pass a GeoDataFrame, or set show_labels=False."
                 )
+            label_source = geo_source
 
-        if geosource is None:
+        if geo_source is None:
             geometries = self.gdf.geometry
         else:
-            geometries = _as_geoseries(geosource)
+            geometries = _as_geoseries(geo_source)
 
         if geometry_mask is not None:
-            geometries = geometries[geometry_mask]
+            geometries = _mask_geoseries(geometries, geometry_mask)
 
-        geometries = GeoSeries(geometries.union_all())
+        geometries = GeoSeries(geometries.union_all(), crs=geometries.crs)
 
         layer = _CategoricalColorLayer(
             geometry_source=geometries,
@@ -356,72 +377,29 @@ class GeoPlotBase(ABC):
         )
         self._highlight_layers.append(layer)
 
-        if show_labels:
-            label_gdf = geosource
-            if (
-                label_gdf is None
-            ):  # pragma: no cover - defensive guard; geosource=None + show_labels=True already raised above
-                raise RuntimeError(  # pragma: no cover
-                    "An unexpected error occured in add_highlight_layer. "
-                    "The geosource was None when trying to add labels."
-                )  # pragma: no cover
-
-            if isinstance(
-                label_gdf, GeoSeries
-            ):  # pragma: no cover - defensive guard; GeoSeries geosource + show_labels=True already raised above
-                raise TypeError(  # pragma: no cover
-                    "add_highlight_layer(show_labels=True) requires geosource to be a GeoDataFrame "
-                    f"so it has the label_column {label_column!r}. "
-                    f"You passed a GeoSeries. Either pass a GeoDataFrame, or set show_labels=False."
-                )  # pragma: no cover
-
+        if label_source is not None and label_column is not None:
             if geometry_mask is not None:
-                label_gdf = GeoDataFrame(label_gdf.loc[geometry_mask])
-
-            new_exclude_labels = list(exclude_labels) if exclude_labels is not None else []
-            labeled_gdf = GeoDataFrame(
-                label_gdf.query(f"`{label_column}` not in {new_exclude_labels}")
+                label_source = GeoDataFrame(label_source.iloc[geometry_mask.to_numpy(dtype=bool)])
+            _queue_label_request(
+                self._label_requests,
+                gdf=label_source,
+                label_column=label_column,
+                options=_merge_style_arg(style, label_options),
+                zorder=zorder + 1,
             )
 
-            if labelfont_options is None:
-                labelfont_options = LabelFontOptions(
-                    fontcolor="black",
-                    fontsize=4,
-                    fontweight="roman",
-                    outlinecolor="grey",
-                    outlinewidth=0.2,
-                )
-
-            if (
-                label_column is None
-            ):  # pragma: no cover - defensive guard; label_column=None + show_labels=True already raised above
-                raise RuntimeError(  # pragma: no cover
-                    "An unexpected error occured in add_highlight_layer. "
-                    "The dissolve_column was None when trying to add labels."
-                )  # pragma: no cover
-
-            self._label_requests.append(
-                _LabelRequest(
-                    gdf=labeled_gdf,
-                    label_column=label_column,
-                    labelfont_options=labelfont_options,
-                    labelbox_options=labelbox_options,
-                    zorder=zorder + 1,
-                )
-            )
-
-        return None
-
+    @deferred_axis_update
     def add_marker_layer(
         self,
         points_geoseries: gpd.GeoSeries | None = None,
+        *,
         latlon_list: Sequence[tuple[float, float]] | None = None,
         input_crs: CRSLike | None = None,
         marker_options: PointMarkerOptions | None = None,
         show_labels: bool = True,
         labels: Sequence[str] | None = None,
-        labelfont_options: LabelFontOptions | None = None,
-        labelbox_options: LabelBoxOptions | None = None,
+        style: LabelStyle | str | None = None,
+        label_options: LabelOptions | None = None,
         zorder: int = 2,
     ) -> None:
         """Add a layer of markers (points) to the GeoPlotBase.
@@ -429,12 +407,13 @@ class GeoPlotBase(ABC):
         Args:
             points_geoseries (gpd.GeoSeries | None): A GeoSeries of Point geometries for the
                 markers. If None, `latlon_list` must be provided. Default is None.
-            latlon_list (Sequence[tuple[float, float]] | None): A sequence of
-                (latitude, longitude) tuples for the marker locations. If None, `points_geoseries`
-                must be provided. Default is None.
-            input_crs (CRSLike | None, optional): The CRS of the input points if using
-                ``latlon_list``.
-                If None, assumes EPSG:4326 (lat/lon). Default is None.
+            latlon_list (Sequence[tuple[float, float]] | None): A sequence of (latitude, longitude)
+                tuples for the marker locations. If None, `points_geoseries` must be provided.
+                Default is None.
+            input_crs (CRSLike | None, optional): The CRS of the input coordinates, for
+                ``latlon_list`` or a CRS-less ``points_geoseries``. If None, ``latlon_list``
+                is assumed EPSG:4326 (lat/lon) and a CRS-bearing ``points_geoseries`` keeps
+                its own CRS. Points are reprojected to the plot CRS at render. Default is None.
             marker_options (PointMarkerOptions | None): Marker style settings.
                 If None, uses the following defaults:
                     - markerfacecolor="white",
@@ -447,12 +426,20 @@ class GeoPlotBase(ABC):
                 Default is None.
             show_labels (bool): Whether to show labels on the markers. Default is True.
             labels (Sequence[str] | None): Optional labels for each marker. Default is None.
-            labelfont_options (LabelFontOptions | None): Font options for the labels If None, uses
-                default LabelFontOptions().
-            labelbox_options (LabelBoxOptions | None): Box options for the labels. If None the
-                box is disabled. Default is None.
+            style (LabelStyle | str | None): Shorthand for ``label_options.style``: a
+                ``LabelStyle`` or registered style name (e.g. ``"badge"``, ``"halo"``).
+                Mutually exclusive with a ``label_options`` that carries its own style.
+                Defaults to None.
+            label_options (LabelOptions | None): Bundled label styling and placement options
+                (style or font/box options, per-label adjustments and font sizes, and
+                excluded labels). Styles may vary the box per label, e.g. equalizing badge
+                circle diameters. When None (or with None ``font_options`` /
+                ``box_options``), labels use default ``LabelFontOptions()`` and a disabled
+                box. Default is None.
             zorder (int, optional): Z-order for rendering. Defaults to ``2``.
         """
+        merged_options = _merge_style_arg(style, label_options)
+        options = merged_options if merged_options is not None else LabelOptions()
         if marker_options is None:
             marker_options = PointMarkerOptions(
                 markerfacecolor="white",
@@ -463,46 +450,44 @@ class GeoPlotBase(ABC):
                 markeredgealpha=1.0,
                 markeredgewidth=0.5,
             )
-        if labelfont_options is None:
-            labelfont_options = LabelFontOptions()
-        if labelbox_options is None:
-            labelbox_options = LabelBoxOptions(enabled=False)
+        label_font_options = (
+            options.font_options if options.font_options is not None else LabelFontOptions()
+        )
+        label_box_options = (
+            options.box_options
+            if options.box_options is not None
+            else LabelBoxOptions(enabled=False)
+        )
 
-        if points_geoseries is None and latlon_list is None:
-            raise ValueError("Either `points_geoseries` or `latlon_list` must be set.")
-        if points_geoseries is not None and latlon_list is not None:
-            raise ValueError(
-                "Only one of `points_geoseries` or `latlon_list` may be set at a time.",
-            )
+        point_geometries = _resolve_points(
+            points_geoseries,
+            latlon_list,
+            input_crs=input_crs,
+            plot_crs=self.target_crs,
+        )
 
-        if latlon_list is not None:
-            # crs EPSG:4326 corresponds to lat/lon
-            point_geometries = gpd.GeoSeries(
-                [Point(float(longitude), float(latitude)) for latitude, longitude in latlon_list],
-                crs="EPSG:4326",
-            )
-            point_geometries = point_geometries.to_crs(
-                input_crs if input_crs is not None else self.gdf.crs
-            )
-        elif points_geoseries is not None:
-            point_geometries = points_geoseries
-            if getattr(point_geometries, "crs", None) is None and input_crs is not None:
-                point_geometries = point_geometries.set_crs(input_crs)
-        else:  # pragma: no cover - defensive guard; the preceding if/elif already covers all valid states
-            raise RuntimeError(  # pragma: no cover
-                "An unexpected error occured in add_marker_layer. One of the argurments "
-                "'points_geoseries' or 'latlon_list' was likely set incorrectly."
-                f"Type of 'points_geoseries': {type(points_geoseries).__name__!r}, "
-                f"type of 'latlon_list': {type(latlon_list).__name__!r}",
-            )  # pragma: no cover
+        # Validate lengths before the exclude filter below: a mismatched ``labels`` would
+        # otherwise surface as a pandas IndexError instead of this clear message.
+        if labels is not None and len(labels) != len(point_geometries):
+            raise ValueError("`labels` must have the same length as `point_geometries`.")
+
+        # ``LabelOptions.exclude`` applies to every labeled layer: drop excluded labels and
+        # their points here, matching the dissolved-path normalization semantics.
+        if show_labels and labels is not None and options.exclude:
+            keep = _label_keep_mask(labels, options.exclude)
+            labels = [label for label, kept in zip(labels, keep) if kept]
+            point_geometries = gpd.GeoSeries(point_geometries[keep])
 
         marker_layer = _MarkerLayer(
             point_geometries=point_geometries,
             labels=labels,
             marker_options=marker_options,
             show_labels=show_labels,
-            labelfont_options=labelfont_options,
-            labelbox_options=labelbox_options,
+            label_style=options.resolved_style,
+            label_adjustments=options.adjustments,
+            label_fontsize=options.fontsize,
+            label_font_options=label_font_options,
+            label_box_options=label_box_options,
             zorder=zorder,
         )
         self._marker_layers.append(marker_layer)
@@ -511,83 +496,59 @@ class GeoPlotBase(ABC):
         self,
         points_geoseries: gpd.GeoSeries | None = None,
         labels: Sequence[str] | None = None,
+        *,
         latlon_list: Sequence[tuple[float, float]] | None = None,
         input_crs: CRSLike | None = None,
-        labelfont_options: LabelFontOptions | None = None,
-        labelbox_options: LabelBoxOptions | None = None,
+        style: LabelStyle | str | None = None,
+        label_options: LabelOptions | None = None,
         zorder: int = 2,
     ) -> None:
-        """Add a layer of markers (points) to the GeoPlotBase.
+        """Add a layer of text labels at point locations (no visible markers).
 
         Args:
             points_geoseries (gpd.GeoSeries | None): A GeoSeries of Point geometries for the
-                markers. If None, `latlon_list` must be provided. Default is None.
-            latlon_list (Sequence[tuple[float, float]] | None): A sequence of
-                (latitude, longitude) tuples for the marker locations. If None, `points_geoseries`
-                must be provided. Default is None.
-            input_crs (CRSLike | None, optional): The CRS of the input points if using
-                ``latlon_list``.
-                If None, assumes EPSG:4326 (lat/lon). Default is None.
-            labels (Sequence[str] | None): Optional labels for each marker. Default is None which
-                results numerical labels.
-            labelfont_options (LabelFontOptions | None): Font options for the labels If None, uses
-                the following defaults:
-                    - fontcolor="black",
-                    - fontsize=4,
-                    - fontweight="roman",
-                    - outlinecolor="grey",
-                    - outlinewidth=0.2.
-            labelbox_options (LabelBoxOptions | None): Box options for the labels. If None the
-                box is disabled. Default is None.
+                labels. If None, `latlon_list` must be provided. Default is None.
+            labels (Sequence[str] | None): Optional labels for each point. Default is None which
+                results in numerical labels.
+            latlon_list (Sequence[tuple[float, float]] | None): A sequence of (latitude, longitude)
+                tuples for the label locations. If None, `points_geoseries` must be provided.
+                Default is None.
+            input_crs (CRSLike | None, optional): The CRS of the input coordinates, for
+                ``latlon_list`` or a CRS-less ``points_geoseries``. If None, ``latlon_list``
+                is assumed EPSG:4326 (lat/lon) and a CRS-bearing ``points_geoseries`` keeps
+                its own CRS. Points are reprojected to the plot CRS at render. Default is None.
+            style (LabelStyle | str | None): Shorthand for ``label_options.style``: a
+                ``LabelStyle`` or registered style name (e.g. ``"badge"``, ``"halo"``).
+                Mutually exclusive with a ``label_options`` that carries its own style.
+                Defaults to None.
+            label_options (LabelOptions | None): Bundled label styling and placement options
+                (style or font/box options, per-label adjustments and font sizes, and
+                excluded labels). When None (or with a None ``font_options`` and no style),
+                labels use the default geography font: fontcolor="black", fontsize=4,
+                fontweight="roman", outlinecolor="grey", outlinewidth=0.2. Default is None.
             zorder (int, optional): Z-order for rendering. Defaults to ``2``.
         """
-        if points_geoseries is None and latlon_list is None:
-            raise ValueError("Either `points_geoseries` or `latlon_list` must be set.")
-        if points_geoseries is not None and latlon_list is not None:
-            raise ValueError(
-                "Only one of `points_geoseries` or `latlon_list` may be set at a time.",
-            )
-        if points_geoseries is None and latlon_list is not None:
-            n_labels = len(list(latlon_list))
-        elif points_geoseries is not None:
-            n_labels = len(points_geoseries)
-        else:  # pragma: no cover - defensive guard; the preceding if/elif already covers all valid states
-            raise RuntimeError(  # pragma: no cover
-                "An unexpected error occured in add_label_layer. One of the argurments "
-                "'points_geoseries' or 'latlon_list' was likely set incorrectly."
-                f"Type of 'points_geoseries': {type(points_geoseries).__name__!r}, "
-                f"type of 'latlon_list': {type(latlon_list).__name__!r}",
-            )  # pragma: no cover
+        merged_options = _merge_style_arg(style, label_options)
+        options = merged_options if merged_options is not None else LabelOptions()
+        point_geometries = _resolve_points(
+            points_geoseries,
+            latlon_list,
+            input_crs=input_crs,
+            plot_crs=self.target_crs,
+        )
 
         if labels is None:
-            labels = [str(i) for i in range(n_labels)]
+            labels = [str(i) for i in range(len(point_geometries))]
 
-        if labelfont_options is None:
-            labelfont_options = LabelFontOptions(
-                fontcolor="black",
-                fontsize=4,
-                fontweight="roman",
-                outlinecolor="grey",
-                outlinewidth=0.2,
-            )
+        if options.font_options is None and options.style is None:
+            options = replace(options, font_options=_DEFAULT_LABEL_FONT)
 
         self.add_marker_layer(
-            points_geoseries=points_geoseries,
-            latlon_list=latlon_list,
-            input_crs=input_crs,
-            marker_options=PointMarkerOptions(
-                markerfacecolor="none",
-                markerfacealpha=0.0,
-                marker="o",
-                markersize=0.0,
-                markeredgecolor="none",
-                markeredgealpha=0.0,
-                markeredgewidth=0.0,
-            ),
+            points_geoseries=point_geometries,
+            marker_options=_INVISIBLE_MARKER,
             show_labels=True,
             labels=labels,
-            labelfont_options=labelfont_options,
-            labelbox_options=labelbox_options,
+            label_options=options,
             zorder=zorder,
         )
 
@@ -601,15 +562,16 @@ class GeoPlotBase(ABC):
         return self._show_axis
 
     @show_axis.setter
+    @deferred_axis_update
     def show_axis(self, value: bool) -> None:
         self._show_axis = bool(value)
-        if self._axes_state_initialized:
-            if self._show_axis:
-                self._ax.set_axis_on()
-            else:
-                self._ax.set_axis_off()
-            self._axes_state.reclaim_and_mark(UNIT_AXIS_VISIBILITY, bool(self._ax.axison))
+        if self._show_axis:
+            self._ax.set_axis_on()
+        else:
+            self._ax.set_axis_off()
+        self._axes_state.reclaim_and_mark("axis_visibility", bool(self._ax.axison))
 
+    @deferred_axis_update
     def set_xlim(self, left: float, right: float) -> None:
         """Set x-axis limits to apply when the plot is built.
 
@@ -620,12 +582,10 @@ class GeoPlotBase(ABC):
             right (float): The right x-axis limit.
         """
         self._xlim = (float(left), float(right))
-        if self._axes_state_initialized:
-            self._ax.set_xlim(*self._xlim)
-            self._axes_state.reclaim_and_mark(
-                UNIT_X_LIMITS, tuple(float(v) for v in self._ax.get_xlim())
-            )
+        self._ax.set_xlim(*self._xlim)
+        self._axes_state.reclaim_and_mark("x_limits", tuple(float(v) for v in self._ax.get_xlim()))
 
+    @deferred_axis_update
     def set_ylim(self, bottom: float, top: float) -> None:
         """Set y-axis limits to apply when the plot is built.
 
@@ -636,383 +596,232 @@ class GeoPlotBase(ABC):
             top (float): The top y-axis limit.
         """
         self._ylim = (float(bottom), float(top))
-        if self._axes_state_initialized:
-            self._ax.set_ylim(*self._ylim)
-            self._axes_state.reclaim_and_mark(
-                UNIT_Y_LIMITS, tuple(float(v) for v in self._ax.get_ylim())
-            )
+        self._ax.set_ylim(*self._ylim)
+        self._axes_state.reclaim_and_mark("y_limits", tuple(float(v) for v in self._ax.get_ylim()))
 
+    @deferred_axis_update
     def clear_limits(self) -> None:
-        """Clear any stored x/y limits so autoscaling can occur."""
+        """Clear any stored x/y limits and return the axes to autoscaling.
+
+        The next build recomputes limits from the drawn geometries; the managed limit
+        units drop back to default ownership so external ``set_xlim``/``set_ylim`` calls
+        are detected again afterwards.
+        """
         self._xlim = None
         self._ylim = None
+        self._ax.set_autoscalex_on(True)
+        self._ax.set_autoscaley_on(True)
+        self._recompute_data_limits()
+        self._ax.autoscale_view()
+        self._axes_state.release("x_limits", tuple(float(v) for v in self._ax.get_xlim()))
+        self._axes_state.release("y_limits", tuple(float(v) for v in self._ax.get_ylim()))
+
+    def _recompute_data_limits(self) -> None:
+        """Recompute limits, adding collections that Matplotlib's ``relim`` skips."""
+        self._ax.relim()
+        for collection in self._ax.collections:
+            bounds = collection.get_datalim(self._ax.transData)
+            self._ax.update_datalim(bounds.get_points())
 
     def focus_axes(
         self,
         *,
-        geosource: GeoSource | None = None,
+        geo_source: GeoSource | None = None,
         geometry_mask: pd.Series | None = None,
-        pad: float | tuple[float, float] = 0.02,
+        pad: float | tuple[float, float] | tuple[float, float, float, float] = 0.02,
         pad_mode: Literal["fraction", "data"] = "fraction",
     ) -> None:
-        """Set x/y limits to the (padded) bounding box of a geosource.
+        """Set x/y limits to the (padded) bounding box of a geo_source.
 
         Args:
-            geosource (GeoSource | None, optional): GeoDataFrame or GeoSeries to focus on.
-                Defaults to this plot's gdf.
-                If None, will use the base gdf used to initialize GeoPlotBase. Defaults to None.
-            geometry_mask (pd.Series | None): Optional boolean mask aligned to geosource index.
-                If None, will use all geometries in geosouce. Defaults to None.
-            pad (float | tuple[float, float]): Padding around bounds.
-                 - If pad_mode="fraction": fraction of width/height (e.g., 0.02 = 2%)
-                 - If pad_mode="data": absolute units in data coords.
-                 You can pass a single float or (pad_x, pad_y).
-                 Defaults to 0.02 (2%).
+            geo_source (GeoSource | None, optional): GeoDataFrame or GeoSeries to focus on. Defaults
+                to this plot's gdf. If None, will use the base gdf used to initialize GeoPlotBase.
+                Defaults to None.
+            geometry_mask (pd.Series | None): Optional boolean mask aligned to geo_source index. If
+                None, will use all geometries in geosouce. Defaults to None.
+            pad (float | tuple): Padding around bounds. A single float pads every side, a
+                2-tuple ``(pad_x, pad_y)`` pads each axis symmetrically, and a 4-tuple
+                ``(top, right, bottom, left)`` pads each side independently, so a panel
+                can stay tight on two sides while leaving room for a key on the others.
+                With ``pad_mode="fraction"`` values are fractions of the width/height
+                (0.02 = 2%); with ``pad_mode="data"`` they are absolute data units.
+                Defaults to 0.02.
             pad_mode (Literal): "fraction" or "data". Defaults to "fraction".
         """
-        if geosource is None:
-            geosource = self.gdf
+        if geo_source is None:
+            geo_source = self.gdf
 
-        geoseries = _as_geoseries(geosource)
+        geoseries = _as_geoseries(geo_source)
 
         if geometry_mask is not None:
-            geoseries = geoseries[geometry_mask]
+            geoseries = _mask_geoseries(geoseries, geometry_mask)
 
-        geoseries = geoseries[geoseries.notna()]
-        try:
-            geoseries = geoseries[~geoseries.is_empty]
-        except (
-            Exception
-        ):  # pragma: no cover - older shapely/geopandas combos may not have is_empty reliably
-            # older shapely/geopandas combos may not have is_empty reliably; ignore
-            pass  # pragma: no cover
+        geoseries = _mask_geoseries(geoseries, geoseries.notna())
+        geoseries = _mask_geoseries(geoseries, ~geoseries.is_empty)
 
         if geoseries.empty:
             raise ValueError(
-                "focus_on(): no geometries after applying mask / dropping empties. "
+                "focus_axes(): no geometries after applying mask / dropping empties. "
                 "Double check your geometry_mask to make sure that it is a valid filter "
-                "for the provided geosource.",
+                "for the provided geo_source.",
             )
 
-        gs_crs = getattr(geoseries, "crs", None)
-        if gs_crs is not None and self.target_crs is not None and gs_crs != self.target_crs:
-            geoseries = geoseries.to_crs(self.target_crs)
+        geoseries = _to_target_crs(geoseries, self.target_crs)
 
         minx, miny, maxx, maxy = map(float, geoseries.total_bounds)
 
         width = maxx - minx
         height = maxy - miny
 
-        if isinstance(pad, tuple):
-            pad_x, pad_y = float(pad[0]), float(pad[1])
+        if isinstance(pad, tuple) and len(pad) == 4:
+            pad_top, pad_right, pad_bottom, pad_left = (float(value) for value in pad)
+        elif isinstance(pad, tuple) and len(pad) == 2:
+            pad_left = pad_right = float(pad[0])
+            pad_top = pad_bottom = float(pad[1])
+        elif isinstance(pad, tuple):
+            raise ValueError("pad tuple must have 2 or 4 elements.")
         else:
-            pad_x = pad_y = float(pad)
+            pad_top = pad_right = pad_bottom = pad_left = float(pad)
 
         if pad_mode == "fraction":
             # If width/height are 0 (single point/line), give a small default pad
-            dx = (width * pad_x) if width > 0 else pad_x
-            dy = (height * pad_y) if height > 0 else pad_y
+            d_left = (width * pad_left) if width > 0 else pad_left
+            d_right = (width * pad_right) if width > 0 else pad_right
+            d_bottom = (height * pad_bottom) if height > 0 else pad_bottom
+            d_top = (height * pad_top) if height > 0 else pad_top
         elif pad_mode == "data":
-            dx, dy = pad_x, pad_y
+            d_left, d_right, d_bottom, d_top = pad_left, pad_right, pad_bottom, pad_top
         else:
             raise ValueError("pad_mode must be 'fraction' or 'data'.")
 
-        self.set_xlim(minx - dx, maxx + dx)
-        self.set_ylim(miny - dy, maxy + dy)
+        self.set_xlim(minx - d_left, maxx + d_right)
+        self.set_ylim(miny - d_bottom, maxy + d_top)
 
-    def _list_layers_in_draw_order(self) -> list[_GeoLayer | _MarkerLayer]:
-        """Iterate over all layers in the order they should be drawn."""
+    # ------------------------------------------------------------------
+    # The rebuild pipeline
+    # ------------------------------------------------------------------
 
-        def _sorted(layers: Sequence[_GeoLayer | _MarkerLayer]) -> list[_GeoLayer | _MarkerLayer]:
-            """Sort layers by integer z-order.
+    def _layer_groups(self) -> list[tuple[str, Sequence[_Layer]]]:
+        """Layer groups in draw order. Subclasses prepend their own groups."""
+        return [
+            ("marker", self._marker_layers),
+            ("outline", self._outline_layers),
+            ("highlight", self._highlight_layers),
+        ]
 
-            Args:
-                layers (Sequence[_GeoLayer | _MarkerLayer]): Layers to sort.
+    def _build_plot(self) -> None:
+        """Render every layer group in order, tracking the artists each layer creates.
 
-            Returns:
-                list[_GeoLayer | _MarkerLayer]: Layers sorted ascending by ``zorder``.
-            """
-            return sorted(layers, key=lambda L: int(L.zorder))
+        Each layer's ``render()`` returns the matplotlib artists it created on the axes; we track
+        them via ``self._artists`` so the next rebuild can remove gerrytools-managed artists without
+        disturbing external content.
+        """
+        for group_name, layers in self._layer_groups():
+            if layers and not self.silent:
+                plural = "s" if len(layers) > 1 else ""
+                print(f"Rendering {len(layers)} {group_name} layer{plural}...")
+            for layer in sorted(layers, key=lambda group_layer: int(group_layer.zorder)):
+                layer_artists = layer.render(self._ax, target_crs=self.target_crs)
+                if layer_artists:
+                    self._artists.track(layer_artists)
 
-        return (
-            _sorted(self._marker_layers)
-            + _sorted(self._outline_layers)
-            + _sorted(self._highlight_layers)
+    def _apply_limits(self, external: set[Unit]) -> None:
+        """Apply stored x/y limits to the axes, respecting external changes."""
+        if self._xlim is None or self._ylim is None:
+            self._ax.autoscale_view(
+                scalex=self._xlim is None,
+                scaley=self._ylim is None,
+            )
+
+        def apply_stored_xlim() -> None:
+            if self._xlim is not None:
+                self._ax.set_xlim(*self._xlim)
+
+        def apply_stored_ylim() -> None:
+            if self._ylim is not None:
+                self._ax.set_ylim(*self._ylim)
+
+        self._axes_state.reconcile(
+            "x_limits",
+            external,
+            apply_stored_xlim,
+            lambda: tuple(float(value) for value in self._ax.get_xlim()),
+        )
+        self._axes_state.reconcile(
+            "y_limits",
+            external,
+            apply_stored_ylim,
+            lambda: tuple(float(value) for value in self._ax.get_ylim()),
         )
 
-    @abstractmethod
-    def _build_plot(self) -> None:
-        """Build the plot by rendering all layers and tracking their artists.
+    def _apply_axis_visibility(self, external: set[Unit]) -> None:
+        def apply_visibility() -> None:
+            if self._show_axis:
+                self._ax.set_axis_on()
+            else:
+                self._ax.set_axis_off()
 
-        Each layer's ``render()`` returns the matplotlib artists it created
-        on the axes; we track them via ``self._artists`` so the next rebuild
-        can remove gerrytools-managed artists without disturbing external
-        content.
-        """
-        start_idx_to_layer_type: dict[int, tuple[str, int]] = {}
-        if not self.silent:
-            layer_order = [
-                ("marker", len(self._marker_layers)),
-                ("outline", len(self._outline_layers)),
-                ("highlight", len(self._highlight_layers)),
-            ]
-            prev_idx = 0
-            for layer_type, count in layer_order:
-                if count > 0:
-                    start_idx_to_layer_type[prev_idx] = (layer_type, count)
-                    prev_idx += count
+        self._axes_state.reconcile(
+            "axis_visibility", external, apply_visibility, lambda: bool(self._ax.axison)
+        )
 
-        all_layers = self._list_layers_in_draw_order()
-        for idx, layer in enumerate(all_layers):
-            if idx in start_idx_to_layer_type:
-                layer_type, count = start_idx_to_layer_type[idx]
-                print(f"Rendering {count} {layer_type} layer{'s' if count > 1 else ''}...")
-            layer_artists = layer.render(self._ax, target_crs=self.target_crs)
-            if layer_artists:
-                self._artists.track(layer_artists)
+    def _apply_extra_units(self, external: set[Unit]) -> None:
+        """Hook: reconcile subclass-managed axes units (e.g. the dot-density legend)."""
 
-    def _apply_limits(self, external: set[str] | None = None) -> None:
-        """Apply stored x/y limits to the axes, respecting external changes."""
-        external = external or set()
-        if self._xlim is not None and UNIT_X_LIMITS not in external:
-            self._ax.set_xlim(*self._xlim)
-            self._axes_state.reclaim_and_mark(
-                UNIT_X_LIMITS, tuple(float(v) for v in self._ax.get_xlim())
-            )
-        elif self._xlim is None and UNIT_X_LIMITS not in external:
-            self._axes_state.record_default(
-                UNIT_X_LIMITS, tuple(float(v) for v in self._ax.get_xlim())
-            )
-        if self._ylim is not None and UNIT_Y_LIMITS not in external:
-            self._ax.set_ylim(*self._ylim)
-            self._axes_state.reclaim_and_mark(
-                UNIT_Y_LIMITS, tuple(float(v) for v in self._ax.get_ylim())
-            )
-        elif self._ylim is None and UNIT_Y_LIMITS not in external:
-            self._axes_state.record_default(
-                UNIT_Y_LIMITS, tuple(float(v) for v in self._ax.get_ylim())
-            )
-
-    def _apply_axis_visibility(self, external: set[str]) -> None:
-        if UNIT_AXIS_VISIBILITY in external:
-            return
-        if self._show_axis:
-            self._ax.set_axis_on()
-        else:
-            self._ax.set_axis_off()
-        current = bool(self._ax.axison)
-        if self._axes_state.is_reclaimed(UNIT_AXIS_VISIBILITY):
-            self._axes_state.reclaim_and_mark(UNIT_AXIS_VISIBILITY, current)
-        else:
-            self._axes_state.record_default(UNIT_AXIS_VISIBILITY, current)
-
-    def _draw_deferred_labels(self) -> dict[str, Point]:
-        """Draw all deferred labels and return their positions.
-
-        Returns:
-            dict[str, Point]: A dictionary mapping label text to Point objects.
-        """
-        label_positions: dict[str, Point] = {}
-        if not self._label_requests:
-            return label_positions
-
-        ax = self._ax
-
-        xmin, xmax = ax.get_xlim()
-        ymin, ymax = ax.get_ylim()
-        clip_geom = box(min(xmin, xmax), min(ymin, ymax), max(xmin, xmax), max(ymin, ymax))
-
-        for req in self._label_requests:
-            # One label per dissolved part
-            dissolved = GeoDataFrame(req.gdf.dissolve(by=req.label_column).reset_index())
-
-            # Match plot CRS
-            if getattr(dissolved, "crs", None) is not None and self.target_crs is not None:
-                if dissolved.crs != self.target_crs:
-                    dissolved = dissolved.to_crs(self.target_crs)
-
-            # Clip to current view
-            clipped = dissolved.geometry.intersection(clip_geom)
-            keep = (~clipped.isna()) & (~clipped.is_empty)
-            if not keep.any():
-                continue
-
-            dissolved = dissolved.loc[keep].copy()
-            dissolved["geometry"] = clipped.loc[keep]
-
-            # Representative points inside the clipped geometry
-            pts = dissolved.representative_point()
-
-            labels: list[str] = []
-            for raw in dissolved[req.label_column].tolist():
-                txt = str(raw)
-                if req.label_format_fn is not None:
-                    try:
-                        txt = str(req.label_format_fn(raw))
-                    except Exception:
-                        pass
-                labels.append(txt)
-
-            # Defaults
-            font = (
-                req.labelfont_options if req.labelfont_options is not None else LabelFontOptions()
-            )
-            boxopt = (
-                req.labelbox_options
-                if req.labelbox_options is not None
-                else LabelBoxOptions(enabled=False)
-            )
-
-            # Ephemeral label-only marker options (no visible marker)
-            label_marker_opts = PointMarkerOptions(
-                markerfacecolor="none",
-                markerfacealpha=0.0,
-                marker="o",
-                markersize=0.0,
-                markeredgecolor="none",
-                markeredgealpha=0.0,
-                markeredgewidth=0.0,
-            )
-
-            # Create an ephemeral marker layer and render immediately
-            tmp = _MarkerLayer(
-                point_geometries=pts,
-                labels=labels,
-                marker_options=label_marker_opts,
-                show_labels=True,
-                labelfont_options=font,
-                labelbox_options=boxopt,
-                zorder=req.zorder,
-            )
-            label_artists = tmp.render(ax, target_crs=self.target_crs)
-            if label_artists:
-                self._artists.track(label_artists)
-            label_positions.update(
-                {label: Point(pt.x, pt.y) for label, pt in zip(labels, pts.geometry.tolist())}
-            )
-        return label_positions
-
-    @abstractmethod
     def _build_and_apply_settings(self) -> dict[str, Point]:
         """Snapshot → remove gerrytools artists → rebuild → apply settings.
 
-        Concrete subclasses fully override without super(); this stub
-        documents the canonical sequence and exists only for the abstract
-        contract.
+        Deferred labels draw last, after limits are applied, so their representative
+        points and clipping reflect the final view.
         """
-        before = self._axes_state.snapshot(self._ax)  # pragma: no cover
-        external = self._axes_state.detect_external_changes(before)  # pragma: no cover
-        self._artists.remove_all()  # pragma: no cover
-        self._build_plot()  # pragma: no cover
-        self._axes_state.restore_autoscale_protected(self._ax, before, external)  # pragma: no cover
-        self._apply_axis_visibility(external)  # pragma: no cover
-        self._apply_limits(external)  # pragma: no cover
-        label_points = self._draw_deferred_labels()  # pragma: no cover
-        return label_points  # pragma: no cover
-
-    @property
-    def ax(self) -> Axes:
-        """Build the plot and return the matplotlib ``Axes``.
-
-        Access to this property triggers a **lazy render**: every accumulated
-        setting (layers, labels, colorbar requests, etc.) is reapplied. This
-        is the canonical hook for embedding the plot into a larger workflow.
-
-        Why lazy? In a Jupyter notebook, instantiating ``GeoPlotBase(gdf)`` without
-        lazy rendering would auto-display an empty figure. Deferring the build
-        until ``.ax`` (or :meth:`show` / :meth:`save`) is accessed keeps
-        notebook output clean.
-
-        Use :meth:`bind_to_ax` to retarget the plot to a different ``Axes``
-        (e.g. one inside your own figure).
-
-        Returns:
-            Axes: The matplotlib ``Axes`` with every setting applied.
-        """
-        self._build_and_apply_settings()
-        return self._ax
-
-    def bind_to_ax(self, ax: Axes | None) -> None:
-        """Retarget this plot to render onto a different matplotlib ``Axes``.
-
-        The plot's accumulated layers, labels, and style settings are preserved
-        and re-applied to the new axes on the next access to :attr:`ax` (or
-        call to :meth:`show` / :meth:`save`). Any prior rendered output on the
-        *old* axes is left alone; this plot simply stops managing it.
-
-        Pass ``ax=None`` to unbind — the plot creates a fresh figure on the
-        next render, just as it did on construction.
-
-        Args:
-            ax (matplotlib.axes.Axes | None): The matplotlib axes to render
-                onto, or ``None`` to revert to a fresh-figure render.
-        """
-        # Suppress reclaim during the re-classification step. Mirrors the two-pass init contract.
-        self._axes_state_initialized = False
-
-        if ax is None:
-            self.fig, self._ax = plt.subplots(dpi=self._figure_dpi)
-            self._figure_is_shared = False
-            if in_jupyter_kernel():  # pragma: no cover - only reachable in a live Jupyter kernel
-                plt.close(self.fig)  # pragma: no cover
-            self._finalizer = weakref.finalize(self, plt.close, self.fig)
-        else:
-            self.fig = cast(Figure, ax.figure)
-            self._ax = ax
-            self._figure_is_shared = True
-            # User owns the figure now; clear any finalizer we registered earlier. Mirrors
-            # GerryPlotBase.bind_to_ax.
-            if self._finalizer is not None:
-                self._finalizer.detach()
-            self._finalizer = None
-        self._canvas = self.fig.canvas
-
-        # Detach registry from old axes (non-destructive rebind); reset per-axes history, classify
-        # new axes, re-enable reclaim.
-        self._artists = _ArtistRegistry()
-        self._axes_state.reset_history()
-        self._axes_state.initialize_from_ax(self._ax)
-        self._axes_state_initialized = True
+        before, external = self._axes_state.begin_rebuild(self._ax)
+        self._artists.remove_all()
+        self._recompute_data_limits()
+        self._build_plot()
+        self._axes_state.restore_autoscale_protected(self._ax, before, external)
+        self._apply_text(self._title_text, external)
+        self._apply_axis_visibility(external)
+        self._apply_limits(external)
+        self._apply_extra_units(external)
+        label_positions = _draw_deferred_labels(
+            self._label_requests,
+            ax=self._ax,
+            target_crs=self.target_crs,
+            artists=self._artists,
+        )
+        self._last_label_positions = label_positions
+        return label_positions
 
     def get_label_positions(self, *, as_lat_long: bool = False) -> tuple[str, dict[str, Point]]:
         """Get computed label positions from the current plot build.
 
+        Reuses the positions computed by the most recent build when one has happened;
+        otherwise triggers a build first.
+
         Args:
-            as_lat_long (bool, optional): Whether to convert points to ``EPSG:4326``.
-                Defaults to False.
+            as_lat_long (bool, optional): Whether to convert points to ``EPSG:4326``. Defaults to
+                False.
 
         Returns:
-            tuple[str, dict[str, Point]]: CRS string and label-to-point mapping.
+            tuple[str, dict[str, Point]]: CRS string and label-to-point mapping. If separate
+                layers render the same label text, the last layer's position is returned.
+
+        Raises:
+            ValueError: If ``as_lat_long`` is True on a plot with no CRS.
         """
-        label_points = GeoSeries(self._build_and_apply_settings(), crs=self.target_crs)
+        self._update_axis()
+        positions = self._last_label_positions
+        if positions is None:  # pragma: no cover - successful builds always assign this
+            raise RuntimeError("GeoPlot build completed without label positions.")
+        label_points = GeoSeries(positions, crs=self.target_crs)
         if as_lat_long:
+            if label_points.crs is None:
+                raise ValueError(
+                    "get_label_positions(as_lat_long=True) cannot reproject positions on a "
+                    "plot with no CRS: use a base gdf with a CRS (or set target_crs).",
+                )
             label_points = label_points.to_crs("EPSG:4326")
         return (
             str(label_points.crs.to_string() if label_points.crs is not None else "undefined"),
             {str(label): Point(pt.x, pt.y) for label, pt in label_points.items()},
         )
-
-    def show(self, **kwargs: object) -> None:
-        """Display inline in notebooks, or open a GUI window in scripts.
-
-        Args:
-            **kwargs (object): Additional keyword arguments passed to ``Figure.savefig``.
-                Defaults: ``bbox_inches="tight"``, ``dpi=fig.dpi``.
-        """
-        self._build_and_apply_settings()
-        show_figure(
-            self.fig, non_gui_filename="geoplot.png", non_gui_prefix="GeoPlotBase", **kwargs
-        )
-
-    def save(self, filepath: str, **kwargs: object) -> None:
-        """Save the plot to a file.
-
-        Args:
-            filepath (str): Output file path.
-            **kwargs (object): Additional keyword arguments passed to ``Figure.savefig``.
-
-        Returns:
-            None
-        """
-        self._build_and_apply_settings()
-        save_figure(self.fig, filepath, **kwargs)

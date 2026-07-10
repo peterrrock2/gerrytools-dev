@@ -1,6 +1,8 @@
 import logging
 import math
 
+import matplotlib.colors as mcolors
+
 from gerrytools.colors._sources import (
     CITIZEN_BLUE,
     COLOR_CORRECTED_BASESET,
@@ -8,13 +10,13 @@ from gerrytools.colors._sources import (
     ENSEMBLE_COLORS,
     GERRYTOOLS_EXTRA_COLORS_DICT,
     OVERLAYS,
-    _resolve_named_color,
-    _which_color_source,
     get_all_supported_colors_dict,
+    get_named_color,
+    which_color_source,
 )
-from gerrytools.colors._value import _Color, _validate_alpha
+from gerrytools.colors._value import _Color, validate_alpha
 from gerrytools.logging import get_logger
-from gerrytools.typing import Color, HexColor, MplCompatibleColor, ResolvedColor
+from gerrytools.typing import HexColor, MplCompatibleColor, ResolvedColor
 
 __all__ = [
     "CITIZEN_BLUE",
@@ -27,45 +29,11 @@ __all__ = [
     "get_all_supported_colors_dict",
     "get_named_color",
     "resolve_color_and_alpha",
+    "resolve_rgba",
     "which_color_source",
 ]
 
 gt_logger = get_logger(__name__)
-
-
-def get_named_color(name: str) -> Color:
-    """Get a color value from the supported color names.
-
-    Args:
-        name (str): The name of the color.
-
-    Returns:
-        Color: The corresponding color value.
-
-    Raises:
-        KeyError: If the color name is not recognized.
-    """
-    return _resolve_named_color(name)
-
-
-def which_color_source(name: str) -> str:
-    """Return the name of the registry source that owns ``name``.
-
-    Useful for diagnosing precedence: when two palettes both define a name,
-    this answers which one the resolver actually returns. Source names
-    currently include ``"overrides"``, ``"gerrytools"``, ``"color-corrected"``,
-    ``"districtr"``, ``"latex"``, and ``"matplotlib"``.
-
-    Args:
-        name (str): The name of the color.
-
-    Returns:
-        str: The name of the source that resolves the color name.
-
-    Raises:
-        KeyError: If the color name is not recognized by any source.
-    """
-    return _which_color_source(name)
 
 
 def convert_color_to_hexa_or_none(color: MplCompatibleColor | None) -> HexColor:
@@ -90,16 +58,12 @@ def resolve_color_and_alpha(
 ) -> ResolvedColor:
     """Normalize a (color, alpha) pair into (hex6_or_none, resolved_alpha).
 
-    Rules:
-    - color is converted via convert_color_to_hexa_or_none -> "none" or "#RRGGBBAA"
-    - if color resolves to "none":
-        - allow_none=True  => ("none", 0.0)  (alpha is forced to 0)
-        - allow_none=False => ValueError
-    - if color resolves to "#RRGGBBAA":
-        - returns ("#RRGGBB", alpha_from_color) if alpha is None
-        - returns ("#RRGGBB", alpha) if alpha is provided (validated),
-          optionally logs when it overrides embedded alpha.
-
+    The color is first converted to ``"none"`` or ``"#RRGGBBAA"``. If it resolves to ``"none"``, the
+    function returns ``("none", 0.0)`` when ``allow_none`` is ``True`` and raises ``ValueError``
+    otherwise. For an RGBA color, it returns the RGB value with either the embedded alpha or the
+    validated explicit alpha. An explicit alpha is validated even when the color resolves to
+    ``"none"``. An optional debug message records when an explicit value overrides the embedded
+    alpha.
 
     Args:
         color (MplCompatibleColor | None): The color input to convert.
@@ -115,16 +79,16 @@ def resolve_color_and_alpha(
         ResolvedColor: A tuple of (hex6_or_none, resolved_alpha).
     """
     resolved_color = _Color.from_any(color, logger=logger if logger is not None else gt_logger)
+    # Validate before the "none" early return so a bad explicit alpha never passes silently.
+    validated_alpha = None if alpha is None else validate_alpha(alpha, field=f"{field} alpha")
 
     if resolved_color.is_none:
         if not allow_none:
             raise ValueError(f"{field} cannot be 'none'.")
         return "none", 0.0
 
-    if alpha is None:
+    if validated_alpha is None:
         return resolved_color.hex6, resolved_color.alpha
-
-    validated_alpha = _validate_alpha(alpha, field=f"{field} alpha")
 
     explicit_alpha_overrides_embedded = not math.isclose(
         validated_alpha, resolved_color.alpha, abs_tol=1e-4
@@ -141,3 +105,35 @@ def resolve_color_and_alpha(
         )
 
     return resolved_color.hex6, validated_alpha
+
+
+def resolve_rgba(
+    color: MplCompatibleColor | None,
+    alpha: float | None = None,
+    *,
+    field: str = "color",
+    owner: str = "gerrytools",
+) -> tuple[float, float, float, float]:
+    """Resolve a ``Color`` plus optional alpha override to an RGBA tuple.
+
+    Args:
+        color (MplCompatibleColor | None): GerryTools color input. ``None`` resolves to
+            the fully transparent ``"none"`` color.
+        alpha (float | None, optional): Optional alpha override. Defaults to None.
+        field (str, optional): Field name used in validation and warning messages.
+            Defaults to ``"color"``.
+        owner (str, optional): Owner name used in log messages. Defaults to ``"gerrytools"``.
+
+    Returns:
+        tuple[float, float, float, float]: Resolved RGBA values in ``[0, 1]``.
+    """
+    resolved_color, resolved_alpha = resolve_color_and_alpha(
+        color,
+        alpha=alpha,
+        allow_none=True,
+        field=field,
+        owner=owner,
+        logger=gt_logger,
+    )
+    rgba = mcolors.to_rgba(resolved_color, alpha=resolved_alpha)
+    return (float(rgba[0]), float(rgba[1]), float(rgba[2]), float(rgba[3]))

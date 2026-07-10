@@ -1,12 +1,26 @@
-from collections.abc import Hashable, Iterable
-from typing import Callable, Literal, Mapping, Sequence, TypeAlias, TypedDict
+import enum
+from collections.abc import Hashable, Iterable, Mapping, Sequence
+from typing import TYPE_CHECKING, Final, Literal, TypeAlias
 
-from geopandas import GeoDataFrame, GeoSeries
-from matplotlib.artist import Artist
-from matplotlib.colors import Colormap
-from numpy.typing import NDArray
-from pandas import DataFrame, Series
-from pyproj import CRS
+
+class Unset(enum.Enum):
+    """Sentinel type distinguishing an omitted kwarg from an explicit ``None``.
+
+    Kwargs where ``None`` is itself meaningful default to :data:`UNSET` rather than ``None``: an
+    omitted kwarg keeps the stored/base value, while an explicit ``None`` is applied as a real
+    value (for example "no fill/edge", clearing a field back to its matplotlib default, or
+    restoring inheritance in the LaTeX hull options). Both names are public because they appear in
+    ``add_*`` and ``set_*`` signatures: wrappers forwarding those kwargs use ``UNSET`` as their own
+    default and ``Unset`` in their annotations. Defined in this dependency-light hub so both the
+    plotting and LaTeX packages share the same sentinel object.
+    """
+
+    token = enum.auto()
+
+
+UNSET: Final = Unset.token
+"""The sentinel value: the sole member of :class:`Unset`."""
+
 
 Numeric: TypeAlias = int | float
 """Numeric scalar type used in plotting/color APIs."""
@@ -44,33 +58,10 @@ CategoryKey: TypeAlias = Hashable
 CategoryColorMap: TypeAlias = Mapping[CategoryKey, Color]
 """Mapping from category keys to explicit colors for categorical layers."""
 
-GeoColorMap: TypeAlias = str | Color | Colormap | CategoryColorMap | Series
-"""Color mapping specification accepted by geometry plotting layers."""
+TickType: TypeAlias = Literal["major", "minor", "both"]
+"""Matplotlib tick-set selector accepted by tick styling APIs."""
 
-CRSLike: TypeAlias = CRS | str | int
-"""Coordinate reference system token accepted by GeoPandas reprojection methods."""
-
-NumericArrayLike: TypeAlias = Numeric | NumericIterable | NDArray | Series | DataFrame
-"""Flexible numeric data input accepted by plotting/data coercion utilities."""
-
-# Format takes in original value and currently rendered string
-# and returns original value and new rendered string
-TableCellValue: TypeAlias = object
-"""Arbitrary DataFrame cell value used by table/formatter pipelines."""
-
-TableIndexValue: TypeAlias = Hashable
-"""Hashable index value used by table index-formatting callbacks."""
-
-CellWrapper: TypeAlias = Callable[[TableCellValue, str], tuple[TableCellValue, str]]
-"""Formatter callback that receives ``(raw_value, rendered_text)`` and returns updated pair."""
-
-IndexCellWrapper: TypeAlias = Callable[[TableIndexValue, str], tuple[TableIndexValue, str]]
-"""Formatter callback for table index values."""
-
-# Type alias for tick types in Matplotlib
-TickType = Literal["major", "minor", "both"]
-
-TikzLineStyle = Literal[
+TikzLineStyle: TypeAlias = Literal[
     "solid",
     "dashed",
     "dotted",
@@ -84,67 +75,72 @@ TikzLineStyle = Literal[
 ]
 """Valid TikZ line-style tokens; the single source for runtime validation too."""
 
-# Type alias for histogram
-BinsType = int | Sequence[float] | str | NDArray
-HistType = Literal["overlay", "stack", "weave", "outline"]
-
-GeoSource = GeoDataFrame | GeoSeries
-"""Accepted geometry container type for geometry plotting APIs."""
-
-LegendHandle: TypeAlias = Artist
-"""Legend handle artist type returned by plotting classes."""
+HistType: TypeAlias = Literal["overlay", "stack", "grouped", "outline"]
+"""Multi-series histogram layout mode."""
 
 MplKwargs: TypeAlias = dict[str, object]
 """Generic Matplotlib kwargs dictionary with JSON-like value constraints."""
 
-SavefigKwargValue: TypeAlias = (
-    bool | int | float | str | tuple[float, float] | tuple[float, float, float, float] | None
-)
-"""Commonly used scalar/tuple values accepted by ``Figure.savefig`` kwargs."""
+# The aliases below need geopandas, matplotlib, numpy, pandas, or pyproj to evaluate. They are
+# declared here for static checkers and built lazily at runtime by __getattr__ (PEP 562) so
+# importing this module stays dependency-light for consumers that only need the aliases above.
+if TYPE_CHECKING:
+    from geopandas import GeoDataFrame, GeoSeries
+    from matplotlib.artist import Artist
+    from matplotlib.colors import Colormap
+    from numpy.typing import NDArray
+    from pandas import DataFrame, Series
+    from pyproj import CRS
 
-SavefigKwargs: TypeAlias = dict[str, SavefigKwargValue]
-"""Keyword arguments accepted by ``Figure.savefig`` wrappers in plotting utilities."""
+    GeoColorMap: TypeAlias = str | Color | Colormap | CategoryColorMap
+    """Color mapping specification accepted by geometry plotting layers."""
 
+    CRSLike: TypeAlias = CRS | str | int
+    """Coordinate reference system token accepted by GeoPandas reprojection methods."""
 
-class PlotMarkerKwargs(TypedDict):
-    """Marker kwargs emitted by ``PointMarkerOptions.to_mpl_settings_dict``."""
+    NumericArrayLike: TypeAlias = Numeric | NumericIterable | NDArray | Series | DataFrame
+    """Flexible numeric data input accepted by plotting/data coercion utilities."""
 
-    markerfacecolor: MplRGBAColor
-    marker: str
-    markersize: float
-    markeredgecolor: MplRGBAColor
-    markeredgewidth: float
-    zorder: int
+    BinsType: TypeAlias = int | Sequence[float] | str | NDArray
+    """Histogram bin specification accepted by binning APIs."""
 
+    GeoSource: TypeAlias = GeoDataFrame | GeoSeries
+    """Accepted geometry container type for geometry plotting APIs."""
 
-class ScatterMarkerKwargs(TypedDict):
-    """Marker kwargs emitted by ``PointMarkerOptions.to_mpl_scatter_settings_dict``."""
-
-    marker: str
-    s: float
-    edgecolor: MplRGBAColor
-    linewidths: float
-    zorder: int
-
-
-class AxisLabelKwargs(TypedDict, total=False):
-    """Keyword arguments for ``Axes.set_xlabel`` and ``Axes.set_ylabel``."""
-
-    color: MplRGBAColor
-    fontsize: float | int
-    fontweight: str
-    fontstyle: Literal["normal", "italic", "oblique"]
-    fontfamily: str
-    labelpad: float
+    LegendHandle: TypeAlias = Artist
+    """Legend handle artist type returned by plotting classes."""
 
 
-class TitleKwargs(TypedDict, total=False):
-    """Keyword arguments for ``Axes.set_title``."""
+def __getattr__(name: str) -> object:
+    """Build the dependency-heavy aliases on first access and cache them in the module."""
 
-    color: MplRGBAColor
-    fontsize: float | int
-    fontweight: str
-    fontstyle: Literal["normal", "italic", "oblique"]
-    fontfamily: str
-    loc: Literal["left", "center", "right"]
-    pad: float
+    value: object
+    if name == "GeoColorMap":
+        from matplotlib.colors import Colormap
+
+        value = str | Color | Colormap | CategoryColorMap
+    elif name == "CRSLike":
+        from pyproj import CRS
+
+        value = CRS | str | int
+    elif name == "NumericArrayLike":
+        from numpy.typing import NDArray
+        from pandas import DataFrame, Series
+
+        value = Numeric | NumericIterable | NDArray | Series | DataFrame
+    elif name == "BinsType":
+        from numpy.typing import NDArray
+
+        value = int | Sequence[float] | str | NDArray
+    elif name == "GeoSource":
+        from geopandas import GeoDataFrame, GeoSeries
+
+        value = GeoDataFrame | GeoSeries
+    elif name == "LegendHandle":
+        from matplotlib.artist import Artist
+
+        value = Artist
+    else:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    globals()[name] = value
+    return value

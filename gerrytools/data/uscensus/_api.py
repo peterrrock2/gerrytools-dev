@@ -2,41 +2,37 @@
 
 This module holds the pieces common to both the ACS fetchers (``acs.py``) and the decennial PL
 fetchers (``census.py``, ``block_cvap.py``): the request timeout, base-URL templates, the rate-limit
-error, geography-query builders, API-key handling, the JSON-to-DataFrame adapter, and the GEO_ID
-stub stripper. Keeping it here means ``census.py`` no longer imports private helpers out of
-``acs.py``.
+error, and the single composed fetch, :func:`_census_get`.
+
+Key policy: as of 12 May 2026 the Census API requires an API key for every request. Keys are
+resolved from the ``api_key`` argument or the ``CENSUS_API_KEY`` environment variable, and a
+missing key raises before any request is issued. Register at
+https://api.census.gov/data/key_signup.html.
 """
 
-import logging
 import os
+import time
+from email.utils import parsedate_to_datetime
 from typing import cast
 
 import httpx
 import pandas as pd
 import us
 
-# _api is the census package's shared internal plumbing: every name below is imported by the
-# sibling modules (acs.py, census.py, block_cvap.py). Declaring them in __all__ marks them as
-# this module's exports so pyright stops complaining about unused imports.
-__all__ = [
-    "ACS_BASE_URL",
-    "CensusRateLimitError",
-    "PL_BASE_URL",
-    "REQUEST_TIMEOUT",
-    "TRACE",
-    "_add_census_api_key",
-    "_construct_in_query",
-    "_response_to_frame",
-    "_strip_geoid_prefix",
-    "_validate_year",
-]
+from gerrytools.logging import get_logger
 
-# Custom level for high-volume per-request log lines (below DEBUG).
-TRACE = logging.DEBUG - 5
-logging.addLevelName(TRACE, "TRACE")
+logger = get_logger(__name__)
 
 # Shared request timeout for every Census API call.
 REQUEST_TIMEOUT = httpx.Timeout(120)
+
+# Transient-failure retry policy for _census_get: up to MAX_REQUEST_ATTEMPTS total attempts with
+# exponential backoff. A 429's Retry-After header is honored up to the safety limit below.
+# Module-level sleep hook so tests can patch the waits away.
+MAX_REQUEST_ATTEMPTS = 4
+RETRY_BASE_DELAY_SECONDS = 1.0
+MAX_RETRY_AFTER_SECONDS = 60.0
+_sleep = time.sleep
 
 # Base-URL templates. The decennial PL endpoint takes only a year; the ACS endpoint additionally
 # takes the survey ("acs1" or "acs5").
@@ -45,12 +41,96 @@ ACS_BASE_URL = "https://api.census.gov/data/{year}/acs/{survey}"
 
 
 class CensusRateLimitError(RuntimeError):
-    """Raised when the Census API returns HTTP 429 Too Many Requests.
+    """Raised when the Census API keeps returning HTTP 429 Too Many Requests.
 
-    As of 12 May 2026, an API key is required for all requests made to the Census API. The exception
-    message includes the offending URL and the ``Retry-After`` header (when present), plus a pointer
-    to ``https://api.census.gov/data/key_signup.html`` for obtaining an API key.
+    Every request carries an API key (see the module docstring for the key policy), so a 429
+    means the key itself is being rate-limited. ``_census_get`` retries bounded 429 delays and
+    raises immediately rather than retrying before an excessive ``Retry-After`` delay.
     """
+
+
+def _redacted_url(url: httpx.URL | str) -> str:
+    """Return ``url`` as a string with any ``key`` query-parameter value redacted.
+
+    The Census API key travels as a query parameter, so raw request URLs must never reach log
+    lines or exception messages.
+    """
+
+    url = httpx.URL(url)
+    if "key" in url.params:
+        url = url.copy_set_param("key", "REDACTED")
+    return str(url)
+
+
+def _retry_delay_seconds(response: httpx.Response, attempt: int) -> float:
+    """Return a bounded Retry-After delay for a 429, or exponential backoff."""
+
+    if response.status_code == 429:
+        retry_after = response.headers.get("Retry-After")
+        if retry_after is not None:
+            try:
+                delay = int(retry_after)
+            except ValueError:
+                try:
+                    retry_at = parsedate_to_datetime(retry_after)
+                    if retry_at.tzinfo is None:
+                        raise ValueError
+                    delay = max(retry_at.timestamp() - time.time(), 0.0)
+                except (TypeError, ValueError, OverflowError, OSError):
+                    delay = -1
+            if delay >= 0:
+                if delay > MAX_RETRY_AFTER_SECONDS:
+                    raise CensusRateLimitError(
+                        f"Retry-After {retry_after!r} exceeds the "
+                        f"{MAX_RETRY_AFTER_SECONDS:g}-second safety limit; "
+                        "refusing to retry early."
+                    )
+                return float(delay)
+    return RETRY_BASE_DELAY_SECONDS * 2 ** (attempt - 1)
+
+
+def _get_with_retries(client: httpx.Client, base_url: str, params: dict) -> httpx.Response:
+    """Issue one GET, retrying transport failures, bounded 429 delays, and 5xx responses.
+
+    Other statuses (including non-429 4xx) are returned to the caller on the first attempt; the
+    final transient response is returned once the attempt budget is exhausted. A final transport
+    failure is re-raised.
+    """
+
+    for attempt in range(1, MAX_REQUEST_ATTEMPTS + 1):
+        try:
+            response = client.get(base_url, params=params)
+        except httpx.TransportError as error:
+            if attempt == MAX_REQUEST_ATTEMPTS:
+                raise
+            delay = RETRY_BASE_DELAY_SECONDS * 2 ** (attempt - 1)
+            logger.warning(
+                "Census API request to %s raised %s; retrying in %.1fs (attempt %d of %d).",
+                base_url,
+                type(error).__name__,
+                delay,
+                attempt + 1,
+                MAX_REQUEST_ATTEMPTS,
+            )
+            _sleep(delay)
+            continue
+
+        if response.status_code != 429 and response.status_code < 500:
+            return response
+        if attempt == MAX_REQUEST_ATTEMPTS:
+            return response
+        delay = _retry_delay_seconds(response, attempt)
+        logger.warning(
+            "Census API returned %s for %s; retrying in %.1fs (attempt %d of %d).",
+            response.status_code,
+            _redacted_url(response.request.url),
+            delay,
+            attempt + 1,
+            MAX_REQUEST_ATTEMPTS,
+        )
+        _sleep(delay)
+    # Every final-attempt branch returns or raises; this guards future loop refactors.
+    raise AssertionError("retry loop exhausted without returning or raising")  # pragma: no cover
 
 
 def _validate_year(year: int) -> None:
@@ -67,94 +147,23 @@ def _validate_year(year: int) -> None:
         raise ValueError(f"Year must be a 4-digit integer in [2000, 2050]. Received {year}.")
 
 
-def _construct_in_query(
-    curr_query: dict,
-    state: us.states.State,
-    geometry: str,
-    county_fips: str | None = None,
-) -> None:
-    """Set the Census API ``for`` / ``in`` query parameters for a geography.
+def _resolved_api_key(api_key: str | None) -> str:
+    """Resolve the Census API key from the argument or the environment.
 
     Args:
-        curr_query (dict): Query parameter dictionary to mutate in place.
-        state (us.states.State): State the query is scoped to.
-        geometry (str): Geometry level. Must be one of ``"state"``, ``"county"``, ``"tract"``,
-            ``"block group"``, or ``"block"``.
-        county_fips (str | None): Required when ``geometry`` is ``"block"``; scopes the block query
-            to a single county (the Census API does not support ``county:*`` for blocks).
+        api_key (str | None): Explicit Census API key. When ``None``, the ``CENSUS_API_KEY``
+            environment variable is consulted as a fallback.
 
-    Raises:
-        ValueError: If ``geometry`` is ``"block"`` without ``county_fips``, or ``geometry`` is not a
-            recognized geometry level.
-
-    Warning:
-        Modifies ``curr_query`` in place.
-    """
-
-    if geometry == "state":
-        curr_query["for"] = f"state:{state.fips}"
-        return
-
-    if geometry == "county":
-        curr_query["in"] = f"state:{state.fips}"
-        return
-
-    if geometry == "tract":
-        curr_query["in"] = [f"state:{state.fips}", "county:*"]
-        return
-
-    if geometry == "block group":
-        curr_query["in"] = [f"state:{state.fips}", "county:*", "tract:*"]
-        return
-
-    if geometry == "block":
-        if county_fips is None:
-            raise ValueError("Block-level queries must be scoped to a county.")
-        curr_query["in"] = [
-            f"state:{state.fips}",
-            f"county:{county_fips}",
-            "tract:*",
-        ]
-        return
-
-    raise ValueError(
-        "Invalid geometry level. Must be one of 'state', 'county', 'tract', "
-        "'block group', or 'block'."
-    )
-
-
-def _add_census_api_key(params: dict, api_key: str | None = None) -> None:
-    """Add a Census API key to query parameters.
-
-    Resolution order:
-
-    1. ``api_key`` argument, when not ``None``.
-    2. ``CENSUS_API_KEY`` environment variable, when set and non-empty.
-
-    As of 12 May 2026 the Census API requires a key for all requests;
-    unauthenticated calls 429 fast.
-
-    Args:
-        params (dict): Query parameter dictionary to mutate in place. The resolved key is written
-            under the ``"key"`` query-string name expected by the Census API.
-        api_key (str | None): Explicit Census API key. When ``None``, the environment variable
-            ``CENSUS_API_KEY`` is consulted as a fallback.
+    Returns:
+        str: The resolved API key.
 
     Raises:
         ValueError: If neither source yields a key.
-
-    Warning:
-        Modifies ``params`` in place.
     """
 
-    if api_key is not None:
-        params["key"] = api_key
-        return
-
-    if key := os.getenv("CENSUS_API_KEY"):
-        params["key"] = key
-        return
-
+    key = api_key if api_key is not None else os.getenv("CENSUS_API_KEY")
+    if isinstance(key, str) and key.strip():
+        return key.strip()
     raise ValueError(
         "No Census API key provided. Supply one via the api_key argument "
         "or the CENSUS_API_KEY environment variable. Register at "
@@ -162,56 +171,135 @@ def _add_census_api_key(params: dict, api_key: str | None = None) -> None:
     )
 
 
-def _response_to_frame(response: httpx.Response) -> pd.DataFrame:
-    """Convert a Census API list-of-lists JSON response into a DataFrame.
+def _census_get(
+    client: httpx.Client,
+    base_url: str,
+    get: str,
+    state: us.states.State,
+    geometry: str,
+    *,
+    county_fips: str | None = None,
+    api_key: str | None = None,
+) -> pd.DataFrame:
+    """Issue one Census API query and return the payload as a DataFrame.
+
+    Owns the whole request round trip: the ``for``/``in`` geography clauses for ``geometry``,
+    API-key resolution, bounded retries for transient failures (429 and 5xx), the 429
+    translation, the list-of-lists JSON to DataFrame conversion, and GEOID handling. When the
+    response carries a ``GEO_ID`` column, it is replaced by a bare ``GEOID`` column with the
+    Census summary-level stub stripped (e.g. ``0500000US55001`` becomes ``55001``).
 
     Args:
-        response (httpx.Response): Response object from a Census API call.
+        client (httpx.Client): HTTP client used to issue the request.
+        base_url (str): Fully formatted Census dataset URL (see ``PL_BASE_URL``/``ACS_BASE_URL``).
+        get (str): Value for the Census ``get=`` parameter (a comma-joined variable list or a
+            ``group(...)`` expression).
+        state (us.states.State): State the query is scoped to.
+        geometry (str): Geometry level. Must be one of ``"state"``, ``"county"``, ``"tract"``,
+            ``"block group"``, or ``"block"``.
+        county_fips (str | None): Optional 3-digit county scope for block queries. When omitted,
+            blocks are requested across every county and tract in the state.
+        api_key (str | None): Census API key, or ``CENSUS_API_KEY`` fallback.
 
     Returns:
-        pd.DataFrame: DataFrame where the first row of the JSON payload is used as column names and
-        the remaining rows become data rows.
+        pd.DataFrame: One row per geography, with the first JSON row as column names and
+        ``GEO_ID`` (when requested) replaced by the stripped ``GEOID`` column.
 
     Raises:
-        CensusRateLimitError: When the Census API returns 429 Too Many Requests.
-        httpx.HTTPStatusError: Propagated from ``response.raise_for_status()`` for other HTTP
-            errors.
+        ValueError: If ``geometry`` is unrecognized, no API key is available, or the payload is
+            not a list of rows.
+        CensusRateLimitError: When the Census API exceeds the bounded 429 retry policy.
+        httpx.HTTPStatusError: For other HTTP error statuses (5xx also retried first).
     """
 
+    key = _resolved_api_key(api_key)
+    params: dict = {"get": get, "for": f"{geometry}:*", "key": key}
+    if geometry == "state":
+        geography_columns = ["state"]
+        params["for"] = f"state:{state.fips}"
+    elif geometry == "county":
+        geography_columns = ["state", "county"]
+        params["in"] = f"state:{state.fips}"
+    elif geometry == "tract":
+        geography_columns = ["state", "county", "tract"]
+        params["in"] = [f"state:{state.fips}", "county:*"]
+    elif geometry == "block group":
+        geography_columns = ["state", "county", "tract", "block group"]
+        params["in"] = [f"state:{state.fips}", "county:*", "tract:*"]
+    elif geometry == "block":
+        geography_columns = ["state", "county", "tract", "block"]
+        county = f"county:{county_fips}" if county_fips is not None else "county:*"
+        params["in"] = [f"state:{state.fips}", county, "tract:*"]
+    else:
+        raise ValueError(
+            "Invalid geometry level. Must be one of 'state', 'county', 'tract', "
+            "'block group', or 'block'."
+        )
+
+    response = _get_with_retries(client, base_url, params)
     if response.status_code == 429:
         retry_after = response.headers.get("Retry-After")
         raise CensusRateLimitError(
             "Census API returned 429 Too Many Requests for "
-            f"{response.request.url}. "
+            f"{_redacted_url(response.request.url)}. "
             + (f"Retry-After: {retry_after}s. " if retry_after else "")
-            + "Unauthenticated requests are capped at 500/day per IP; "
-            "register a key at https://api.census.gov/data/key_signup.html "
-            "and pass it via api_key=/CENSUS_API_KEY to lift the cap."
+            + "The Census API rate-limits per key; wait and retry, or spread requests out."
         )
-    response.raise_for_status()
-    data = response.json()
+    # Explicit stand-in for raise_for_status(): httpx embeds the full request URL, API key
+    # included, in its message. Same exception type, redacted URL.
+    if not response.is_success:
+        location = response.headers.get("Location", "")
+        if response.is_redirect and "invalid_key" in location:
+            detail = " Census API rejected the API key."
+        else:
+            body = response.text.strip().replace(key, "REDACTED")
+            detail = f" Response: {body[:200]}" if body else ""
+        raise httpx.HTTPStatusError(
+            f"HTTP status {response.status_code} {response.reason_phrase} for url "
+            f"'{_redacted_url(response.request.url)}'.{detail}",
+            request=response.request,
+            response=response,
+        )
+    if response.status_code == 204:
+        requested_columns = [] if get.startswith("group(") else get.split(",")
+        data = [list(dict.fromkeys([*requested_columns, *geography_columns]))]
+    else:
+        data = response.json()
     if not isinstance(data, list) or not data:
         raise ValueError(
             "Unexpected Census API response (expected a non-empty list of rows): "
             f"{repr(data)[:200]}"
         )
-    return pd.DataFrame(data[1:], columns=data[0])
+    header = data[0]
+    valid_header = (
+        isinstance(header, list)
+        and bool(header)
+        and all(isinstance(column, str) and column for column in header)
+        and len(set(header)) == len(header)
+    )
+    valid_rows = valid_header and all(
+        isinstance(row, list) and len(row) == len(header) for row in data[1:]
+    )
+    if not valid_rows:
+        raise ValueError(
+            "Unexpected Census API response (expected a unique string header and "
+            f"equal-width list rows): {repr(data)[:200]}"
+        )
+    header = cast(list[str], header)
+    frame = pd.DataFrame(data[1:], columns=pd.Index(header))
+
+    if "GEO_ID" in frame.columns:
+        frame["GEOID"] = frame["GEO_ID"].astype("string").str.split("US").str[-1]
+        frame.drop(columns=["GEO_ID"], inplace=True)
+    return frame
 
 
-def _strip_geoid_prefix(frame: pd.DataFrame, column: str = "GEO_ID") -> pd.Series:
-    """Strip the Census summary-level stub from a frame's ``GEO_ID`` column.
+def _cast_count_columns_to_numeric(frame: pd.DataFrame, columns: list[str]) -> None:
+    """Cast ``columns`` of ``frame`` to numeric in place, raising on non-numeric cells.
 
-    Census ``GEO_ID`` values carry a summary-level prefix ending in ``US`` (e.g. ``1000000US55`` for
-    a state or ``0500000US55001`` for a county); the substring after ``US`` is the bare GEOID used
-    for downstream joins.
-
-    Args:
-        frame (pd.DataFrame): Frame holding the raw ``GEO_ID`` column.
-        column (str): Name of the raw GEO_ID column. Defaults to ``"GEO_ID"``.
-
-    Returns:
-        pd.Series: The GEOID substring following the ``US`` stub.
+    The Census API returns every value as a JSON string; getters use this after renaming to
+    coerce their count columns.
     """
 
-    geo_id = cast(pd.Series, frame[column])
-    return geo_id.astype("string").str.split("US").str[-1]
+    for column in columns:
+        frame[column] = pd.to_numeric(frame[column], errors="raise")

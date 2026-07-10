@@ -1,35 +1,20 @@
-import tempfile
-from pathlib import Path
-
 import matplotlib
 
 matplotlib.use("Agg")
 
 import numpy as np
-import pandas as pd
 import pytest
-from geopandas import GeoDataFrame, GeoSeries
-from shapely.geometry import Point, box
+from geopandas import GeoSeries
+from matplotlib.colors import ListedColormap, to_hex
+from shapely.geometry import Point
 
+from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.plotting.geometry.geoplot import GeoPlot
 from gerrytools.plotting.geometry.geoplotbase import (
     _CategoricalColorLayer,
     _MarkerLayer,
 )
-
-
-def _rect_gdf_with_crs(crs="EPSG:4326"):
-    """Return a tiny 3-row GeoDataFrame of rectangles with the given CRS."""
-    geoms = [
-        box(0, 0, 1, 1),
-        box(1, 0, 2, 1),
-        box(0, 1, 1, 2),
-    ]
-    return GeoDataFrame(
-        {"value": [10.0, 20.0, 30.0], "category": ["A", "B", "A"]},
-        geometry=geoms,
-        crs=crs,
-    )
+from tests.plotting._typing_utils import as_any
 
 
 # ======================
@@ -39,52 +24,27 @@ class TestGeometriesInCRSReproject:
     """CRS reprojection when source CRS != target CRS."""
 
     def test_reproject_different_crs(self, testing_gdf):
-        """When source and target CRS differ, geometries are reprojected."""
+        """The default outline keeps its source CRS and is reprojected with other layers."""
         gdf_crs = testing_gdf.copy().set_crs("EPSG:4326")
-        # target_crs must differ from source to trigger the to_crs() call
         plot = GeoPlot(gdf_crs, dpi=50, silent=True, target_crs="EPSG:3857")
-        with tempfile.TemporaryDirectory() as tmpdir:
-            plot.save(str(Path(tmpdir) / "reproject.png"))
+        ax = plot.ax
 
+        outline_bounds = ax.collections[0].get_datalim(ax.transData).bounds
+        minx, miny, maxx, maxy = gdf_crs.to_crs("EPSG:3857").total_bounds
 
-# ================
-# == GEO SOURCE ==
-# ================
-
-
-class TestGeoLayerGeoSourceProperty:
-    """Cover the geosource property when geometry_mask is applied."""
-
-    def test_geosource_with_mask_geoseries(self, testing_gdf):
-        """geometry_mask on a GeoSeries goes through the else branch."""
-        gs = testing_gdf.geometry
-        mask = pd.Series(
-            [True, False, True] + [False] * (len(testing_gdf) - 3), index=testing_gdf.index
+        np.testing.assert_allclose(
+            outline_bounds,
+            (minx, miny, maxx - minx, maxy - miny),
         )
-        layer = _CategoricalColorLayer(
-            geometry_source=gs,
-            geometry_mask=mask,
-            colormap="none",
-            missing_color="none",
-            facealpha=0.0,
-            edgecolor="black",
-        )
-        result = layer.geosource
-        assert len(result) < len(gs)
 
-    def test_geosource_with_mask_geodataframe(self, testing_gdf):
-        """geometry_mask on a GeoDataFrame returns masked GeoDataFrame."""
-        mask = testing_gdf["district"] == 0
-        layer = _CategoricalColorLayer(
-            geometry_source=testing_gdf,
-            geometry_mask=mask,
-            colormap="none",
-            missing_color="none",
-            facealpha=0.0,
-            edgecolor="black",
-        )
-        result = layer.geosource
-        assert len(result) < len(testing_gdf)
+    def test_crsless_overlay_rejected_when_plot_crs_is_known(self, testing_gdf):
+        base = testing_gdf.copy().set_crs("EPSG:3857")
+        overlay = GeoSeries(testing_gdf.geometry.values)
+        plot = GeoPlot(base, dpi=50, silent=True, default_outline=False)
+        plot.add_outline_layer(geo_source=overlay)
+
+        with pytest.raises(ValueError, match="CRS-less geometries"):
+            plot.ax
 
 
 # ============================
@@ -93,7 +53,7 @@ class TestGeoLayerGeoSourceProperty:
 
 
 class TestCategoricalColorLayerGeoSeries:
-    """GeoSeries geosource with districtr colormap is silently set to 'none'."""
+    """GeoSeries geo_source with districtr colormap is silently set to 'none'."""
 
     def test_geoseries_districtr_maps_to_none(self, testing_gdf):
         gs = testing_gdf.geometry
@@ -115,22 +75,22 @@ class TestCategoricalColorLayerGeoSeries:
 
 class TestCategoricalColorLayerNeedsDatacolumn:
     def test_mpl_colormap_without_datacolumn_raises(self, testing_gdf):
-        with pytest.raises(TypeError, match="datacolumn.*must be set"):
+        with pytest.raises(TypeError, match="column.*must be set"):
             _CategoricalColorLayer(
                 geometry_source=testing_gdf,
                 colormap="viridis",  # valid mpl colormap
-                datacolumn=None,
+                column=None,
                 missing_color="lightgrey",
                 facealpha=0.0,
                 edgecolor="none",
             )
 
     def test_dict_colormap_without_datacolumn_raises(self, testing_gdf):
-        with pytest.raises(TypeError, match="datacolumn.*must be set"):
+        with pytest.raises(TypeError, match="column.*must be set"):
             _CategoricalColorLayer(
                 geometry_source=testing_gdf,
                 colormap={"A": "red"},
-                datacolumn=None,
+                column=None,
                 missing_color="lightgrey",
                 facealpha=0.0,
                 edgecolor="none",
@@ -151,7 +111,7 @@ class TestMapUniqueValuesStringSort:
         ] * (len(testing_gdf) % 4)
         layer = _CategoricalColorLayer(
             geometry_source=gdf,
-            datacolumn="str_col",
+            column="str_col",
             colormap="districtr",
             missing_color="lightgrey",
             facealpha=None,
@@ -159,6 +119,15 @@ class TestMapUniqueValuesStringSort:
         )
         # Should have a dict colormap from string sort
         assert isinstance(layer.colormap, dict)
+
+    def test_integral_float_keys_sort_numerically(self):
+        colors = ["one", "two", "three", "ten", "twenty"]
+
+        result = _CategoricalColorLayer._map_unique_values_to_colors(
+            [20.0, 3.0, 10.0, 2.0, 1.0], colors
+        )
+
+        assert list(result) == [1.0, 2.0, 3.0, 10.0, 20.0]
 
 
 # ==================
@@ -174,7 +143,7 @@ class TestCategoricalColorSeriesBranches:
         cmap = plt.get_cmap("viridis")
         layer = _CategoricalColorLayer(
             geometry_source=testing_gdf,
-            datacolumn="district",
+            column="district",
             colormap=cmap,
             missing_color="lightgrey",
             facealpha=None,
@@ -187,7 +156,7 @@ class TestCategoricalColorSeriesBranches:
         """String colormap that is in plt.colormaps() uses Colormap path."""
         layer = _CategoricalColorLayer(
             geometry_source=testing_gdf,
-            datacolumn="district",
+            column="district",
             colormap="viridis",
             missing_color="lightgrey",
             facealpha=None,
@@ -196,28 +165,57 @@ class TestCategoricalColorSeriesBranches:
         cs = layer.color_series
         assert len(cs) == len(testing_gdf)
 
-    def test_color_series_invalid_colormap_raises(self, testing_gdf):
-        """color_series else branch: invalid colormap type raises TypeError."""
-        # _CategoricalColorLayer.__post_init__ doesn't validate colormap type,
-        # so we can pass an int and it falls through to the else: raise TypeError
-        gdf = testing_gdf.copy()
-        # Use a non-string, non-Colormap, non-dict, non-None, non-pd.Series colormap
-        # to hit the else branch in color_series
+    @pytest.mark.parametrize(
+        "colormap",
+        ["viridis", ListedColormap(["red", "orange", "yellow", "green", "blue"])],
+    )
+    def test_colormap_samples_span_the_full_range(self, testing_gdf, colormap):
+        gdf = testing_gdf.iloc[:5].copy()
+        gdf["category"] = range(5)
         layer = _CategoricalColorLayer(
             geometry_source=gdf,
-            datacolumn=None,
-            colormap=12345,  # ty: ignore [invalid-argument-type]
+            column="category",
+            colormap=colormap,
             missing_color="lightgrey",
-            facealpha=None,
             edgecolor="none",
         )
+
+        colors = layer.color_series
+        cmap = matplotlib.colormaps.get_cmap(colormap)
+
+        assert colors.nunique() == 5
+        assert colors.iloc[0][0] == to_hex(cmap(0.0))
+        assert colors.iloc[-1][0] == to_hex(cmap(1.0))
+
+    def test_colormap_rejects_more_categories_than_lut_colors(self, testing_gdf):
+        gdf = testing_gdf.iloc[:3].copy()
+        gdf["category"] = range(3)
+
+        with pytest.raises(ValueError, match="Not enough colors"):
+            _CategoricalColorLayer(
+                geometry_source=gdf,
+                column="category",
+                colormap=ListedColormap(["red", "blue"]),
+                missing_color="lightgrey",
+                edgecolor="none",
+            )
+
+    def test_color_series_invalid_colormap_raises(self, testing_gdf):
+        """Invalid colormap types fail while the input union is normalized."""
+        gdf = testing_gdf.copy()
         with pytest.raises(TypeError, match="colormap.*must be one of"):
-            _ = layer.color_series
+            _CategoricalColorLayer(
+                geometry_source=gdf,
+                column=None,
+                colormap=as_any(12345),
+                missing_color="lightgrey",
+                facealpha=None,
+                edgecolor="none",
+            )
 
     def test_color_series_with_nan_in_column(self, testing_gdf):
-        """NaN in datacolumn uses missing_color."""
+        """NaN in column uses missing_color."""
         gdf = testing_gdf.copy()
-        gdf = gdf.copy()
         # Set some values to NaN for a Colormap path
         gdf["district_with_nan"] = gdf["district"].astype(float)
         gdf.loc[gdf.index[0], "district_with_nan"] = np.nan
@@ -226,7 +224,7 @@ class TestCategoricalColorSeriesBranches:
         cmap = plt.get_cmap("viridis")
         layer = _CategoricalColorLayer(
             geometry_source=gdf,
-            datacolumn="district_with_nan",
+            column="district_with_nan",
             colormap=cmap,
             missing_color="lightgrey",
             facealpha=None,
@@ -234,6 +232,8 @@ class TestCategoricalColorSeriesBranches:
         )
         cs = layer.color_series
         assert len(cs) == len(gdf)
+        assert cs.iloc[0] == resolve_color_and_alpha(layer.missing_color)
+        assert cs.iloc[1] != cs.iloc[0]
 
 
 # ===================
@@ -253,8 +253,8 @@ class TestCategoricalRenderUnknownKwargs:
             edgecolor="black",
         )
         fig, ax = plt.subplots()
-        with pytest.raises(TypeError, match="Unknown keyword argument"):
-            layer.render(ax, bad_kwarg="oops")
+        with pytest.raises(TypeError, match="unexpected keyword argument"):
+            layer.render(ax, **as_any({"bad_kwarg": "oops"}))
         plt.close(fig)
 
 
@@ -269,7 +269,7 @@ class TestCategoricalRenderMissingColumn:
 
         layer = _CategoricalColorLayer(
             geometry_source=testing_gdf,
-            datacolumn="nonexistent_col",
+            column="nonexistent_col",
             colormap={"A": "red"},
             missing_color="lightgrey",
             facealpha=None,
@@ -289,7 +289,7 @@ class TestCategoricalRenderMissingColumn:
 class TestMarkerLayerPostInit:
     def test_none_point_geometries_raises(self):
         with pytest.raises(TypeError, match="point_geometries"):
-            _MarkerLayer(point_geometries=None)  # ty: ignore [invalid-argument-type]
+            _MarkerLayer(point_geometries=as_any(None))
 
     def test_labels_wrong_length_raises(self, testing_gdf):
         pts = GeoSeries([Point(0, 0), Point(1, 1)])
@@ -299,12 +299,9 @@ class TestMarkerLayerPostInit:
                 labels=["only_one_label"],
             )
 
-    def test_none_marker_options_uses_default(self, testing_gdf):
+    def test_omitted_marker_options_uses_default(self, testing_gdf):
         pts = GeoSeries([Point(0, 0)])
-        layer = _MarkerLayer(
-            point_geometries=pts,
-            marker_options=None,  # ty: ignore [invalid-argument-type]
-        )
+        layer = _MarkerLayer(point_geometries=pts)
         assert layer.marker_options is not None
 
 
@@ -320,8 +317,8 @@ class TestMarkerLayerRender:
         pts = GeoSeries([Point(0, 0)])
         layer = _MarkerLayer(point_geometries=pts)
         fig, ax = plt.subplots()
-        with pytest.raises(TypeError, match="Unknown keyword argument"):
-            layer.render(ax, bad_kwarg="oops")
+        with pytest.raises(TypeError, match="unexpected keyword argument"):
+            layer.render(ax, **as_any({"bad_kwarg": "oops"}))
         plt.close(fig)
 
     def test_render_with_crs_reprojection(self):
@@ -331,7 +328,11 @@ class TestMarkerLayerRender:
         pts = GeoSeries([Point(-90, 40), Point(-91, 41)], crs="EPSG:4326")
         layer = _MarkerLayer(point_geometries=pts, show_labels=False)
         fig, ax = plt.subplots()
-        layer.render(ax, target_crs="EPSG:3857")
+        [marker_line] = layer.render(ax, target_crs="EPSG:3857")
+        expected = pts.to_crs("EPSG:3857")
+
+        np.testing.assert_allclose(marker_line.get_xdata(), expected.x)
+        np.testing.assert_allclose(marker_line.get_ydata(), expected.y)
         plt.close(fig)
 
     def test_render_show_labels_false(self):
@@ -345,7 +346,12 @@ class TestMarkerLayerRender:
             labels=None,
         )
         fig, ax = plt.subplots()
-        layer.render(ax)
+        artists = layer.render(ax)
+        [marker_line] = artists
+
+        np.testing.assert_allclose(marker_line.get_xdata(), [0, 1])
+        np.testing.assert_allclose(marker_line.get_ydata(), [0, 1])
+        assert len(ax.texts) == 0
         plt.close(fig)
 
     def test_render_show_labels_true_no_labels(self):
@@ -359,10 +365,10 @@ class TestMarkerLayerRender:
             labels=None,
         )
         fig, ax = plt.subplots()
-        layer.render(ax)
+        artists = layer.render(ax)
+        [marker_line] = artists
+
+        np.testing.assert_allclose(marker_line.get_xdata(), [0])
+        np.testing.assert_allclose(marker_line.get_ydata(), [0])
+        assert len(ax.texts) == 0
         plt.close(fig)
-
-
-# ==========================
-# == OUTLINE LAYER ERRORS ==
-# ==========================

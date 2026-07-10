@@ -1,19 +1,37 @@
 """Tests for TexTable construction, formatting, rules, and LaTeX generation."""
 
-import math
 from dataclasses import dataclass
 
 import pandas as pd
 import pytest
 
-from gerrytools.latex.formatters import diverging_gradient_formatter, highlight_ge
+from gerrytools.latex._table_layout import TablePreamble
 from gerrytools.latex.table import TexTable
+from gerrytools.latex.tikz_table import TikzTable
 
 
-@dataclass(frozen=True)
-class _DemoIndexValue:
-    label: str
-    number: int
+@pytest.mark.parametrize("table_cls", [TexTable, TikzTable])
+def test_table_dialects_share_ordered_boundary_emission(table_cls):
+    table = table_cls(pd.DataFrame({"a": [1], "b": [2]}), use_defaults=False)
+    table.set_tabular_format(r"c>{\bfseries}@{}<{\arraybackslash}|!{\hspace{1pt}}c")
+
+    assert table._column_format() == (r"c<{\arraybackslash}|@{}!{\hspace{1pt}}>{\bfseries}c")
+
+
+def test_table_dialects_share_one_resolved_layout():
+    df = pd.DataFrame({"A": [1, 2], "B": ["x", "y"]})
+    tex = TexTable(df, use_defaults=False)
+    tikz = TikzTable(df, use_defaults=False)
+
+    for table in (tex, tikz):
+        table.include_index(name="ID")
+        table.set_header_groups({"Numbers": ["A"], "Labels": ["B"]})
+        table.add_vrule_left_of([0, 2])
+        table.add_hrule_above(1, count=2)
+        table.highlight_rows(0, color="amber")
+        table.set_column_headers_text_format(bold=True)
+
+    assert tex._resolve_layout() == tikz._resolve_layout()
 
 
 # ===========================
@@ -27,18 +45,25 @@ class TestTexTableConstruction:
 
         assert str(table_1) == str(table_2)
 
-    def test_include_index_resizes_existing_boundary_extras(self, table_defaults):
+    def test_include_index_does_not_mutate_data_preamble(self, table_defaults):
         table = table_defaults
-        n_data_cols = table.df.shape[1]
-
-        assert not table._options.include_index
-        assert len(table._options.tabular_alignments) == n_data_cols
-
-        table._options.boundary_extras = ["existing"] * 1  # != ncols + 1
+        before = table._options.preamble
 
         table.include_index(include=True)
 
-        assert len(table._options.boundary_extras) == n_data_cols + 2
+        assert table._options.preamble is before
+        assert len(table._resolved_preamble().alignments) == len(table.df.columns) + 1
+
+    @pytest.mark.parametrize("table_cls", [TexTable, TikzTable])
+    def test_remove_index_preserves_configuration(self, table_cls):
+        table = table_cls(pd.DataFrame({"value": [1]}), use_defaults=False)
+        table.include_index(name="ID", alignment="|r|")
+
+        table.remove_index()
+        table.include_index()
+
+        assert table._options.index_name == "ID"
+        assert table._column_format() == "|r|c"
 
     def test_string_ops_idempotent(self, table_defaults):
         orig_str = str(table_defaults)
@@ -51,38 +76,28 @@ class TestTexTableConstruction:
 
         document = table.document
 
-        assert document.body_string == str(table)
+        assert document.body_string in str(table)
+
+    def test_mixed_numeric_columns_preserve_cell_dtypes(self):
+        table = TexTable(pd.DataFrame({"count": [1, 2], "share": [0.5, 1.5]}), use_defaults=False)
+
+        assert "1 & 0.5" in table._generate_latex()
 
 
 # ================================
 # == TEXTABLE VALIDATION ERRORS ==
 # ================================
 class TestTexTableValidationErrors:
-    def test_include_index_add_mismatched_tabular_alignments_raises(self, table_defaults):
+    def test_mismatched_preamble_rejected_during_resolution(self, table_defaults):
         table = table_defaults
         n_data_cols = table.df.shape[1]
-
-        table._options.tabular_alignments = ["c"] * (n_data_cols + 1)
+        table._options.preamble = TablePreamble.plain(n_data_cols + 1)
 
         with pytest.raises(
             ValueError,
             match=r"Current tabular format does not match DataFrame columns\.",
         ):
-            table.include_index(include=True)
-
-    def test_include_index_remove_mismatched_tabular_alignments_raises(self, table_defaults):
-        table = table_defaults
-        n_data_cols = table.df.shape[1]
-
-        table.include_index(include=True)
-
-        table._options.tabular_alignments = ["c"] * (n_data_cols + 2)
-
-        with pytest.raises(
-            ValueError,
-            match=r"Current tabular format does not match DataFrame columns\+index\.",
-        ):
-            table.include_index(include=False)
+            table._resolve_layout()
 
     def test_add_hrule_above_negative_index_raises(self, table_defaults):
         table = table_defaults
@@ -121,13 +136,14 @@ class TestTexTableValidationErrors:
         ):
             table.add_vrule_left_of(too_big)
 
-    def test_add_vrule_right_of_index_too_small_raises(self, table_defaults):
+    @pytest.mark.parametrize("index", [-2, -1])
+    def test_add_vrule_right_of_negative_index_raises(self, table_defaults, index):
         table = table_defaults
         with pytest.raises(
             ValueError,
-            match=r"Column index -2 is out of bounds for DataFrame with \d+ columns\.",
+            match=rf"Column index {index} is out of bounds for DataFrame with \d+ columns\.",
         ):
-            table.add_vrule_right_of(-2)
+            table.add_vrule_right_of(index)
 
     def test_add_vrule_right_of_index_too_large_raises(self, table_defaults):
         table = table_defaults
@@ -155,47 +171,44 @@ class TestTexTableValidationErrors:
         table = table_defaults
         with pytest.raises(
             ValueError,
-            match=r"Invalid color specification for row highlighting",
+            match=r"must be a LaTeX color name, HEX string, or RGB tuple",
         ):
             table.highlight_rows(0, color=(1, 2))
 
-    def test_generate_body_invalid_name_color_value_type_raises(self, table_defaults):
-        table = table_defaults
-        # Force bad ("NAME", non-str) entry
-        table._options.row_highlight_colors[0] = ("NAME", 123)
+    def test_highlight_rows_rejects_none_before_rowcolor_emission(self, table_defaults):
+        with pytest.raises(ValueError, match="cannot be emitted"):
+            table_defaults.highlight_rows(0, color="none")
 
-        with pytest.raises(
-            ValueError,
-            match=r"Found invalid color value '123'\.",
-        ):
-            table._generate_body()
+    @pytest.mark.parametrize("count", [0, -3])
+    def test_add_hrule_above_rejects_non_positive_count(self, table_defaults, count):
+        # "\hline" * -3 == "" would silently cancel later additions.
+        with pytest.raises(ValueError, match=r"Rule count must be at least 1"):
+            table_defaults.add_hrule_above(0, count=count)
 
-    def test_generate_body_invalid_html_color_value_type_raises(self, table_defaults):
-        table = table_defaults
-        table._options.row_highlight_colors[0] = ("HTML", 123)
+    @pytest.mark.parametrize("count", [0, -3])
+    def test_add_hrule_above_all_rejects_non_positive_count(self, table_defaults, count):
+        with pytest.raises(ValueError, match=r"Rule count must be at least 1"):
+            table_defaults.add_hrule_above_all(count=count)
 
-        with pytest.raises(
-            ValueError,
-            match=r"Found invalid hex color value '123'\.",
-        ):
-            table._generate_body()
+    @pytest.mark.parametrize("count", [0, -3])
+    def test_add_vrule_left_of_rejects_non_positive_count(self, table_defaults, count):
+        with pytest.raises(ValueError, match=r"Rule count must be at least 1"):
+            table_defaults.add_vrule_left_of(0, count=count)
 
-    def test_generate_body_invalid_html_color_value_bad_hex_raises(self, table_defaults):
-        table = table_defaults
-        table._options.row_highlight_colors[0] = ("HTML", "#12345")  # 5 digits
+    @pytest.mark.parametrize("count", [0, -3])
+    def test_add_vrule_right_of_rejects_non_positive_count(self, table_defaults, count):
+        with pytest.raises(ValueError, match=r"Rule count must be at least 1"):
+            table_defaults.add_vrule_right_of(0, count=count)
 
-        with pytest.raises(
-            ValueError,
-            match=r"Invalid hex color value '#12345'\. Must be 6 hexadecimal digits\.",
-        ):
-            table._generate_body()
+    @pytest.mark.parametrize("count", [0, -3])
+    def test_add_vrule_all_rejects_non_positive_count(self, table_defaults, count):
+        with pytest.raises(ValueError, match=r"Rule count must be at least 1"):
+            table_defaults.add_vrule_all(count=count)
 
-    def test_generate_body_unsupported_color_type_warns(self, table_defaults):
-        table = table_defaults
-        table._options.row_highlight_colors[0] = ("WEIRD", "blue")
-
-        with pytest.warns(UserWarning, match=r"Unsupported color type 'WEIRD'"):
-            table._generate_body()
+    def test_set_all_hrule_rejects_negative_count(self, table_defaults):
+        # Zero stays legal for set_all_hrule: it clears the interior rules.
+        with pytest.raises(ValueError, match=r"Rule count must be non-negative"):
+            table_defaults.set_all_hrule(-1)
 
     def test_set_decimal_count_negative_raises(self, table_defaults):
         table = table_defaults
@@ -317,6 +330,45 @@ class TestTexTableHeaders:
 
         assert r"\textit{Index}" in header
 
+    @pytest.mark.parametrize("table_cls", [TexTable, TikzTable])
+    def test_index_header_name_is_escaped_once(self, table_cls):
+        table = table_cls(pd.DataFrame({"a": [1]}), use_defaults=False)
+        table.include_index(name="A_B & C")
+
+        header = table.document.body_string
+
+        assert r"A\_B \& C" in header
+        assert r"\textbackslash" not in header
+
+    @pytest.mark.parametrize("table_cls", [TexTable, TikzTable])
+    def test_column_headers_escape_special_characters_once(self, table_cls):
+        table = table_cls(pd.DataFrame({"Vote %": [1], "Win & Loss_Rate": [2]}), use_defaults=False)
+
+        body = table.document.body_string
+
+        assert r"Vote \%" in body
+        assert r"Win \& Loss\_Rate" in body
+        assert r"\textbackslash" not in body
+
+    @pytest.mark.parametrize("table_cls", [TexTable, TikzTable])
+    def test_group_headers_escape_special_characters_once(self, table_cls):
+        table = table_cls(pd.DataFrame({"a": [1], "b": [2]}), use_defaults=False)
+        table.set_header_groups({"Pct % & Rank_1": ["a", "b"]})
+
+        body = table.document.body_string
+
+        assert r"Pct \% \& Rank\_1" in body
+        assert r"\textbackslash" not in body
+
+    @pytest.mark.parametrize("table_cls", [TexTable, TikzTable])
+    def test_unnamed_index_header_falls_back_to_dataframe_name(self, table_cls):
+        frame = pd.DataFrame({"a": [1]})
+        frame.index.name = "Row_ID"
+        table = table_cls(frame, use_defaults=False)
+        table.include_index()
+
+        assert r"Row\_ID" in table.document.body_string
+
     def test_generate_header_with_groups_and_index(self):
         df = pd.DataFrame({"A": [1], "B": [2]})
         table = TexTable(df)
@@ -327,9 +379,12 @@ class TestTexTableHeaders:
 
         header = table._generate_header()
 
-        assert r"\begin{tabular}" in header
-        assert "idx" in header
-        assert r"\multicolumn" in header or "G1" in header or "G2" in header
+        assert header.startswith("\\begin{tabular}{ccc}\n\\hline\n")
+        assert (
+            r"\multicolumn{1}{c}{} & \multicolumn{1}{c}{\textbf{G1}} & "
+            r"\multicolumn{1}{c}{\textbf{G2}} \\" in header
+        )
+        assert r"\textbf{idx} & \textbf{A} & \textbf{B} \\" in header
 
     def test_set_column_and_group_header_text_format(self, table_defaults):
         table = table_defaults
@@ -374,6 +429,27 @@ class TestTexTableHeaders:
         assert set(g2c.keys()) == {"G1", "G2"}
         assert "" not in g2c
 
+    @pytest.mark.parametrize("table_cls", [TexTable, TikzTable])
+    def test_set_header_groups_keeps_raw_non_string_column_labels(self, table_cls):
+        # Regression: the setter stringified labels, so rendering raised KeyError: '1' and
+        # int-keyed column formatters silently unlinked.
+        df = pd.DataFrame({1: [0.5], 2: [0.25], "name": ["x"]})
+        table = table_cls(df, use_defaults=False)
+        table.set_column_formatter(1, lambda value, rendered: (value, f"FMT={rendered}"))
+        table.set_header_groups({"Numbers": [1, 2]})
+
+        body = table.document.body_string
+
+        assert "FMT=0.5" in body
+        assert table._options.groups_to_cols["Numbers"] == [1, 2]
+        assert table._options.groups_to_cols[""] == ["name"]
+
+    def test_set_header_groups_rejects_columns_in_multiple_groups(self):
+        table = TexTable(pd.DataFrame({"a": [1], "b": [2]}))
+
+        with pytest.raises(ValueError, match=r"only one header group.*\['a'\]"):
+            table.set_header_groups({"G1": ["a"], "G2": ["a", "b"]})
+
     def test_clear_header_groups_resets_state(self):
         df = pd.DataFrame({"a": [1], "b": [2]})
         table = TexTable(df)
@@ -383,54 +459,55 @@ class TestTexTableHeaders:
         table.clear_header_groups()
 
         assert table._options.groups_to_cols == {"": ["a", "b"]}
-        assert table._options.group_tabular_alignments is None
-        assert table._options.group_vrule_counts is None
-        assert table._options.group_boundary_extras is None
+        assert table._options.group_preamble is None
+        assert table._options.group_index is None
 
 
 # ====================
 # == TEXTABLE RULES ==
 # ====================
 class TestTexTableRules:
-    def test_add_hrule_above_initializes_and_extends(self, table_defaults):
+    def test_add_hrule_above_writes_into_the_eagerly_sized_vector(self, table_defaults):
         table = table_defaults
 
         table.clear_all_hrule()
-        assert table._options.hrule_counts == []
+        assert table._options.hrule_counts == [0] * (len(table.df) + 1)
 
         table.add_hrule_above(0, count=2)
 
-        assert len(table._options.hrule_counts) == len(table.df)
         assert table._options.hrule_counts[0] == 2
 
-    def test_add_hrule_above_extends_existing_short_hrule_counts(self):
+    def test_add_hrule_above_bottom_boundary_emits_trailing_rule(self):
         df = pd.DataFrame({"a": [1, 2, 3]})
-        table = TexTable(df)
+        table = TexTable(df, use_defaults=False)
 
-        table._options.hrule_counts = [5]
+        table.add_hrule_above(len(df), count=1)
+        body = table._generate_body()
 
-        table.add_hrule_above(2, count=1)
+        assert body.rstrip().endswith(r"\hline")
 
-        assert len(table._options.hrule_counts) == 3
-        assert table._options.hrule_counts[0] == 5
-        assert table._options.hrule_counts[2] == 1
-
-    def test_add_hrule_above_all_initializes_if_empty(self, table_defaults):
+    def test_add_hrule_above_all_increments_every_row(self, table_defaults):
         table = table_defaults
 
-        table._options.hrule_counts = []
+        table.clear_all_hrule()
         table.add_hrule_above_all(count=3)
 
-        assert table._options.hrule_counts == [3] * len(table.df)
+        assert table._options.hrule_counts == [3] * len(table.df) + [0]
 
     def test_clear_all_hrule(self, table_defaults):
         table = table_defaults
 
+        table.add_toprule()
+        table.add_bottomrule()
         table.add_hrule_above_all(count=1)
         assert any(c > 0 for c in table._options.hrule_counts)
 
         table.clear_all_hrule()
-        assert table._options.hrule_counts == []
+
+        assert table._options.hrule_counts == [0] * (len(table.df) + 1)
+        assert table._options.toprule_cmd is None
+        assert table._options.bottomrule_cmd is None
+        assert table._options.hrule_cmd not in table._generate_latex()
 
     def test_add_toprule_default_and_remove(self, table_defaults):
         table = table_defaults
@@ -462,17 +539,16 @@ class TestTexTableRules:
         table.remove_bottomrule()
         assert table._options.bottomrule_cmd is None
 
-    def test_add_vrule_left_of_initializes_and_updates(self, table_defaults):
+    def test_add_vrule_left_of_updates_boundary(self, table_defaults):
         table = table_defaults
         ncols = len(table.df.columns)
         include_index_offset = int(table._options.include_index)
 
-        table._options.vrule_counts = []
-
         table.add_vrule_left_of(0, count=2)
 
-        assert len(table._options.vrule_counts) == ncols + 1 + include_index_offset
-        assert table._options.vrule_counts[0] == 2
+        preamble = table._resolved_preamble()
+        assert len(preamble.boundaries) == ncols + 1 + include_index_offset
+        assert preamble.boundaries[0].vrules == 2
 
     def test_clear_all_vrule_sets_correct_length(self, table_defaults):
         table = table_defaults
@@ -481,30 +557,39 @@ class TestTexTableRules:
         table.clear_all_vrule()
 
         expected_len = len(table.df.columns) + 1 + int(table._options.include_index)
-        assert len(table._options.vrule_counts) == expected_len
-        assert all(c == 0 for c in table._options.vrule_counts)
+        boundaries = table._resolved_preamble().boundaries
+        assert len(boundaries) == expected_len
+        assert all(boundary.vrules == 0 for boundary in boundaries)
 
-    def test_add_vrule_right_of_initializes_and_updates(self, table_defaults):
+    def test_add_vrule_right_of_updates_boundary(self, table_defaults):
         table = table_defaults
         ncols = len(table.df.columns)
         include_index_offset = int(table._options.include_index)
 
-        table._options.vrule_counts = []
-
         table.add_vrule_right_of(0, count=3)
 
-        assert len(table._options.vrule_counts) == ncols + 1 + include_index_offset
-        assert table._options.vrule_counts[1] == 3
+        preamble = table._resolved_preamble()
+        assert len(preamble.boundaries) == ncols + 1 + include_index_offset
+        assert preamble.boundaries[1].vrules == 3
 
-    def test_add_vrule_all_initializes_and_increments(self, table_defaults):
+    def test_add_vrule_all_increments_every_boundary(self, table_defaults):
         table = table_defaults
 
-        table._options.vrule_counts = []
         table.add_vrule_all(count=1)
 
         total_cols = len(table.df.columns) + int(table._options.include_index)
-        assert len(table._options.vrule_counts) == total_cols + 1
-        assert table._options.vrule_counts == [1] * (total_cols + 1)
+        assert [boundary.vrules for boundary in table._resolved_preamble().boundaries] == [1] * (
+            total_cols + 1
+        )
+
+    @pytest.mark.parametrize("table_cls", [TexTable, TikzTable])
+    def test_add_vrule_all_before_include_index_keeps_outer_rule(self, table_cls):
+        table = table_cls(pd.DataFrame({"a": [1], "b": [2]}), use_defaults=False)
+
+        table.add_vrule_all()
+        table.include_index()
+
+        assert table._column_format() == "|c|c|c|"
 
     def test_add_rule_methods_accept_list_inputs(self, table_defaults):
         table = table_defaults
@@ -515,8 +600,9 @@ class TestTexTableRules:
 
         assert table._options.hrule_counts[1] == 2
         assert table._options.hrule_counts[3] == 2
-        assert table._options.vrule_counts[1] == 4
-        assert table._options.vrule_counts[3] == 4
+        boundaries = table._resolved_preamble().boundaries
+        assert boundaries[1].vrules == 4
+        assert boundaries[3].vrules == 4
 
     def test_toprule_and_bottomrule_default_to_hrule_command(self, table_defaults):
         table = table_defaults
@@ -535,232 +621,7 @@ class TestTexTableRules:
         table.set_all_hrule(2)
 
         assert table._options.hrule_cmd == r"\hline"
-        assert table._options.hrule_counts == [2] * len(table.df)
-
-
-# =========================
-# == TEXTABLE FORMATTERS ==
-# =========================
-class TestTexTableFormatters:
-    def test_set_decimal_count_positive_path_and_used_in_body(self):
-        df = pd.DataFrame({"a": [math.pi]})
-        table = TexTable(df)
-
-        table.set_decimal_count(2)
-        body = table._generate_body()
-        # Rounded to 2 decimals
-        assert "3.14" in body
-
-    def test_set_nan_string_used_in_body(self):
-        df = pd.DataFrame({"a": [1.0, float("nan")]})
-        table = TexTable(df)
-
-        table.set_nan_string("NA")
-        body = table._generate_body()
-        assert "NA" in body
-
-    def test_set_tabular_format_success_without_index(self, table_defaults):
-        table = table_defaults
-        ncols = len(table.df.columns)
-
-        fmt = "c" * ncols
-        table.set_tabular_format(fmt)
-
-        assert table._options.tabular_alignments == ["c"] * ncols
-        assert len(table._options.vrule_counts) == ncols + 1
-        assert len(table._options.boundary_extras) == ncols + 1
-
-    def test_set_tabular_format_success_with_index(self):
-        df = pd.DataFrame({"a": [1, 2]})
-        table = TexTable(df)
-        table.include_index(include=True)
-
-        fmt = "cc"
-        table.set_tabular_format(fmt)
-
-        assert table._options.tabular_alignments == ["c", "c"]
-
-    def test_set_group_tabular_format_autocompletes_short_fmt(self):
-        df = pd.DataFrame({"a": [1], "b": [2]})
-        table = TexTable(df)
-
-        table.set_header_groups({"G1": ["a"], "G2": ["b"]})
-        table.set_group_tabular_format("c")
-
-        assert table._options.group_tabular_alignments == ["c", "c"]
-        assert table._options.group_vrule_counts is not None
-        assert len(table._options.group_vrule_counts) == 3  # 2 cells + 1 boundary
-
-    def test_one_arg_number_and_string_formatters_passthrough_for_other_types(self, table_defaults):
-        table = table_defaults
-        table.set_number_formatter(lambda v: f"{v:.1f}")
-        table.set_string_formatter(lambda v: v.upper())
-
-        assert table._options.number_fmt_fn("not-a-number", "keep") == ("not-a-number", "keep")
-        assert table._options.str_fmt_fn(123, "keep") == (123, "keep")
-
-    def test_set_number_formatter_one_arg_and_used(self):
-        df = pd.DataFrame({"a": [2]})
-        table = TexTable(df)
-
-        table.set_number_formatter(lambda x: f"{x:.1f}")
-        body = table._generate_body()
-        assert "2.0" in body
-
-    def test_set_number_formatter_two_arg_and_used(self):
-        df = pd.DataFrame({"a": [2.0]})
-        table = TexTable(df)
-
-        def fmt(v, s):
-            return v, f"VAL={s}"
-
-        table.set_number_formatter(fmt)
-        body = table._generate_body()
-        assert "VAL=" in body
-
-    def test_set_number_formatter_registers_required_latex_commands(self):
-        df = pd.DataFrame({"a": [0.75]})
-        table = TexTable(df)
-
-        table.set_number_formatter(diverging_gradient_formatter(precision=3))
-
-        doc = str(table.document)
-
-        assert r"\newcommand{\divgrad}[1]{%" in doc
-        assert r"\divgrad{0.750}" in doc
-        assert r"\cellcolor[HTML]" not in doc
-
-    def test_conflicting_formatter_commands_are_renamed(self):
-        df = pd.DataFrame({"a": [0.25], "b": [0.75]})
-        table = TexTable(df)
-
-        table.set_column_formatter(
-            "a",
-            diverging_gradient_formatter(color_lo="steelblue", color_hi="firebrick", precision=2),
-        )
-        table.set_column_formatter(
-            "b",
-            diverging_gradient_formatter(
-                color_lo="darkpastelgreen",
-                color_hi="richlavender",
-                precision=2,
-            ),
-        )
-
-        doc = str(table.document)
-
-        assert r"\newcommand{\divgrad}[1]{%" in doc
-        assert r"\newcommand{\divgradb}[1]{%" in doc
-        assert r"\divgrad{0.25}" in doc
-        assert r"\divgradb{0.75}" in doc
-
-    def test_conflicting_highlight_commands_use_suffix_sequence(self):
-        df = pd.DataFrame({"a": [0.8], "b": [0.9]})
-        table = TexTable(df)
-
-        table.set_column_formatter("a", highlight_ge(0.7, color="teal"))
-        table.set_column_formatter("b", highlight_ge(0.7, color="salmon"))
-
-        doc = str(table.document)
-
-        assert r"\newcommand{\gea}[1]{\cellcolor{teal}#1}" in doc
-        assert r"\newcommand{\geb}[1]{\cellcolor{salmon}#1}" in doc
-        assert r"\gea{0.8}" in doc
-        assert r"\geb{0.9}" in doc
-
-    def test_set_string_formatter_one_arg_and_used(self):
-        df = pd.DataFrame({"a": ["hello"]})
-        table = TexTable(df)
-
-        table.set_string_formatter(lambda s: s.upper())
-        body = table._generate_body()
-        assert "HELLO" in body
-
-    def test_set_string_formatter_two_arg_and_used(self):
-        df = pd.DataFrame({"a": ["hello"]})
-        table = TexTable(df)
-
-        def fmt(v, s):
-            return v, s + "!"
-
-        table.set_string_formatter(fmt)
-        body = table._generate_body()
-        assert "hello!" in body
-
-    def test_set_column_formatter_list_branch_and_wrapping(self):
-        df = pd.DataFrame({"a": [1], "b": [2]})
-        table = TexTable(df)
-
-        def fmt(v, s):
-            return v, f"C{v}"
-
-        table.set_column_formatter(["a", "b"], fmt)
-        body = table._generate_body()
-        assert "C1" in body
-        assert "C2" in body
-
-    def test_set_column_formatter_one_arg_wrapper(self):
-        df = pd.DataFrame({"a": [1]})
-        table = TexTable(df)
-
-        table.set_column_formatter("a", lambda v: f"{v}X")
-        body = table._generate_body()
-        assert "1X" in body
-
-    def test_set_row_formatter_list_branch_and_wrapping(self):
-        df = pd.DataFrame({"a": [1, 2]})
-        table = TexTable(df)
-
-        def fmt(v, s):
-            return v, f"R{v}"
-
-        table.set_row_formatter([0, 1], fmt)
-
-        body = table._generate_body()
-        assert "R1" in body
-        assert "R2" in body
-
-    def test_set_row_formatter_one_arg_wrapper(self):
-        df = pd.DataFrame({"a": [1]})
-        table = TexTable(df)
-
-        table.set_row_formatter(0, lambda v: f"R{v}")
-        body = table._generate_body()
-        assert "R1" in body
-
-    def test_set_index_formatter_one_arg_is_used_in_generated_body(self, table_defaults):
-        table = table_defaults
-        table.include_index(include=True, name="ID")
-        table.set_index_formatter(lambda v: f"IDX-{int(v)}")
-
-        body = table._generate_body()
-
-        assert "IDX-0" in body
-        assert "IDX-1" in body
-
-    def test_set_index_formatter_one_arg_supports_hashable_tuple_index(self):
-        df = pd.DataFrame({"a": [1, 2]})
-        df.index = [_DemoIndexValue("A", 1), _DemoIndexValue("B", 2)]
-        table = TexTable(df)
-        table.include_index(include=True, name="ID")
-        table.set_index_formatter(lambda v: f"{v.label}-{v.number}")
-
-        body = table._generate_body()
-
-        assert "A-1" in body
-        assert "B-2" in body
-
-    def test_set_index_formatter_two_arg_is_stored_and_used_in_generated_body(self, table_defaults):
-        table = table_defaults
-        table.include_index(include=True, name="ID")
-
-        def fmt(v, s):
-            return v, f"[{s}]"
-
-        table.set_index_formatter(fmt)
-
-        assert table._options.index_fmt_fn is fmt
-        assert "[0]" in table._generate_body()
+        assert table._options.hrule_counts == [2] * len(table.df) + [0]
 
 
 # ===========================
@@ -795,23 +656,27 @@ class TestTexTableHighlighting:
         body = table._generate_body()
         assert r"\rowcolor[HTML]{" in body
 
-    def test_highlight_rows_initializes_row_highlight_colors_if_empty(self):
+    def test_highlight_rows_stores_only_highlighted_rows(self):
         df = pd.DataFrame({"a": [1, 2]})
         table = TexTable(df)
 
-        table._options.row_highlight_colors = []
-
         table.highlight_rows(1, color="yellow")
 
-        assert len(table._options.row_highlight_colors) == len(df)
-        assert table._options.row_highlight_colors[1] == ("NAME", "yellow")
+        assert table._options.row_highlight_colors == {1: ("NAME", "yellow")}
+
+    def test_highlight_rows_out_of_bounds_raises(self):
+        df = pd.DataFrame({"a": [1, 2]})
+        table = TexTable(df)
+
+        with pytest.raises(ValueError, match="out of bounds"):
+            table.highlight_rows(2, color="yellow")
 
     def test_highlight_rows_hex_color_and_generate_body(self, table_defaults):
         table = table_defaults
         table.highlight_rows(0, color="#abcdef")
 
         body = table._generate_body()
-        assert r"\rowcolor[HTML]{abcdef}" in body
+        assert r"\rowcolor[HTML]{ABCDEF}" in body
 
     def test_highlight_rows_rgb_float_and_generate_body(self):
         # Use our own one-row df for clean expectations
@@ -838,6 +703,13 @@ class TestTexTableHighlighting:
 # == TEXTABLE GENERATION ==
 # =========================
 class TestTexTableGeneration:
+    def test_reassigning_dataframe_with_different_shape_fails_fast(self):
+        table = TexTable(pd.DataFrame({"value": [1, 2]}))
+        table.add_hrule_above_all()
+
+        with pytest.raises(ValueError, match="same rows and columns"):
+            table.df = pd.DataFrame({"value": [1, 2, 3, 4]})
+
     def test_generate_body_uses_group_ordering_and_raw_index_when_no_index_formatter(self, df):
         table = TexTable(df)
         table.include_index(include=True)
@@ -887,3 +759,120 @@ class TestTexTableGeneration:
         full = table._generate_latex()
         assert full.startswith(r"\begin{tabular}")
         assert full.strip().endswith(r"\end{tabular}")
+
+
+# =====================
+# == DEGENERATE SHAPES ==
+# =====================
+class TestDegenerateDataFrameShapes:
+    @pytest.mark.parametrize("table_cls", [TexTable, TikzTable])
+    def test_zero_row_dataframe_resolves_and_renders(self, table_cls):
+        table = table_cls(pd.DataFrame({"a": [], "b": []}))
+
+        layout = table._resolve_layout()
+        assert [row.kind for row in layout.rows] == ["columns"]
+        assert len(layout.preamble.alignments) == 2
+
+        body = table.document.body_string
+        assert "a" in body and "b" in body
+
+    @pytest.mark.parametrize("table_cls", [TexTable, TikzTable])
+    def test_zero_column_dataframe_is_rejected(self, table_cls):
+        with pytest.raises(ValueError, match="at least one column"):
+            table_cls(pd.DataFrame(index=pd.Index([0, 1])))
+
+    @pytest.mark.parametrize("table_cls", [TexTable, TikzTable])
+    def test_duplicate_dataframe_columns_are_rejected(self, table_cls):
+        frame = pd.DataFrame([[1, 2]], columns=pd.Index(["a", "a"]))
+        with pytest.raises(ValueError, match="unique"):
+            table_cls(frame)
+
+
+# ===================================
+# == COLSPEC PACKAGE REGISTRATION ==
+# ===================================
+class TestColspecPackageRegistration:
+    """Rich colspec tokens register their packages at set_tabular_format parse time.
+
+    The document's macro scan cannot recognize these tokens inside an emitted
+    ``\\begin{tabular}{...}`` line, so the setters register them directly.
+    """
+
+    @pytest.mark.parametrize("table_cls", [TexTable, TikzTable])
+    @pytest.mark.parametrize(
+        "fmt, package",
+        [
+            (r"S[table-format=1.4]c", "siunitx"),
+            (r"D{.}{.}{-1}c", "dcolumn"),
+            (r"c!{\hspace{4pt}}c", "array"),
+            (r"c<{\hspace{2pt}}c", "array"),
+            (r"m{1cm}c", "array"),
+        ],
+    )
+    def test_set_tabular_format_registers_required_packages(self, table_cls, fmt, package):
+        table = table_cls(pd.DataFrame({"a": [1.25], "b": [2.5]}), use_defaults=False)
+        table.set_tabular_format(fmt)
+
+        assert package in table.document.preamble
+
+    def test_include_index_alignment_registers_required_packages(self):
+        table = TexTable(pd.DataFrame({"a": [1.25]}), use_defaults=False)
+        table.include_index(alignment=r"!{\hspace{4pt}}c")
+
+        assert "array" in table.document.preamble
+
+    def test_set_group_tabular_format_registers_required_packages(self):
+        table = TexTable(pd.DataFrame({"a": [1.25], "b": [2.5]}), use_defaults=False)
+        table.set_header_groups({"G": ["a", "b"]})
+        table.set_group_tabular_format(r"!{\hspace{4pt}}c")
+
+        assert "array" in table.document.preamble
+
+    @pytest.mark.latex
+    @pytest.mark.parametrize(
+        "fmt",
+        [r"S[table-format=1.4]c", r"D{.}{.}{-1}c", r"c!{\hspace{4pt}}c"],
+    )
+    def test_rich_colspec_documents_compile(self, fmt):
+        table = TexTable(pd.DataFrame({"a": [1.25, 3.5], "b": [2.5, 4.75]}), use_defaults=False)
+        table.set_tabular_format(fmt)
+        # S and D columns parse cell content as numbers; plain text headers would need braces.
+        table.remove_column_headers()
+
+        table.document._compile_pdf()
+
+    @pytest.mark.latex
+    def test_tikz_header_rule_strut_compiles_in_siunitx_column(self):
+        table = TikzTable(pd.DataFrame({"label": ["x"], "2": [2.5]}))
+        table.set_tabular_format(r"cS[table-format=1.2]")
+
+        table.document._compile_pdf()
+
+
+# ==================================
+# —————— OBJECT-CELL ESCAPING ——————
+# ==================================
+@dataclass(frozen=True)
+class _ObjectCell:
+    text: str
+
+    def __str__(self) -> str:
+        return self.text
+
+
+class TestTexTableObjectCellEscaping:
+    def test_object_cells_escape_special_characters_once(self):
+        # Regression: the fallback branch escaped, then fed the escaped string to the default
+        # string formatter, which escaped again (& -> \& -> \textbackslash{}\&).
+        df = pd.DataFrame({"col": [_ObjectCell("A & B_C")]})
+        latex = str(TexTable(df))
+        assert r"A \& B\_C" in latex
+        assert r"\textbackslash" not in latex
+
+    def test_object_cells_escape_once_without_string_formatter(self):
+        df = pd.DataFrame({"col": [_ObjectCell("A & B_C")]})
+        table = TexTable(df)
+        table._options.str_fmt_fn = None
+        latex = str(table)
+        assert r"A \& B\_C" in latex
+        assert r"\textbackslash" not in latex

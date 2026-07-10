@@ -2,43 +2,16 @@
 Facilities for processing data and districting plans in a standardized fashion.
 """
 
+from . import uscensus
 from .geometries import dualgraphs20, geometries20, vtds20
-from .uscensus import (
-    ACSCVAPTableInfo,
-    ACSHispByRaceTableInfo,
-    ACSTableInfo,
-    ACSTotPopTableInfo,
-    ACSVAPTableInfo,
-    CensusRateLimitError,
-    PLBlockVAPTableInfo,
-    PLTableInfo,
-    acs,
-    acs_full,
-    block_cvap_estimates,
-    census,
-    cvap,
-    pl_pop_table,
-)
+
+# The Census surface re-exports track uscensus.__all__ so the two packages never drift.
+from .uscensus import *  # noqa: F403
 
 __all__ = [
-    # Census fetch functions
-    "acs",
-    "acs_full",
-    "cvap",
-    "census",
-    "block_cvap_estimates",
-    # Table definitions accepted by acs()/census()
-    "ACSTableInfo",
-    "ACSTotPopTableInfo",
-    "ACSVAPTableInfo",
-    "ACSCVAPTableInfo",
-    "ACSHispByRaceTableInfo",
-    "PLTableInfo",
-    "PLBlockVAPTableInfo",
-    "pl_pop_table",
-    "CensusRateLimitError",
     # Lab-processed geometry downloads
     "vtds20",
     "dualgraphs20",
     "geometries20",
 ]
+__all__ += uscensus.__all__

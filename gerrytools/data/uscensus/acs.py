@@ -5,17 +5,13 @@ import httpx
 import pandas as pd
 import us
 
-from gerrytools.logging import get_logger
+from gerrytools.logging import TRACE, get_logger
 
 from ._api import (
     ACS_BASE_URL,
     REQUEST_TIMEOUT,
-    TRACE,
     CensusRateLimitError,
-    _add_census_api_key,
-    _construct_in_query,
-    _response_to_frame,
-    _strip_geoid_prefix,
+    _census_get,
     _validate_year,
 )
 from .census_tables import (
@@ -23,13 +19,14 @@ from .census_tables import (
     ACSTableInfo,
     ACSTotPopTableInfo,
     ACSVAPTableInfo,
-    append_source_suffix,
-    shorten_acs_column_names,
+    format_acs_column_names,
 )
 
 logger = get_logger(__name__)
 
 ACSSurvey = Literal["acs1", "acs5"]
+_MISSING_SENTINELS = (-222222222, -333333333, -666666666, -888888888, -999999999)
+_CONTROLLED_ESTIMATE_SENTINEL = -555555555
 
 
 def _normalize_acs_survey(survey: str | int) -> ACSSurvey:
@@ -62,43 +59,7 @@ def _normalize_acs_survey(survey: str | int) -> ACSSurvey:
     raise ValueError("Invalid ACS survey. Must be one of 'acs1', 'acs5', 1, or 5.")
 
 
-def _get_acs5_geo_ids(
-    client: httpx.Client,
-    state: us.states.State,
-    year: int,
-    geometry: str,
-    api_key: str | None = None,
-) -> set[str]:
-    """Retrieve GEOIDs from ACS 5-year data for completeness checks.
-
-    Args:
-        client (httpx.Client): HTTP client used to issue the request.
-        state (us.states.State): State the query is scoped to.
-        year (int): ACS 5-year vintage.
-        geometry (str): Geometry level. Must be one of ``"state"``, ``"county"``, ``"tract"``, or
-            ``"block group"``.
-        api_key (str | None): Census API key. If omitted, falls back to the ``CENSUS_API_KEY``
-            environment variable.
-
-    Returns:
-        set[str]: GEOIDs (stripped of the ``"US"`` prefix) for the requested geography.
-    """
-
-    base_url = ACS_BASE_URL.format(year=year, survey="acs5")
-    query_params = {
-        "get": "GEO_ID",
-        "for": f"{geometry}:*",
-    }
-
-    _add_census_api_key(query_params, api_key)
-    _construct_in_query(query_params, state, geometry)
-
-    df = _response_to_frame(client.get(base_url, params=query_params))
-    return set(_strip_geoid_prefix(df))
-
-
 def _warn_if_partial_acs1_data(
-    client: httpx.Client,
     data: pd.DataFrame,
     state: us.states.State,
     year: int,
@@ -113,7 +74,6 @@ def _warn_if_partial_acs1_data(
     are missing.
 
     Args:
-        client (httpx.Client): HTTP client used to issue the completeness-check request.
         data (pd.DataFrame): ACS 1-year DataFrame returned to the caller, indexed by GEOID.
         state (us.states.State): State the query is scoped to.
         year (int): ACS data year (5-year vintage or 1-year year).
@@ -125,9 +85,21 @@ def _warn_if_partial_acs1_data(
     if geometry != "county":
         return
 
+    # The complete geography set comes from ACS 5-year, which is not population-thresholded.
     try:
-        expected_geo_ids = _get_acs5_geo_ids(client, state, year, geometry, api_key=api_key)
-    except (httpx.HTTPError, CensusRateLimitError):
+        with httpx.Client(timeout=REQUEST_TIMEOUT) as client:
+            complete = _census_get(
+                client,
+                ACS_BASE_URL.format(year=year, survey="acs5"),
+                "GEO_ID",
+                state,
+                geometry,
+                api_key=api_key,
+            )
+        expected_geo_ids = set(complete["GEOID"])
+    except (httpx.HTTPError, CensusRateLimitError, ValueError, KeyError):
+        # Advisory probe: any failure (transport, rate limit, junk payload, missing GEOID
+        # column) must not clobber the already-fetched ACS1 result.
         return
 
     returned_geo_ids = set(data.index)
@@ -195,19 +167,16 @@ def _get_acs_data(
             "Use ACS 5-year data for those geometry levels."
         )
 
-    base_url = ACS_BASE_URL.format(year=year, survey=survey)
-
     cols = list(table.construct_long_names(suffix=suffix, year=year).keys())
-
     query_cols = ["GEO_ID"] + cols
 
-    query_params = {
-        "get": ",".join(query_cols),
-        "for": f"{geometry}:*",
-    }
-
-    _add_census_api_key(query_params, api_key)
-    _construct_in_query(query_params, state, geometry)
+    # The Census API rejects requests for more than 50 variables.
+    if len(query_cols) > 50:
+        raise ValueError(
+            f"The Census API accepts at most 50 variables per request; table "
+            f"{table.table_name!r} needs {len(query_cols)} (including GEO_ID). "
+            "Request fewer variables or split the table."
+        )
 
     logger.log(
         TRACE,
@@ -219,11 +188,67 @@ def _get_acs_data(
         state.abbr,
         len(cols),
     )
-    new_df = _response_to_frame(client.get(base_url, params=query_params))
-    new_df["GEOID"] = _strip_geoid_prefix(new_df)
-    new_df.drop(columns=["GEO_ID"], inplace=True)
+    new_df = _census_get(
+        client,
+        ACS_BASE_URL.format(year=year, survey=survey),
+        ",".join(query_cols),
+        state,
+        geometry,
+        api_key=api_key,
+    )
     new_df.set_index("GEOID", inplace=True)
-    return cast(pd.DataFrame, new_df[cols].astype(float))
+    data = cast(pd.DataFrame, new_df[cols].astype(float))
+    replacements = {sentinel: float("nan") for sentinel in _MISSING_SENTINELS}
+    replacements[_CONTROLLED_ESTIMATE_SENTINEL] = 0.0 if suffix == "M" else float("nan")
+    return data.replace(replacements)
+
+
+def _fetch_est_moe(
+    client: httpx.Client,
+    state: us.states.State,
+    geometry: str,
+    year: int,
+    table: ACSTableInfo,
+    survey: ACSSurvey,
+    api_key: str | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Fetch the raw estimate and margin-of-error frames for one table.
+
+    Args:
+        client (httpx.Client): Shared HTTP client used for both requests.
+        state (us.states.State): State the query is scoped to.
+        geometry (str): Geometry level.
+        year (int): ACS data year.
+        table (ACSTableInfo): Table definition describing the variables to request.
+        survey (ACSSurvey): Normalized ACS survey period.
+        api_key (str | None): Census API key, or ``CENSUS_API_KEY`` fallback.
+
+    Returns:
+        tuple[pd.DataFrame, pd.DataFrame]: Raw estimate (EST) and margin-of-error (MOE)
+        DataFrames with Census variable names, in that order.
+    """
+
+    est_data = _get_acs_data(
+        client,
+        state,
+        geometry,
+        year,
+        table,
+        survey=survey,
+        suffix="E",
+        api_key=api_key,
+    )
+    moe_data = _get_acs_data(
+        client,
+        state,
+        geometry,
+        year,
+        table,
+        survey=survey,
+        suffix="M",
+        api_key=api_key,
+    )
+    return est_data, moe_data
 
 
 def acs_full(
@@ -233,7 +258,6 @@ def acs_full(
     table: ACSTableInfo,
     rename_columns: bool = True,
     survey: str | int = "acs5",
-    warn_on_partial_acs1: bool = True,
     api_key: str | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Retrieve full (ungrouped) ACS data for one state, geometry, and table.
@@ -248,16 +272,15 @@ def acs_full(
             descriptions. Defaults to ``True``.
         survey (str | int): ACS survey period. Accepts ``"acs5"``, ``"acs1"``, ``5``, or ``1``.
             Defaults to ``"acs5"``.
-        warn_on_partial_acs1 (bool): Whether to emit a warning when an ACS 1-year county query
-            returns only the geographies meeting the 65,000-population threshold. Defaults to
-            ``True``.
         api_key (str | None): Census API key. If omitted, falls back to the ``CENSUS_API_KEY``
             environment variable. As of 12 May 2026, an API key is required for all requests made to
             the Census API.
 
     Returns:
         tuple[pd.DataFrame, pd.DataFrame]: Estimate (EST) and margin-of-error (MOE) DataFrames, in
-        that order.
+        that order. Descriptive names include the queried product and vintage, such as
+        ``total_pop_est_acs5_23``. An ACS 1-year county query that returns only the geographies
+        meeting the 65,000-population threshold emits a ``UserWarning``.
 
     Raises:
         ValueError: If ``year`` is not a 4-digit integer in [2000, 2050], or ``survey`` is not
@@ -268,44 +291,26 @@ def acs_full(
     survey = _normalize_acs_survey(survey)
 
     with httpx.Client(timeout=REQUEST_TIMEOUT) as client:
-        est_data = _get_acs_data(
-            client,
-            state,
-            geometry,
-            year,
-            table,
-            survey=survey,
-            suffix="E",
-            api_key=api_key,
-        )
-        moe_data = _get_acs_data(
-            client,
-            state,
-            geometry,
-            year,
-            table,
-            survey=survey,
-            suffix="M",
-            api_key=api_key,
+        est_data, moe_data = _fetch_est_moe(
+            client, state, geometry, year, table, survey, api_key=api_key
         )
 
-        if survey == "acs1" and warn_on_partial_acs1:
-            _warn_if_partial_acs1_data(client, est_data, state, year, geometry, api_key=api_key)
+    if survey == "acs1":
+        _warn_if_partial_acs1_data(est_data, state, year, geometry, api_key=api_key)
 
     if rename_columns:
-        source_suffix = survey.upper()
         est_data = est_data.rename(
             columns=table.construct_long_names(
                 suffix="E",
                 year=year,
-                source_suffix=source_suffix,
+                source_suffix=survey,
             )
         )
         moe_data = moe_data.rename(
             columns=table.construct_long_names(
                 suffix="M",
                 year=year,
-                source_suffix=source_suffix,
+                source_suffix=survey,
             )
         )
 
@@ -326,30 +331,45 @@ def _condense(
         table (ACSTableInfo): Table definition whose ``condense_group_dict`` drives the grouping.
         suffix (str): Census variable suffix (``"E"`` or ``"M"``) used to reconstruct source column
             names from the table's group specifications.
-        label (str): Suffix appended to each output group column name (``"_EST"`` or ``"_MOE"``).
+        label (str): Suffix appended to each output group column name (``""`` for estimates,
+            ``"_moe"`` for margins of error).
 
     Returns:
-        pd.DataFrame: DataFrame with one column per group whose full column set was present in
-        ``data``. Groups whose source columns are missing are silently skipped.
+        pd.DataFrame: DataFrame with one column per group. Estimate cells are summed; margins of
+        error use root-sum-of-squares.
+
+    Raises:
+        ValueError: If any group's source columns are missing from ``data``. The fetchers always
+            request every variable a table declares, so a gap means the frame and the table
+            definition are out of sync.
     """
 
     columns = set(data.columns)
     result = pd.DataFrame(index=data.index)
     for group, variables in table.condense_group_dict.items():
         source_cols = [variable + suffix for variable in variables]
-        if set(source_cols).issubset(columns):
-            result[group + label] = data[source_cols].sum(axis=1)
+        missing = sorted(set(source_cols) - columns)
+        if missing:
+            raise ValueError(
+                f"Cannot condense group {group!r} for table {table.table_name!r}: "
+                f"source columns {missing} are missing from the fetched frame."
+            )
+        values = data[source_cols]
+        result[group + label] = (
+            values.pow(2).sum(axis=1, skipna=False).pow(0.5)
+            if suffix == "M"
+            else values.sum(axis=1, skipna=False)
+        )
     return result
 
 
 def _acs(
+    client: httpx.Client,
     state: us.states.State,
     geometry: str,
     year: int,
     table: ACSTableInfo,
-    short_names: bool = False,
     survey: ACSSurvey = "acs5",
-    warn_on_partial_acs1: bool = True,
     api_key: str | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Retrieve ACS data for one table and consolidate per ``condense_group_dict``.
@@ -358,57 +378,79 @@ def _acs(
     called only from ``acs()``, which performs the normalization once.
 
     Args:
+        client (httpx.Client): Shared HTTP client used for both table requests.
         state (us.states.State): State the query is scoped to.
         geometry (str): Geometry level.
         year (int): ACS data year.
         table (ACSTableInfo): Table to query.
-        short_names (bool): Whether to shorten long English-language group names to canonical
-            abbreviations. Defaults to ``False``.
         survey (ACSSurvey): Normalized ACS survey period. Defaults to ``"acs5"``.
-        warn_on_partial_acs1 (bool): Whether to forward the partial-coverage warning from
-            ``acs_full``. Defaults to ``True``.
         api_key (str | None): Census API key, or ``CENSUS_API_KEY`` fallback.
 
     Returns:
         tuple[pd.DataFrame, pd.DataFrame]: Condensed estimate (EST) and margin-of-error (MOE)
-        DataFrames, in that order.
+        DataFrames, in that order. Estimate columns omit the redundant ``est`` marker; MOE columns
+        retain ``moe``.
     """
 
-    est_data, moe_data = acs_full(
-        state,
-        geometry,
-        year,
-        table,
-        rename_columns=False,
-        survey=survey,
-        warn_on_partial_acs1=warn_on_partial_acs1,
-        api_key=api_key,
+    est_data, moe_data = _fetch_est_moe(
+        client, state, geometry, year, table, survey, api_key=api_key
     )
 
-    short_est_data = _condense(est_data, table, suffix="E", label="_EST")
-    short_moe_data = _condense(moe_data, table, suffix="M", label="_MOE")
+    short_est_data = _condense(est_data, table, suffix="E", label="")
+    short_moe_data = _condense(moe_data, table, suffix="M", label="_moe")
 
-    source_suffix = survey.upper()
-    if short_names:
-        shorten_acs_column_names(short_est_data, source_suffix=source_suffix)
-        shorten_acs_column_names(short_moe_data, source_suffix=source_suffix)
-    else:
-        short_est_data.rename(
-            columns={
-                column: append_source_suffix(column, source_suffix)
-                for column in short_est_data.columns
-            },
-            inplace=True,
-        )
-        short_moe_data.rename(
-            columns={
-                column: append_source_suffix(column, source_suffix)
-                for column in short_moe_data.columns
-            },
-            inplace=True,
-        )
+    format_acs_column_names(short_est_data, source=survey, year=year)
+    format_acs_column_names(short_moe_data, source=survey, year=year)
 
     return short_est_data, short_moe_data
+
+
+def _acs_estimates(
+    state: us.states.State,
+    geometry: str,
+    year: int,
+    tables: list[ACSTableInfo],
+    survey: ACSSurvey = "acs5",
+    api_key: str | None = None,
+    *,
+    client: httpx.Client,
+) -> pd.DataFrame:
+    """Retrieve and condense ACS estimates only, issuing no margin-of-error requests.
+
+    Estimates-only sibling of :func:`acs` for callers that never consume MOE frames (block CVAP
+    rate inputs), halving the request count. ``survey`` must already be normalized.
+
+    Args:
+        state (us.states.State): State the query is scoped to.
+        geometry (str): Geometry level.
+        year (int): ACS data year.
+        tables (list[ACSTableInfo]): Tables to query.
+        survey (ACSSurvey): Normalized ACS survey period. Defaults to ``"acs5"``.
+        api_key (str | None): Census API key, or ``CENSUS_API_KEY`` fallback.
+        client (httpx.Client): HTTP client reused across the per-table requests (and, in
+            ``block_cvap_estimates``, across the whole pipeline).
+
+    Returns:
+        pd.DataFrame: Condensed estimate DataFrame with columns from every requested table joined
+        side by side, named as in the estimate frame returned by :func:`acs`.
+    """
+
+    est_frames: list[pd.DataFrame] = []
+    for table in tables:
+        est_data = _get_acs_data(
+            client,
+            state,
+            geometry,
+            year,
+            table,
+            survey=survey,
+            suffix="E",
+            api_key=api_key,
+        )
+        condensed = _condense(est_data, table, suffix="E", label="")
+        format_acs_column_names(condensed, source=survey, year=year)
+        est_frames.append(condensed)
+    return pd.concat(est_frames, axis=1)
 
 
 def acs(
@@ -416,7 +458,6 @@ def acs(
     geometry: str,
     year: int,
     tables: list[ACSTableInfo] | None = None,
-    short_names: bool = True,
     survey: str | int = "acs5",
     api_key: str | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -431,9 +472,8 @@ def acs(
             ``"block group"``.
         year (int): ACS data year (5-year vintage end year or 1-year year).
         tables (list[ACSTableInfo] | None): Tables to query. Defaults to ``[ACSTotPopTableInfo(),
-            ACSVAPTableInfo(), ACSCVAPTableInfo()]``.
-        short_names (bool): Whether to shorten long English-language group names to canonical
-            abbreviations. Defaults to ``True``.
+            ACSVAPTableInfo(), ACSCVAPTableInfo()]``. ``ACSRacePopTableInfo`` and
+            ``ACSAgeTableInfo`` provide opt-in race and sex-by-age population columns.
         survey (str | int): ACS survey period. Accepts ``"acs5"``, ``"acs1"``, ``5``, or ``1``.
             Defaults to ``"acs5"``.
         api_key (str | None): Census API key. If omitted, falls back to the ``CENSUS_API_KEY``
@@ -443,6 +483,8 @@ def acs(
     Returns:
         tuple[pd.DataFrame, pd.DataFrame]: Condensed estimate (EST) and margin-of-error (MOE)
             DataFrames, in that order, with columns from every requested table joined side by side.
+            Names include the normalized survey and vintage, such as ``total_pop_acs5_23`` and
+            ``total_pop_moe_acs5_23``.
 
     Raises:
         ValueError: If ``year`` is not a 4-digit integer in [2000, 2050], if ``tables`` is empty, or
@@ -462,25 +504,39 @@ def acs(
         if not isinstance(table, ACSTableInfo):
             raise TypeError(f"Each table must be an ACSTableInfo; got {type(table).__name__}.")
 
+    condensed_columns: dict[str, str] = {}
+    for table in tables:
+        for column in table.condense_group_dict:
+            if column in condensed_columns:
+                previous = condensed_columns[column]
+                raise ValueError(
+                    f"ACS tables {previous!r} and {table.table_name!r} both produce condensed "
+                    f"column {column!r}."
+                )
+            condensed_columns[column] = table.table_name
+
     survey = _normalize_acs_survey(survey)
 
     est_frames: list[pd.DataFrame] = []
     moe_frames: list[pd.DataFrame] = []
-    for index, table in enumerate(tables):
-        est_data, moe_data = _acs(
-            state,
-            geometry,
-            year,
-            table,
-            short_names=short_names,
-            survey=survey,
-            warn_on_partial_acs1=index == 0,
-            api_key=api_key,
-        )
-        est_frames.append(est_data)
-        moe_frames.append(moe_data)
+    with httpx.Client(timeout=REQUEST_TIMEOUT) as client:
+        for table in tables:
+            est_data, moe_data = _acs(
+                client,
+                state,
+                geometry,
+                year,
+                table,
+                survey=survey,
+                api_key=api_key,
+            )
+            est_frames.append(est_data)
+            moe_frames.append(moe_data)
 
-    return pd.concat(est_frames, axis=1), pd.concat(moe_frames, axis=1)
+    est_result = pd.concat(est_frames, axis=1)
+    if survey == "acs1":
+        _warn_if_partial_acs1_data(est_result, state, year, geometry, api_key=api_key)
+    return est_result, pd.concat(moe_frames, axis=1)
 
 
 def cvap(
@@ -505,19 +561,14 @@ def cvap(
 
     Returns:
         tuple[pd.DataFrame, pd.DataFrame]: Condensed CVAP estimate (EST) and margin-of-error (MOE)
-        DataFrames, in that order.
+        DataFrames, in that order, with names such as ``total_cvap_acs5_23``.
     """
 
-    survey = _normalize_acs_survey(survey)
-
-    est_data, moe_data = acs(
+    return acs(
         state,
         geometry,
         year,
         tables=[ACSCVAPTableInfo()],
-        short_names=True,
         survey=survey,
         api_key=api_key,
     )
-
-    return est_data, moe_data

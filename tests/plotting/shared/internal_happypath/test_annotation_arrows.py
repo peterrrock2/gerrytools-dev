@@ -1,12 +1,14 @@
 import math
+from typing import Literal
 
 import matplotlib
 
 matplotlib.use("Agg")
 
 import matplotlib.colors as mcolors
+import numpy as np
 import pytest
-from matplotlib.text import Text
+from matplotlib.text import Annotation, Text
 
 from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.plotting.data import (
@@ -19,8 +21,8 @@ from gerrytools.plotting.mpl.label_text_options import LabelBoxOptions, LabelFon
 
 
 def _simple_scatter() -> ScatterPlot:
-    plot = ScatterPlot(include_legend=False)
-    plot.add_scatter(x=[0.0, 1.0], y=[0.0, 1.0])
+    plot = ScatterPlot(legend=False)
+    plot.add_series(x=[0.0, 1.0], y=[0.0, 1.0])
     return plot
 
 
@@ -94,6 +96,36 @@ def test_add_text_arrow_tip_aligns_to_requested_tip():
     assert abs(actual_tip_y - float(expected_tip_display[1])) <= 1.5
 
 
+def test_text_arrow_alignment_batches_canvas_draws(monkeypatch: pytest.MonkeyPatch):
+    plot = _simple_scatter()
+    directions: tuple[Literal["right", "left", "up", "down"], ...] = (
+        "right",
+        "left",
+        "up",
+        "down",
+    )
+    for index, direction in enumerate(directions):
+        plot.add_text_arrow(
+            arrowtip=(0.2 + (0.2 * index), 0.5),
+            direction=direction,
+            text=direction,
+        )
+
+    draw = plot.fig.canvas.draw
+    draw_count = 0
+
+    def counted_draw():
+        nonlocal draw_count
+        draw_count += 1
+        return draw()
+
+    monkeypatch.setattr(plot.fig.canvas, "draw", counted_draw)
+
+    plot.ax
+
+    assert draw_count == 2
+
+
 def test_add_text_arrow_default_down_rotation_is_horizontal():
     plot = _simple_scatter()
     plot.add_text_arrow(
@@ -109,18 +141,20 @@ def test_add_text_arrow_default_down_rotation_is_horizontal():
 
 
 @pytest.mark.parametrize("direction", ["up", "down"])
-def test_add_text_arrow_vertical_direction_width_scales_with_text_length(direction: str):
+def test_add_text_arrow_vertical_direction_width_scales_with_text_length(
+    direction: Literal["up", "down"],
+):
     plot = _simple_scatter()
     short_text = "A"
     long_text = "This is intentionally much longer than A"
     plot.add_text_arrow(
         arrowtip=(0.3, 0.5),
-        direction=direction,  # ty: ignore[invalid-argument-type]
+        direction=direction,
         text=short_text,
     )
     plot.add_text_arrow(
         arrowtip=(0.7, 0.5),
-        direction=direction,  # ty: ignore[invalid-argument-type]
+        direction=direction,
         text=long_text,
     )
 
@@ -174,13 +208,13 @@ def test_add_label_arrow_draws_arrow_and_label_box():
         arrowtip=(0.8, 0.2),
         direction="right",
         text="Toward POV",
-        labelfont_options=LabelFontOptions(
+        label_font_options=LabelFontOptions(
             fontcolor="black",
             fontsize=8,
             outlinecolor="white",
             outlinewidth=0.5,
         ),
-        labelbox_options=LabelBoxOptions(
+        label_box_options=LabelBoxOptions(
             enabled=True,
             boxstyle="round4",
             facecolor="white",
@@ -219,6 +253,24 @@ def test_add_label_arrow_applies_label_padding_away_from_tail():
     tail_x = 0.8 - placement.tail_length
     label_x, _ = label_text.get_position()
     assert abs(float(label_x) - (tail_x - placement.label_padding)) <= 1e-9
+
+
+def test_add_label_arrow_up_text_hangs_below_the_tail():
+    plot = _simple_scatter()
+    plot.add_label_arrow(arrowtip=(0.5, 0.8), direction="up", text="Below")
+    ax = plot.ax
+    label_text = next((t for t in ax.texts if t.get_text() == "Below"), None)
+    assert label_text is not None
+    assert label_text.get_verticalalignment() == "top"
+
+
+def test_add_label_arrow_down_text_sits_above_the_tail():
+    plot = _simple_scatter()
+    plot.add_label_arrow(arrowtip=(0.5, 0.2), direction="down", text="Above")
+    ax = plot.ax
+    label_text = next((t for t in ax.texts if t.get_text() == "Above"), None)
+    assert label_text is not None
+    assert label_text.get_verticalalignment() == "bottom"
 
 
 def test_add_label_arrow_arrow_length_overrides_tail_length():
@@ -362,32 +414,39 @@ class TestLabelArrowStyleEdgeCases:
 
 
 class TestArrowDataEdgeCases:
+    @pytest.mark.parametrize("method", ["add_text_arrow", "add_label_arrow"])
+    @pytest.mark.parametrize(
+        "direction",
+        ["sideways", [], np.array(["right"])],
+        ids=["unknown", "unhashable", "non-string-array"],
+    )
+    def test_invalid_direction_raises_at_call_time(self, method: str, direction: object):
+        plot = _simple_scatter()
+
+        with pytest.raises(ValueError, match="direction must be one of"):
+            getattr(plot, method)(arrowtip=(0.5, 0.5), direction=direction)
+
+        assert plot.ax is not None
+
     def test_infinite_arrow_length_percentage_raises_valueerror(self):
-        from gerrytools.plotting.data._gerryplot_dataclasses import (
-            ArrowData,
-            ArrowPlacement,
-            ArrowTextStyle,
-            LabelArrowStyle,
-        )
+        from gerrytools.plotting.data._gerryplot_dataclasses import _LabelArrowData
 
         with pytest.raises(ValueError, match="arrow_length_percentage must be finite"):
-            ArrowData(
+            _LabelArrowData(
                 arrowtip=(0.5, 0.5),
                 direction="right",
-                arrowtype="label",
-                labelarrowstyle=LabelArrowStyle(),
-                placement=ArrowPlacement(),
-                textstyle=ArrowTextStyle(),
                 arrow_length_percentage=float("inf"),
             )
 
 
-# =========================================
-# == TEXT ARROW RENDERER BRANCH COVERAGE ==
-# =========================================
+# ==================================
+# == TEXT ARROW RENDERER BEHAVIOR ==
+# ==================================
 class TestTextArrowRendererBranches:
-    def test_custom_boxstyle_triggers_line_166(self):
-        """Passing boxstyle= on TextArrowStyle activates the `style.boxstyle is not None` branch."""
+    def test_custom_boxstyle_is_applied_to_text_bbox(self):
+        """A caller-supplied boxstyle replaces the default arrow-shaped bbox."""
+        from matplotlib.patches import BoxStyle
+
         plot = _simple_scatter()
         plot.add_text_arrow(
             arrowtip=(0.5, 0.5),
@@ -400,9 +459,10 @@ class TestTextArrowRendererBranches:
         assert arrow_text is not None
         bbox_patch = arrow_text.get_bbox_patch()
         assert bbox_patch is not None
+        assert isinstance(bbox_patch.get_boxstyle(), BoxStyle.Round)
 
-    def test_arrowedgecolor_none_string_triggers_line_175(self):
-        """Passing arrowedgecolor='none' activates the lowercase-none edgecolor branch."""
+    def test_arrowedgecolor_none_renders_transparent_bbox_edge(self):
+        """arrowedgecolor='none' renders the text-arrow bbox with a fully transparent edge."""
         plot = _simple_scatter()
         plot.add_text_arrow(
             arrowtip=(0.5, 0.5),
@@ -415,15 +475,10 @@ class TestTextArrowRendererBranches:
         assert arrow_text is not None
         bbox_patch = arrow_text.get_bbox_patch()
         assert bbox_patch is not None
-        # edgecolor should be "none" (transparent)
-        assert (
-            mcolors.to_rgba(bbox_patch.get_edgecolor())[3] == 0.0
-            or bbox_patch.get_edgecolor() == "none"
-            or mcolors.to_rgba(bbox_patch.get_edgecolor()) == (0.0, 0.0, 0.0, 0.0)
-        )
+        assert mcolors.to_rgba(bbox_patch.get_edgecolor())[3] == 0.0
 
-    def test_empty_text_triggers_line_185(self):
-        """Passing text='' activates the `text_value == ''` branch (replaces with spaces)."""
+    def test_empty_text_is_padded_with_spaces(self):
+        """text='' still renders an arrow body: the text is replaced with three spaces."""
         plot = _simple_scatter()
         plot.add_text_arrow(
             arrowtip=(0.5, 0.5),
@@ -431,7 +486,6 @@ class TestTextArrowRendererBranches:
             text="",
         )
         ax = plot.ax
-        # text="" should be replaced by "   " (three spaces)
         arrow_text = next((t for t in ax.texts if t.get_text() == "   "), None)
         assert arrow_text is not None
         assert arrow_text.get_bbox_patch() is not None
@@ -441,8 +495,8 @@ class TestTextArrowRendererBranches:
 # == LABEL ARROW RENDERER PATHS ==
 # ================================
 class TestLabelArrowRendererBranches:
-    def test_explicit_arrowtail_triggers_line_321(self):
-        """An explicit arrow tail uses the direct tail-placement path."""
+    def test_explicit_arrowtail_places_arrow_tail_directly(self):
+        """An explicit arrow tail becomes the annotation's tail point verbatim."""
         plot = _simple_scatter()
         plot.add_label_arrow(
             arrowtip=(0.8, 0.5),
@@ -453,9 +507,13 @@ class TestLabelArrowRendererBranches:
         ax = plot.ax
         label_text = next((t for t in ax.texts if t.get_text() == "TailTest"), None)
         assert label_text is not None
+        annotation = _label_arrow_annotation(ax)
+        assert isinstance(annotation, Annotation)
+        assert tuple(annotation.xyann) == (0.3, 0.5)
+        assert tuple(annotation.xy) == (0.8, 0.5)
 
-    def test_label_arrow_outline_color_none_triggers_line_324(self):
-        """A `none` outline color disables the label-arrow outline."""
+    def test_arrowedgecolor_none_disables_label_arrow_outline(self):
+        """arrowedgecolor='none' renders the arrow patch with a fully transparent edge."""
         from gerrytools.plotting.data._gerryplot_dataclasses import LabelArrowStyle as _LAS
 
         plot = _simple_scatter()
@@ -468,8 +526,12 @@ class TestLabelArrowRendererBranches:
         ax = plot.ax
         label_text = next((t for t in ax.texts if t.get_text() == "NoneOutlineLabel"), None)
         assert label_text is not None
+        annotation = _label_arrow_annotation(ax)
+        assert isinstance(annotation, Annotation)
+        assert annotation.arrow_patch is not None
+        assert mcolors.to_rgba(annotation.arrow_patch.get_edgecolor())[3] == 0.0
 
-    def test_explicit_label_position_triggers_line_365(self):
+    def test_explicit_label_position_is_used_directly(self):
         """An explicit label position is used directly."""
         plot = _simple_scatter()
         plot.add_label_arrow(

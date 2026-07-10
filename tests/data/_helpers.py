@@ -109,3 +109,42 @@ def geo_id_payload(geoids: list[str]) -> list[list[str]]:
     """Build a GEO_ID-only Census response (for ACS5 completeness checks)."""
 
     return [["GEO_ID"]] + [[f"0500000US{geoid}"] for geoid in geoids]
+
+
+def pl_api_payload(
+    table,
+    geoid_values: dict[str, object],
+    *,
+    overrides: dict[str, object] | None = None,
+    extra_columns: dict[str, object] | None = None,
+) -> list[list]:
+    """Build a Census-style decennial PL ``group()`` response for ``table``.
+
+    A ``group(...)`` request returns every variable in the group, so the header carries the
+    table's full raw variable list (the table's vintage drives the spellings). Each geography in
+    ``geoid_values`` gets that scalar in every variable column, except variables in
+    ``overrides``, which take the override value in every row (``None`` produces an all-NA
+    column). ``extra_columns`` appends constant non-variable columns such as ``NAME`` or
+    ``state``.
+
+    Args:
+        table: PLTableInfo whose variables should appear.
+        geoid_values: Mapping from GEOID to the default value placed in each variable column.
+        overrides: Per-variable values applied to every row.
+        extra_columns: Constant trailing columns appended to every row.
+
+    Returns:
+        list[list]: ``[header, *rows]``.
+    """
+
+    overrides = overrides or {}
+    extra_columns = extra_columns or {}
+    variables = list(table.construct_variable_names())
+    header = ["GEO_ID"] + variables + list(extra_columns)
+    rows = []
+    for geoid, value in geoid_values.items():
+        row: list[object] = [f"1000000US{geoid}"]
+        row += [overrides.get(variable, value) for variable in variables]
+        row += list(extra_columns.values())
+        rows.append(row)
+    return [header] + rows

@@ -1,11 +1,10 @@
 """Internal layer adapters for the geometry plot classes.
 
-Each layer is a frozen dataclass implementing the `_GeoLayer` ABC. They are
-private (leading underscore) and are re-exported by `geoplotbase.py` and
-`geoplot.py` to preserve existing import paths used by tests.
+Each layer is a frozen dataclass satisfying the `_Layer` protocol; the color
+layers implement the `_GeoLayer` ABC, which owns the shared render pipeline.
 """
 
-from gerrytools.plotting.geometry._layers._base import _as_geoseries, _GeoLayer
+from gerrytools.plotting.geometry._layers._base import _as_geoseries, _GeoLayer, _Layer
 from gerrytools.plotting.geometry._layers._categorical import _CategoricalColorLayer
 from gerrytools.plotting.geometry._layers._continuous import ColormapLayer, _ContinuousColorLayer
 from gerrytools.plotting.geometry._layers._marker import _MarkerLayer
@@ -13,6 +12,7 @@ from gerrytools.plotting.geometry._layers._marker import _MarkerLayer
 __all__ = [
     "_as_geoseries",
     "_GeoLayer",
+    "_Layer",
     "_CategoricalColorLayer",
     "_ContinuousColorLayer",
     "_MarkerLayer",

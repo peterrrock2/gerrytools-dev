@@ -24,7 +24,7 @@ class TestHistogramSnapshots:
         data = make_histogram_data(rng)
 
         plot = Histogram(figure_size=(8, 5), dpi=100, xlabel="Value", ylabel="Count")
-        plot.add_histogram(data, facecolor="denim", name="Distribution")
+        plot.add_dataset(data, facecolor="denim", name="Distribution")
         img = render_plot(plot, tmp_path)
 
         assert_image_snapshot(
@@ -40,9 +40,9 @@ class TestHistogramSnapshots:
         data_a = make_histogram_data(rng)
         data_b = rng.normal(0.65, 0.1, 200).tolist()
 
-        plot = Histogram(figure_size=(8, 5), dpi=100, include_legend=True)
-        plot.add_histogram(data_a, facecolor="denim", facealpha=0.6, name="Group A")
-        plot.add_histogram(data_b, facecolor="alizarin", facealpha=0.6, name="Group B")
+        plot = Histogram(figure_size=(8, 5), dpi=100, legend=True)
+        plot.add_dataset(data_a, facecolor="denim", facealpha=0.6, name="Group A")
+        plot.add_dataset(data_b, facecolor="alizarin", facealpha=0.6, name="Group B")
         img = render_plot(plot, tmp_path)
 
         assert_image_snapshot(
@@ -58,8 +58,8 @@ class TestHistogramSnapshots:
         data = make_histogram_data(rng)
 
         plot = Histogram(figure_size=(8, 5), dpi=100)
-        plot.transform_to_density()
-        plot.add_histogram(data, facecolor="applegreen", name="Density")
+        plot.as_density()
+        plot.add_dataset(data, facecolor="applegreen", name="Density")
         img = render_plot(plot, tmp_path)
 
         assert_image_snapshot(

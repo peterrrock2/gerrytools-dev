@@ -1,8 +1,8 @@
 """End-to-end coverage of gerrytools composing with raw matplotlib.
 
 Once a user has an :class:`~matplotlib.axes.Axes` — either because they
-passed one to a gerrytools plot via ``ax=`` or pulled one out via
-``plot.ax`` — that axes is a shared matplotlib surface. Most-recent-wins
+bound a gerrytools plot to it or pulled one out via ``plot.ax`` — that axes
+is a shared matplotlib surface. Most-recent-wins
 per setting: whichever side (gerrytools or the user) touched a unit last
 should be respected, and anything the user drew directly on the axes must
 survive future gerrytools rebuilds.
@@ -30,6 +30,7 @@ import matplotlib
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt  # noqa: E402
+import pytest  # noqa: E402
 
 from gerrytools.plotting.data.histogram import Histogram  # noqa: E402
 from gerrytools.plotting.geometry.geoplot import GeoPlot  # noqa: E402
@@ -43,7 +44,7 @@ class TestSubplotGridEmbedding:
     def test_histogram_renders_in_one_subplot_cell_only(self):
         fig, axes = plt.subplots(2, 2)
         hist = Histogram(ax=axes[0, 0])
-        hist.add_histogram([1.0, 2.0, 3.0, 3.0, 3.0, 4.0, 5.0])
+        hist.add_dataset([1.0, 2.0, 3.0, 3.0, 3.0, 4.0, 5.0])
         hist.ax  # triggers render
 
         # Target cell has artists; sibling cells were untouched.
@@ -54,9 +55,9 @@ class TestSubplotGridEmbedding:
 
     def test_geoplot_renders_in_one_subplot_cell_only(self, testing_gdf):
         fig, axes = plt.subplots(2, 2)
-        plot = GeoPlot(testing_gdf, ax=axes[0, 0])
+        plot = GeoPlot(testing_gdf)
         plot.add_outline_layer()
-        plot.ax
+        plot.bind_to_ax(axes[0, 0])
 
         assert (len(axes[0, 0].patches) + len(axes[0, 0].lines) + len(axes[0, 0].collections)) > 0
         for row, col in [(0, 1), (1, 0), (1, 1)]:
@@ -78,7 +79,7 @@ class TestOverlayOnExistingContent:
         ax.imshow([[0.1, 0.2], [0.3, 0.4]])
         images_before = len(ax.images)
         hist = Histogram(ax=ax)
-        hist.add_histogram([1.0, 2.0, 3.0])
+        hist.add_dataset([1.0, 2.0, 3.0])
         hist.ax
         assert len(ax.images) == images_before
         # And re-rendering preserves it too.
@@ -89,9 +90,9 @@ class TestOverlayOnExistingContent:
         fig, ax = plt.subplots()
         ax.imshow([[0.1, 0.2], [0.3, 0.4]])
         images_before = len(ax.images)
-        plot = GeoPlot(testing_gdf, ax=ax)
+        plot = GeoPlot(testing_gdf)
         plot.add_outline_layer()
-        plot.ax
+        plot.bind_to_ax(ax)
         assert len(ax.images) == images_before
 
 
@@ -103,7 +104,7 @@ class TestOverlayOnExistingContent:
 class TestPostRenderCustomization:
     def test_external_text_survives_subsequent_histogram_rebuild(self):
         hist = Histogram()
-        hist.add_histogram([1.0, 2.0, 3.0, 3.0, 3.0, 4.0, 5.0])
+        hist.add_dataset([1.0, 2.0, 3.0, 3.0, 3.0, 4.0, 5.0])
         ax = hist.ax
         ax.text(2.0, 0.5, "Note", color="red")
         hist.ax  # second render
@@ -128,7 +129,7 @@ class TestPostRenderCustomization:
 class TestPostRenderAxesStateMutation:
     def test_external_xlim_after_render_survives_rebuild_histogram(self):
         hist = Histogram()
-        hist.add_histogram([1.0, 2.0, 3.0, 4.0, 5.0])
+        hist.add_dataset([1.0, 2.0, 3.0, 4.0, 5.0])
         ax = hist.ax
         ax.set_xlim(0.0, 100.0)
         hist.ax
@@ -136,7 +137,7 @@ class TestPostRenderAxesStateMutation:
 
     def test_external_ylim_after_render_survives_rebuild_histogram(self):
         hist = Histogram()
-        hist.add_histogram([1.0, 2.0, 3.0, 4.0, 5.0])
+        hist.add_dataset([1.0, 2.0, 3.0, 4.0, 5.0])
         ax = hist.ax
         ax.set_ylim(0.0, 999.0)
         hist.ax
@@ -161,7 +162,7 @@ class TestPreConfiguredAxes:
         fig, ax = plt.subplots()
         ax.set_xlim(0.0, 50.0)
         hist = Histogram(ax=ax)
-        hist.add_histogram([1.0, 2.0, 3.0])
+        hist.add_dataset([1.0, 2.0, 3.0])
         hist.ax
         assert ax.get_xlim() == (0.0, 50.0)
 
@@ -169,16 +170,36 @@ class TestPreConfiguredAxes:
         fig, ax = plt.subplots()
         ax.set_title("user title")
         hist = Histogram(ax=ax)  # title=None default = "no opinion"
-        hist.add_histogram([1.0, 2.0, 3.0])
+        hist.add_dataset([1.0, 2.0, 3.0])
         hist.ax
         assert ax.get_title() == "user title"
+
+    def test_pre_set_ylim_preserved_after_histogram_first_render(self):
+        fig, ax = plt.subplots()
+        ax.set_ylim(0.0, 50.0)
+        hist = Histogram(ax=ax)
+        hist.add_dataset([1.0, 2.0, 3.0])
+        hist.ax
+        assert ax.get_ylim() == (0.0, 50.0)
+
+    @pytest.mark.parametrize(
+        ("axis", "positions"),
+        [("x", [0.0, 1.5, 3.0]), ("y", [0.0, 2.0, 4.0])],
+    )
+    def test_pre_set_ticks_preserved_after_histogram_first_render(self, axis, positions):
+        fig, ax = plt.subplots()
+        getattr(ax, f"set_{axis}ticks")(positions)
+        hist = Histogram(ax=ax)
+        hist.add_dataset([1.0, 2.0, 3.0])
+        hist.ax
+        assert getattr(ax, f"get_{axis}ticks")().tolist() == positions
 
     def test_pre_set_xlim_preserved_after_geoplot_first_render(self, testing_gdf):
         fig, ax = plt.subplots()
         ax.set_xlim(0.0, 50.0)
-        plot = GeoPlot(testing_gdf, ax=ax)
+        plot = GeoPlot(testing_gdf)
         plot.add_outline_layer()
-        plot.ax
+        plot.bind_to_ax(ax)
         assert ax.get_xlim() == (0.0, 50.0)
 
 
@@ -192,7 +213,7 @@ class TestChainedTouches:
         """After an external ``ax.set_xlim`` yields the unit to external
         state, a subsequent gerrytools ``set_xlim`` reclaims and wins."""
         hist = Histogram()
-        hist.add_histogram([1.0, 2.0, 3.0, 4.0, 5.0])
+        hist.add_dataset([1.0, 2.0, 3.0, 4.0, 5.0])
         ax = hist.ax
         ax.set_xlim(0.0, 100.0)
         hist.ax
@@ -207,7 +228,7 @@ class TestChainedTouches:
         fig, ax = plt.subplots()
         ax.imshow([[0.1, 0.2], [0.3, 0.4]])
         hist = Histogram(ax=ax)
-        hist.add_histogram([1.0, 2.0, 3.0])
+        hist.add_dataset([1.0, 2.0, 3.0])
         hist.ax  # first render
         ax.text(1.0, 0.0, "Annotation", color="red")
         hist.ax  # second render
@@ -271,3 +292,102 @@ class TestAnnotationHandlesAreRemovable:
             assert handle not in ax.get_children(), "handle survived .remove()"
         finally:
             plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# Artist registry: removal failures must not abort the rebuild sweep
+# ---------------------------------------------------------------------------
+
+
+class TestArtistRegistryRemovalTolerance:
+    def test_remove_all_survives_non_removable_artist_and_clears_tracking(self):
+        """A tracked artist whose ``.remove()`` raises (a bare ``Artist`` has no remove
+        method) is skipped: later artists still detach and the tracking list empties."""
+        from matplotlib.artist import Artist
+
+        from gerrytools.plotting._artist_registry import _ArtistRegistry
+
+        fig, ax = plt.subplots()
+        try:
+            non_removable = Artist()  # .remove() raises NotImplementedError
+            removable_line = ax.axvline(0.5)
+            registry = _ArtistRegistry()
+            registry.track([non_removable, removable_line])
+
+            registry.remove_all()
+
+            assert removable_line not in ax.get_children()
+            assert registry._tracked == []
+        finally:
+            plt.close(fig)
+
+    def test_bar_containers_do_not_accumulate_across_rebuilds(self):
+        from gerrytools.plotting.data.barplot import BarPlot
+
+        plot = BarPlot(legend=False)
+        plot.add_dataset({"A": 1.0})
+        for title in ("one", "two", "three"):
+            plot.title = title
+            plot.ax
+
+        assert len(plot.ax.containers) == 1
+
+
+# ---------------------------------------------------------------------------
+# Grid is tri-state: no opinion by default, explicit True/False still applies
+# ---------------------------------------------------------------------------
+
+
+class TestExternalGridSurvives:
+    @staticmethod
+    def _grid_visible(ax) -> bool:
+        gridlines = ax.xaxis.get_gridlines()
+        return bool(gridlines) and gridlines[0].get_visible()
+
+    def test_histogram_leaves_external_grid_alone(self):
+        fig, ax = plt.subplots()
+        ax.grid(True)
+        hist = Histogram(ax=ax)
+        hist.add_dataset([1.0, 2.0, 3.0, 3.0, 4.0])
+        hist.ax
+        assert self._grid_visible(ax)
+        plt.close(fig)
+
+    def test_histogram_explicit_grid_false_disables(self):
+        fig, ax = plt.subplots()
+        ax.grid(True)
+        hist = Histogram(ax=ax)
+        hist.display_grid(False)
+        hist.add_dataset([1.0, 2.0, 3.0, 3.0, 4.0])
+        hist.ax
+        assert not self._grid_visible(ax)
+        plt.close(fig)
+
+    def test_histogram_explicit_grid_true_enables(self):
+        hist = Histogram()
+        hist.display_grid(True)
+        hist.add_dataset([1.0, 2.0, 3.0])
+        assert self._grid_visible(hist.ax)
+
+    def test_sealevel_leaves_external_grid_alone(self):
+        from gerrytools.plotting.data.sealevel import SeaLevelPlot
+
+        fig, ax = plt.subplots()
+        ax.grid(True)
+        plot = SeaLevelPlot(ax=ax)
+        plot.add_dataset({"A": 0.5, "B": 0.7})
+        plot.ax
+        assert self._grid_visible(ax)
+        plt.close(fig)
+
+    def test_sealevel_explicit_grid_false_disables(self):
+        from gerrytools.plotting.data.sealevel import SeaLevelPlot
+
+        fig, ax = plt.subplots()
+        ax.grid(True)
+        plot = SeaLevelPlot(ax=ax)
+        plot.display_grid(False)
+        plot.add_dataset({"A": 0.5, "B": 0.7})
+        plot.ax
+        assert not self._grid_visible(ax)
+        plt.close(fig)

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from typing import Literal
 
 from gerrytools.colors import resolve_color_and_alpha
 from gerrytools.logging import get_logger
+from gerrytools.plotting.utils import _validated_nonneg_finite
 from gerrytools.typing import Color, TickType
 
 logger = get_logger(__name__)
@@ -27,12 +27,9 @@ class TickStyle:
     ticktype: TickType = "major"
 
     def __post_init__(self) -> None:
-        if not isinstance(self.size, (int, float)):
-            raise TypeError("TickStyle.size must be a float or int.")
-        if not math.isfinite(self.size):
-            raise ValueError("TickStyle.size must be finite.")
-        if not float(self.size) >= 0:
-            raise ValueError("TickStyle.size must be nonnegative.")
+        object.__setattr__(
+            self, "size", _validated_nonneg_finite(self.size, field="TickStyle.size")
+        )
 
         resolved_fc, resolved_fa = resolve_color_and_alpha(
             self.fontcolor,
